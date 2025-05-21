@@ -52,6 +52,11 @@ class Rotary(nn.Module):
 ## CausalSelfAttention ##
 #########################
 
+def moving_average(x, dim=1, kernel_size=3, padding=1):
+    x_padded = F.pad(x, (0, 0, padding, padding), mode='replicate')
+    x_unfold = x_padded.unfold(dim, kernel_size, 1)  # [B, T, C, kernel_size]    
+    return x_unfold.mean(dim=-1)  # [B, T, C]
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
             seq_len:int, head_dim=128, window=None):
@@ -78,24 +83,6 @@ class CausalSelfAttention(nn.Module):
         self.v_proj = nn.Linear(dim, kv_inner_dim, bias=False)
         self.out_proj = nn.Linear(q_inner_dim, dim, bias=False)
 
-        # Thêm Conv2d cho k và v
-        self.k_conv = nn.Conv2d(
-            in_channels=kv_inner_dim, 
-            out_channels=kv_inner_dim, 
-            kernel_size=(3, 1), 
-            padding=(1, 0), 
-            groups=kv_inner_dim,  # Depthwise convolution
-            bias=False
-        )
-        self.v_conv = nn.Conv2d(
-            in_channels=kv_inner_dim,
-            out_channels=kv_inner_dim,
-            kernel_size=(3, 1),
-            padding=(1, 0),
-            groups=kv_inner_dim,  # Depthwise convolution
-            bias=False
-        )
-
         # Set the weights directly
         with torch.no_grad():
             self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
@@ -113,21 +100,8 @@ class CausalSelfAttention(nn.Module):
 
         # Project and reshape query, key, value tensors
         q = self.q_proj(x).view(B, T, H, D)
-        # k = self.k_proj(x).view(B, T, Hkv, D)
-        # v = self.v_proj(x).view(B, T, Hkv, D)
-
-        # Áp dụng convolution cho k và v trước khi reshape
-        k = self.k_proj(x)                      # [B, T, kv_inner_dim]
-        k = k.permute(0, 2, 1).unsqueeze(-1)    # [B, kv_inner_dim, T, 1]
-        k = self.k_conv(k)                      # [B, kv_inner_dim, T, 1]
-        k = k.squeeze(-1).permute(0, 2, 1)      # [B, T, kv_inner_dim]
-        k = k.view(B, T, Hkv, D)                # Reshape cuối cùng
-
-        v = self.v_proj(x)                      # [B, T, kv_inner_dim]
-        v = v.permute(0, 2, 1).unsqueeze(-1)    # [B, kv_inner_dim, T, 1]
-        v = self.v_conv(v)                      # [B, kv_inner_dim, T, 1]
-        v = v.squeeze(-1).permute(0, 2, 1)      # [B, T, kv_inner_dim]
-        v = v.view(B, T, Hkv, D)                # Reshape cuối cùng
+        k = moving_average(self.k_proj(x)).view(B, T, Hkv, D)
+        v = moving_average(self.v_proj(x)).view(B, T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v)     # (B, T, H/Hkv, D)
         q, k = self.rotary(q), self.rotary(k)   # (B, T, H/Hkv, D)
