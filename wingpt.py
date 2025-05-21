@@ -52,10 +52,17 @@ class Rotary(nn.Module):
 ## CausalSelfAttention ##
 #########################
 
-def moving_average(x, dim=1, kernel_size=3, padding=1):
-    x_padded = F.pad(x, (0, 0, padding, padding), mode='replicate')
-    x_unfold = x_padded.unfold(dim, kernel_size, 1)  # [B, T, C, kernel_size]    
-    return x_unfold.mean(dim=-1)  # [B, T, C]
+def causal_moving_avg(x, k=3):
+    """ x: Tensor [B, C, T]  (chuỗi nằm ở dim=2 – chuẩn của conv1d)
+        k: kích thước kernel (>=1)
+        Trả về: y có cùng shape [B, C, T] """
+    B, C, T = x.shape
+    pad_left = k - 1                # chỉ pad về quá khứ
+    x = F.pad(x, (pad_left, 0))     # (pad_left, pad_right)
+    # groups=C ⇒ depth-wise, mỗi kênh dùng kernel riêng (nhưng giống nhau về giá trị)
+    weight = torch.ones(C, 1, k).cuda() / k
+    y = F.conv1d(x, weight, groups=C)
+    return y
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
@@ -100,8 +107,8 @@ class CausalSelfAttention(nn.Module):
 
         # Project and reshape query, key, value tensors
         q = self.q_proj(x).view(B, T, H, D)
-        k = moving_average(self.k_proj(x)).view(B, T, Hkv, D)
-        v = moving_average(self.v_proj(x)).view(B, T, Hkv, D)
+        k = causal_moving_avg(self.k_proj(x)).view(B, T, Hkv, D)
+        v = causal_moving_avg(self.v_proj(x)).view(B, T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v)     # (B, T, H/Hkv, D)
         q, k = self.rotary(q), self.rotary(k)   # (B, T, H/Hkv, D)
