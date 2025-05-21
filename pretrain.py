@@ -155,8 +155,8 @@ def find_key(s):
 adam_keys = sorted(set(find_key(x) for x in adam_n_params.keys()))
 muon_keys = sorted(set(find_key(x) for x in muon_n_params.keys()))
 
-print0(f"Adam: {[x.replace('.weight','') for x in adam_keys]}")
-print0(f"Muon: {[x.replace('_proj','').replace('.weight','') for x in muon_keys]}")
+print0(f"Adam: {sorted(set(x.replace('.weight','') for x in adam_keys))}")
+print0(f"Muon: {sorted(set(x.replace('_proj','').replace('.weight','').replace('future.block.','') for x in muon_keys))}")
 
 # Dùng torch.optim.AdamW cho chuẩn xác + fused to save vram
 adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
