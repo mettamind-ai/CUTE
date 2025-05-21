@@ -1,0 +1,11 @@
+__pycache__/
+*.mp4
+*.bin
+llm-*
+a.chat
+_git
+runs
+nohup.out
+**/.claude/settings.local.json
+.save/data
+data
