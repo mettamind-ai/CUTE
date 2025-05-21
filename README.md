@@ -18,19 +18,15 @@
 
 🌸__!!! TARGET 10x SPEEPUP !!!__🌸
 
-## 1.5 GPUs là được gì?
+## 1.5 GPUs làm được gì?
 ```                    BF16          INT8
 3090      350W  24G     71 TFLOPS    284 TOPS
 4090      450W  24G    165 TFLOPS    660 TOPS
 5090      575W  32G    210 TFLOPS    838 TOPS
 5060-TI   180W  16G
 ```
-- https://www.pugetsystems.com/labs/articles/nvidia-geforce-rtx-5090-amp-5080-ai-review/
-- https://www.reddit.com/r/LocalLLaMA/comments/1hviw58/simple_table_to_compare_3090_4090_and_5090
-- https://www.reddit.com/r/LocalLLaMA/comments/14tfr8h/doesnt_a_4090_massively_overpower_a_3090_for
+- https://www.pugetsystems.com/labs/articles/nvidia-geforce-rtx-5090-amp-5080-ai-review
 - https://www.tomshardware.com/pc-components/gpus/nvidia-geforce-rtx-5060-ti-16gb-review/8
-
-=> Đẩy được 1.3x perf với giá 15tr/50tr
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
 - Muon is super good! nó sâu hơn adam

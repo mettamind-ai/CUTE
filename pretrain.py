@@ -53,9 +53,6 @@ else: # int8, need for speed mode!
     os.environ['INT8_MIXED_SR'] = args.int8rd
     from optimus import convert_int8_mixed_precision
 
-if args.compile: # Bật biến env trước khi load wingpt.py
-    os.environ['COMPILE_LOSS_METHOD'] = "1"
-
 rank = 0
 is_dist = False
 world_size = 1
@@ -175,8 +172,12 @@ if   args.funloss ==  "simple": from wingpt import  simple_loss_fn as loss_fn
 elif args.funloss ==   "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
+if args.compile:
+    print(">> torch.compile(loss_fn)")
+    loss_fn = torch.compile(loss_fn)
+
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
-* is_dist {is_dist}, world_size {world_size}
+* is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
 * int8? {INT8},  loss_fn {args.funloss}, future? {not not model.future}
 * device_bs {args.bs}, seq_len {args.ctx}, {(TOKS_PER_STEP)//1024}k tokens/step
 * layers {len(model.blocks)}, exits {model.exit_ids}, scales {model.exit_scales}
