@@ -50,6 +50,7 @@
   ![](https://user-images.githubusercontent.com/544269/134764948-4aef8641-f9c5-43a5-9bfd-c2316df3a434.png)
 
 🌸__DOING__🌸
+- [ ] Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## SymMonsters: Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) + Tiny Monster Models

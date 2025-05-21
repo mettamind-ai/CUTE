@@ -81,7 +81,7 @@ else:        # (S)mall @ 4090 => 333m, 36k
     # if args.bs == DEFAULT_BS: args.bs = 12
     if args.ctx == DEFAULT_CTX: args.ctx = 1024*3
     model = WinGPT(
-        ve=3, dim=1280, n_layers=22,
+        ve=22, dim=1280, n_layers=22,
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future=args.future, exits=args.exits,
