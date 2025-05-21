@@ -290,24 +290,40 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     return loss * 0.9 + future_loss * 0.1
 
 
+COMPILE_LOSS_METHOD = os.getenv('COMPILE_LOSS_METHOD', '0') == '1'
+
+def simple_loss_method(hidden, target, head):
+    logits = head(hidden)
+    logits = logits.view(-1, logits.size(-1))
+    ## Dùng hàm smooth này có thể gây quá tải vram !!!
+    logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+    return F.cross_entropy(logits.float(), target), None
+
+if COMPILE_LOSS_METHOD:
+    print(">> torch.compile(simple_loss_method)")
+    simple_loss_method = torch.compile(simple_loss_method)
+
 def simple_loss_fn(model, input_seq, target, future):
-    def _loss_method(hidden, target, head):
-        logits = head(hidden)
-        logits = logits.view(-1, logits.size(-1))
-        ## Dùng hàm smooth này có thể gây quá tải vram !!!
-        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
-        return F.cross_entropy(logits.float(), target), None
-    return _loss_fn(_loss_method, model, input_seq, target, future)
+    return _loss_fn(simple_loss_method, model, input_seq, target, future)
 
 
 try: # pip install liger_kernel
     from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
+    liger_kernel_installed = True
+except: liger_kernel_installed = False
+
+if liger_kernel_installed:
+    def fused_loss_method(hidden, target, head):
+        hidden = hidden.view(-1, hidden.size(-1))
+        return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
+
+    if COMPILE_LOSS_METHOD:
+        print(">> torch.compile(fused_loss_method)")
+        fused_loss_method = torch.compile(fused_loss_method)
+
     def fused_loss_fn(model, input_seq, target, future):
-        def _loss_method(hidden, target, head):
-            hidden = hidden.view(-1, hidden.size(-1))
-            return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
-        return _loss_fn(_loss_method, model, input_seq, target, future)
-except: None
+        return _loss_fn(fused_loss_method, model, input_seq, target, future)
+
 
 ## TEST MODEL
 if __name__ == "__main__":
@@ -333,7 +349,7 @@ if __name__ == "__main__":
         print(convert_int8_mixed_precision(model), "linear converted to int8") # lỗi trên 3050
 
     ## Generate sequences with batch dimension
-    input_seq = torch.randint(0, vocab_size, (batch_size, seq_len)).cuda()
+    input_seq = torch.randint(0, vocab_size, (batch_size, seq_len,)).cuda()
     target    = torch.randint(0, vocab_size, (batch_size, seq_len,)).cuda()
     future    = torch.randint(0, vocab_size, (batch_size, seq_len,)).cuda()
 

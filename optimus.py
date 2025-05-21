@@ -580,7 +580,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            if   HACK:  # giúp Muon1GPUFused bám loss gốc 
+            if   HACK:  # chậm nhưng, giúp tránh oom khi rounding cả grad_weight 
                 grad_weight = grad_output.T @ input
             elif FULL:  # sr=True rất dễ oom nên chỉ dùng ở full mode
                 grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=True).T
@@ -802,8 +802,7 @@ class Muon1GPU(torch.optim.Optimizer):
                 rows, cols = p.size(-2), p.size(-1)  # 2) p -= g * lr * sqrt(max(1, rows / cols))
                 p.add_(g, alpha=-group['lr']*max(1, rows/cols)**0.5)
 
-# test muon.py
-# python -m optimus.muon
+# test muon
 if __name__ == "__main__":
     import math, copy, torch
     torch.manual_seed(0)

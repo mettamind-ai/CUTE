@@ -38,20 +38,23 @@ args = parser.parse_args()
 INT8 = COMPILE = False
 
 if args.test:               # test trên GPU laptop 4G vram
-    args.bf16 = True
-    COMPILE = False
-    args.steps = 100        # chunked loss_fn tốt 2k ctx + 4g vram 
-    args.funloss = "fused"  # nhưng lên 4k ctx ko hiệu quả ??
+    args.bf16 = True        # luôn dùng bf16 vì ko chạy đc int8
+    args.compile = False    # luôn tắt compile để không phải đợi
+    args.steps = 100        # thử nhỏ cho vui
+    args.funloss = "fused"  # bf16 + fused loss tiết kiệm vram
     args.bs = 1
 elif args.bf16:  # Khởi động nhanh để dò số tokens / step hơn lý
-    COMPILE = args.compile
-    args.funloss = "fused"  # bs cho bf16 nên = 4 + bs cho int8
-    torch.set_float32_matmul_precision('high') # enable fast bf16 mixed
-    torch.backends.cuda.matmul.allow_tf32  = True # tăng tốc bf16
-else: # int8
-    INT8 = COMPILE = True
+    args.funloss = "fused"  # fused loss lúc compile sẽ báo warning
+    torch.set_float32_matmul_precision('high') # tăng tốc bf16
+    torch.backends.cuda.matmul.allow_tf32  = True
+else: # int8, need for speed mode!
+    INT8 = True             # giúp 1.5x speedup
+    args.compile = True     # compile cho tốc độ tối đa
     os.environ['INT8_MIXED_SR'] = args.int8rd
     from optimus import convert_int8_mixed_precision
+
+if args.compile: # Bật biến env trước khi load wingpt.py
+    os.environ['COMPILE_LOSS_METHOD'] = "1"
 
 rank = 0
 is_dist = False
@@ -171,11 +174,6 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 if   args.funloss ==  "simple": from wingpt import  simple_loss_fn as loss_fn
 elif args.funloss ==   "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
-
-if COMPILE:
-    print(">> torch.compile ...")
-    loss_fn = torch.compile(loss_fn)
-    print(">> torch.compile done.")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}

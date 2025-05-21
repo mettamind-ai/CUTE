@@ -10,13 +10,8 @@
 # pip3 install flash-attn mamba-ssm[causal-conv1d] --no-build-isolation --no-cache-dir
 
 
-pip install torch wandb
-
-
-## Pretrain
-# pip install transformers wandb lm-eval
-# pip install datasets torchdata
-# pip install sentencepiece tiktoken[blobfile]
+pip install torch numpy wandb
+pip install liger_kernel # nếu dùng fused loss (optional)
 
 ## FLA
 # pip install datasets einops ninja
