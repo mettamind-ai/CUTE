@@ -308,7 +308,7 @@ def simple_loss_fn(model, input_seq, target, future):
         logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
         ## Dùng hàm smooth này có thể gây quá tải vram !!!
-        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+        # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target), None
     return _loss_fn(_loss_method, model, input_seq, target, future)
 
