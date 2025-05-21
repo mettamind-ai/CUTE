@@ -53,16 +53,26 @@ class Rotary(nn.Module):
 #########################
 
 def causal_moving_avg(x, k=3):
-    """ x: Tensor [B, C, T]  (chuỗi nằm ở dim=2 – chuẩn của conv1d)
-        k: kích thước kernel (>=1)
-        Trả về: y có cùng shape [B, C, T] """
     B, C, T = x.shape
-    pad_left = k - 1                # chỉ pad về quá khứ
-    x = F.pad(x, (pad_left, 0))     # (pad_left, pad_right)
-    # groups=C ⇒ depth-wise, mỗi kênh dùng kernel riêng (nhưng giống nhau về giá trị)
+    pad_left = k - 1
+    y = F.pad(x, (pad_left, 0))
     weight = torch.ones(C, 1, k).cuda() / k
-    y = F.conv1d(x, weight, groups=C)
-    return y
+    y = F.conv1d(y, weight, groups=C)
+    return x + y  # residual
+
+""" Đang lỗi `pip install causal-conv1d`, dùng causal_moving_avg
+from causal_conv1d import causal_conv1d_fn
+class Canon(nn.Module):
+    def __init__(self, dim:int, k:int=3):
+        super().__init__()
+        assert k in [2, 3, 4]
+        self.weight = nn.Parameter(torch.ones(dim, k) / k)
+        self.k = k
+
+    def forward(self, x): # h: [B, T, C]
+        y = causal_conv1d_fn(x.transpose(1, 2), self.weight)   # [B, C, T]
+        return x + y.transpose(1, 2)                           # residual
+# """
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
@@ -90,6 +100,9 @@ class CausalSelfAttention(nn.Module):
         self.v_proj = nn.Linear(dim, kv_inner_dim, bias=False)
         self.out_proj = nn.Linear(q_inner_dim, dim, bias=False)
 
+        # self.k_canon = Canon(kv_inner_dim)
+        # self.v_canon = Canon(kv_inner_dim)
+
         # Set the weights directly
         with torch.no_grad():
             self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
@@ -102,7 +115,7 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
-        B, T = x.size(0), x.size(1)  # x có shape (Batch, T seq_len, dim)
+        B, T = x.size(0), x.size(1)  # x có shape (Batch, T seq_len, C dim)
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
 
         # Project and reshape query, key, value tensors
@@ -110,8 +123,8 @@ class CausalSelfAttention(nn.Module):
         k = causal_moving_avg(self.k_proj(x)).view(B, T, Hkv, D)
         v = causal_moving_avg(self.v_proj(x)).view(B, T, Hkv, D)
 
-        q, k, v = norm(q), norm(k), norm(v)     # (B, T, H/Hkv, D)
-        q, k = self.rotary(q), self.rotary(k)   # (B, T, H/Hkv, D)
+        q, k, v = norm(q), norm(k), norm(v)
+        q, k = self.rotary(q), self.rotary(k)
 
         if lambdas is not None:
             if v_emb is None:
