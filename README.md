@@ -44,9 +44,13 @@
 - **Spiral** Tăng dần hidden dim 4 layer 1 lần, đến cuối lại thu nhỏ lại Đối xứng theo U shape
 
 ## [DONE](.save/DONE.md)
+- [x] `Parallel Layers` [Primer](https://www.alphaxiv.org/abs/2109.08668) => chính là multi head attn?
+
 🌸__DOING__🌸
-- [ ] `Parallel Layers`  [Primer](https://www.alphaxiv.org/abs/2109.08668)
 - [ ] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
+  ![](https://arxiv.org/html/2502.12671v2/extracted/6253923/images/kv_shift_attention.png) => giống DConv 3x1 trong primer
+  ![](https://user-images.githubusercontent.com/544269/134764948-4aef8641-f9c5-43a5-9bfd-c2316df3a434.png)
+  `torch.nn.Conv2d(in_channels=head_size, out_channels=head_size, kernel_size=(3, 1), padding=0, groups=head_size)`
 - [ ] Viết HuggingFace transformer wrapper cho wingpt để tiện inference
 
 ## SymMonsters: Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) + Tiny Monster Models

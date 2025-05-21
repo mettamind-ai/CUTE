@@ -77,7 +77,25 @@ class CausalSelfAttention(nn.Module):
         self.k_proj = nn.Linear(dim, kv_inner_dim, bias=False)
         self.v_proj = nn.Linear(dim, kv_inner_dim, bias=False)
         self.out_proj = nn.Linear(q_inner_dim, dim, bias=False)
-        
+
+        # Thêm Conv2d cho k và v
+        self.k_conv = nn.Conv2d(
+            in_channels=kv_inner_dim, 
+            out_channels=kv_inner_dim, 
+            kernel_size=(3, 1), 
+            padding=(1, 0), 
+            groups=kv_inner_dim,  # Depthwise convolution
+            bias=False
+        )
+        self.v_conv = nn.Conv2d(
+            in_channels=kv_inner_dim,
+            out_channels=kv_inner_dim,
+            kernel_size=(3, 1),
+            padding=(1, 0),
+            groups=kv_inner_dim,  # Depthwise convolution
+            bias=False
+        )
+
         # Set the weights directly
         with torch.no_grad():
             self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
@@ -88,17 +106,31 @@ class CausalSelfAttention(nn.Module):
         self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
 
+
     def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
         B, T = x.size(0), x.size(1)  # x có shape (Batch, T seq_len, dim)
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
 
         # Project and reshape query, key, value tensors
         q = self.q_proj(x).view(B, T, H, D)
-        k = self.k_proj(x).view(B, T, Hkv, D)
-        v = self.v_proj(x).view(B, T, Hkv, D)
-        
-        q, k, v = norm(q), norm(k), norm(v)    # (B, T, H/Hkv, D)
-        q, k = self.rotary(q), self.rotary(k)  # (B, T, H/Hkv, D)
+        # k = self.k_proj(x).view(B, T, Hkv, D)
+        # v = self.v_proj(x).view(B, T, Hkv, D)
+
+        # Áp dụng convolution cho k và v trước khi reshape
+        k = self.k_proj(x)                      # [B, T, kv_inner_dim]
+        k = k.permute(0, 2, 1).unsqueeze(-1)    # [B, kv_inner_dim, T, 1]
+        k = self.k_conv(k)                      # [B, kv_inner_dim, T, 1]
+        k = k.squeeze(-1).permute(0, 2, 1)      # [B, T, kv_inner_dim]
+        k = k.view(B, T, Hkv, D)                # Reshape cuối cùng
+
+        v = self.v_proj(x)                      # [B, T, kv_inner_dim]
+        v = v.permute(0, 2, 1).unsqueeze(-1)    # [B, kv_inner_dim, T, 1]
+        v = self.v_conv(v)                      # [B, kv_inner_dim, T, 1]
+        v = v.squeeze(-1).permute(0, 2, 1)      # [B, T, kv_inner_dim]
+        v = v.view(B, T, Hkv, D)                # Reshape cuối cùng
+
+        q, k, v = norm(q), norm(k), norm(v)     # (B, T, H/Hkv, D)
+        q, k = self.rotary(q), self.rotary(k)   # (B, T, H/Hkv, D)
 
         if lambdas is not None:
             if v_emb is None:
