@@ -25,13 +25,14 @@ parser.add_argument("--ctx", type=int, default=DEFAULT_CTX)
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
+parser.add_argument("--exits", type=int, default=3, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
 parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup":0.05,"decay":0.15})
-parser.add_argument("--muonlr", type=float, default=0.030) # default 0.02, modded gpt 0.025
-parser.add_argument("--adamlr", type=float, default=0.003) # 3e-4
-parser.add_argument("--wd", type=float, default=0.01)      # std=0.01 (1e-2)
-parser.add_argument("--exits", type=int, default=3)
+parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
+parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
+parser.add_argument("--ve", type=int, default=10)           # số layers được bổ xung value embeds 
+parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 for x in "bf16  test  compile  S L M  future".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
@@ -63,30 +64,28 @@ def print0(msg): is_master and print(msg)
 ## Init model for pretraining
 #############################
 from wingpt import WinGPT
-if  args.L: # (L)arge @ 4090 => 999m, 48k
+if  args.L: # (L)arge @ 4090 ~ 999m
     model = WinGPT(
-        ve=5, dim=2048, n_layers=32,
+        ve=args.ve, dim=2048, n_layers=28,
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future=args.future, exits=args.exits,
     )
-elif args.M: # (M)edium @ 4090 => 666m, 64k
+elif args.M: # (M)edium @ 4090 ~ 666m
     model = WinGPT(
-        ve=5, dim=1664, n_layers=30, # dim=1024 1280 1536 1792 2048
-        num_heads=8, num_kv_heads=4, 
-        vocab_size=args.vocab, max_seq_len=args.ctx,
-        future=args.future, exits=args.exits,
-    )
-else:        # (S)mall @ 4090 => 333m, 36k
-    # if args.bs == DEFAULT_BS: args.bs = 12
-    if args.ctx == DEFAULT_CTX: args.ctx = 1024*3
-    model = WinGPT(
-        ve=22, dim=1280, n_layers=22,
+        ve=args.ve, dim=1664, n_layers=26, # dim=1024 1280 1536 1792 2048
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future=args.future, exits=args.exits,
     )
-    
+else:        # (S)mall @ 4090 ~ 333m
+    model = WinGPT(
+        ve=args.ve, dim=1280, n_layers=22,
+        num_heads=8, num_kv_heads=4,
+        vocab_size=args.vocab, max_seq_len=args.ctx,
+        future=args.future, exits=args.exits,
+    )
+
 TOKS_PER_STEP = args.bs*args.ctx
 model = model.cuda()
 # print0(f"1st_LAYER {model.blocks[0]}")

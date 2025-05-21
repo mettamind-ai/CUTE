@@ -1,6 +1,10 @@
 # INT8 Mixed Precision modified from github.com/gau-nernst/quantized-training
 # Muon optimizer modified from https://github.com/KellerJordan/Muon
 
+############################################
+##  Modded Triton Matmul to support INT8  ##
+############################################
+
 import torch
 import triton
 import triton.language as tl
@@ -291,28 +295,28 @@ def _tile_scaled_mm_kernel(
     # scaling. for every QUANT_BLOCK_K, we will scale mma_acc and accumulate it to acc.
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
 
-    # v1
-    # mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
-    # for k in range(K, 0, -BLOCK_K):
-    #     if EVEN_K:
-    #         a = tl.load(A)
-    #         b = tl.load(B)
-    #     else:
-    #         a = tl.load(A, mask=rk[None, :] < k, other=0.0)
-    #         b = tl.load(B, mask=rk[:, None] < k, other=0.0)
-    #     mma_acc += tl.dot(a, b)
-    #     A += BLOCK_K * stride_ak
-    #     B += BLOCK_K * stride_bk
+    """ v1
+    mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
+    for k in range(K, 0, -BLOCK_K):
+        if EVEN_K:
+            a = tl.load(A)
+            b = tl.load(B)
+        else:
+            a = tl.load(A, mask=rk[None, :] < k, other=0.0)
+            b = tl.load(B, mask=rk[:, None] < k, other=0.0)
+        mma_acc += tl.dot(a, b)
+        A += BLOCK_K * stride_ak
+        B += BLOCK_K * stride_bk
 
-    #     if (k - BLOCK_K) % QUANT_BLOCK_K == 0:
-    #         a_scale = tl.load(A_scale).to(tl.float32)
-    #         b_scale = tl.load(B_scale).to(tl.float32)
-    #         acc += mma_acc.to(tl.float32) * a_scale * b_scale
-    #         mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
-    #         A_scale += stride_scale_ak
-    #         B_scale += stride_scale_bk
-
-    # v2
+        if (k - BLOCK_K) % QUANT_BLOCK_K == 0:
+            a_scale = tl.load(A_scale).to(tl.float32)
+            b_scale = tl.load(B_scale).to(tl.float32)
+            acc += mma_acc.to(tl.float32) * a_scale * b_scale
+            mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
+            A_scale += stride_scale_ak
+            B_scale += stride_scale_bk
+    """
+    ### v2
     for k in range(K, 0, -QUANT_BLOCK_K):
         mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
         for _ in tl.static_range(QUANT_BLOCK_K // BLOCK_K):
@@ -436,8 +440,10 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     )
     return C
 
-######################
 
+##############################################
+##  INT8 Mixed Precision for Linear Module  ##
+##############################################
 
 from typing import NamedTuple
 
@@ -593,30 +599,34 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-def linear2int8(module:nn.Module, count:int=0):
-    for n, m in module.named_modules():
-        if "head" not in n:
-            if isinstance(m, nn.Linear):
-                m.weight = nn.Parameter(
-                    MixedPrecisionLinearWeight(m.weight.detach()),
-                    requires_grad=m.weight.requires_grad,
-                )
-                count += 1
-            elif n: linear2int8(m)
+def linear2int8(module:nn.Module, count:int=0, ignore_param_names_contain=["head"]):
+    if isinstance(module, nn.Linear):
+        module.weight = nn.Parameter(
+            MixedPrecisionLinearWeight(module.weight.detach()),
+            requires_grad=module.weight.requires_grad,
+        ); count += 1
+    else:
+        for n, m in module.named_modules():
+            ignore = False
+            for x in ignore_param_names_contain:
+                if x.lower() in n.lower(): ignore = True; break
+            if ignore: continue
+            if n: linear2int8(m)
     return count
 
 convert_int8_mixed_precision = linear2int8
 
 
-###########
 
+#################################################################
+##  Muon Optimizer - MomentUm Orthogonalized by Newton-schulz  ##
+#################################################################
 
-""" Muon - MomentUm Orthogonalized by Newton-schulz
-Muon internally runs standard SGD-momentum, and then performs an orthogonalization post-
+""" Muon internally runs standard SGD-momentum, and then performs an orthogonalization post-
 processing step, in which each 2D parameter's update is replaced with the nearest orthogonal
 matrix. To efficiently orthogonalize each update, we use a Newton-Schulz iteration, which has
 the advantage that it can be stably run in bfloat16 on the GPU.
-NOTE: use Adam for 0D, 1D, token embeddings and lm_head, then use Muon for the rest"""
+NOTE: use Adam for 0D, 1D, embeddings and lm_head, then use Muon for the rest """
 
 import torch, math
 import torch.distributed as dist

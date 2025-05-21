@@ -310,9 +310,9 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if not model.future: return loss
 
     future_loss, _ = _loss_method(
-        model.future(layer_outputs[-1], x0), 
-        future.flatten(), 
-        model.lm_heads[0]
+        model.future(layer_outputs[-1], x0), # đã đc norm
+        future.flatten(),  # lm_head của main task nằm đầu
+        model.lm_heads[0], # tied embed với main task head 
     )
     return loss * 0.9 + future_loss * 0.1
 
