@@ -30,7 +30,8 @@ parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in 
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-parser.add_argument("--ve", type=int, default=15)           # số layers được bổ xung value embeds 
+parser.add_argument("--ve", type=int, default=5)            # số layers được bổ xung value embeds 
+parser.add_argument("--te", type=int, default=1)            # số layers được bổ xung token embeds 
 for x in "bf16  test  compile  S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
@@ -66,21 +67,21 @@ from wingpt import WinGPT
 if  args.L: # (L)arge @ 4090 ~ 999m
     model = WinGPT(
         ve=args.ve, dim=2048, n_layers=27,
-        num_heads=8, num_kv_heads=4,
+        te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
     )
 elif args.M: # (M)edium @ 4090 ~ 666m
     model = WinGPT(
         ve=args.ve, dim=1664, n_layers=26, # dim=1024 1280 1536 1792 2048
-        num_heads=8, num_kv_heads=4,
+        te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
     )
 else:        # (S)mall @ 4090 ~ 333m
     model = WinGPT(
         ve=args.ve, dim=1280, n_layers=22,
-        num_heads=8, num_kv_heads=4,
+        te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
     )

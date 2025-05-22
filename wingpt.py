@@ -114,7 +114,6 @@ class CausalSelfAttention(nn.Module):
 
         self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
-        self.conv_kernel = None
 
     """ Implement casual_conv1d đơn giản
         self.conv_kernel = 3
@@ -134,9 +133,8 @@ class CausalSelfAttention(nn.Module):
     # """
 
     def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
-        q,  k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)       # B, T, C
-        if self.conv_kernel:
-            k, v = self.causal_moving_avg(k), self.causal_moving_avg(v) # B, T, C
+        q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)      # B, T, C
+        # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v) # B, T, C
 
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         B, T, C   = k.shape; assert C == Hkv * D
@@ -198,54 +196,51 @@ class Block(nn.Module):
 
 class Future(nn.Module):
     """ Dự đoán xa hơn 1 token, ideas from Multi-Token Prediction, DeepSeek và MiMo papers """
-    def __init__(self, vocab_size, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
         super().__init__()
         self.block = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
         self.proj = nn.Linear(2*dim, dim, bias=False)
         with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
-        self.val_emb = nn.Embedding(vocab_size, num_kv_heads * head_dim)
 
-    def forward(self, input_seq, x, x0):
+    def forward(self, x, x0, te, ve, l, s):
         # trộn feat của last layer với token embed
         x = torch.cat((norm(x), x0), dim=2)
         x = self.proj(x) # rồi đẩy qua 1 transformer block
-        x = self.block(x, None, self.val_emb(input_seq), None, sa_lambdas=[0.5, 0.5])
+        x = self.block(x, te, ve, l, s)
         return norm(x)
 
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=4, exits=2, future_percent=0):
-
+            dim:int, max_seq_len:int, head_dim=128, ve=4, te=1, exits=2, future_percent=0):
         super().__init__()
-        kv_inner_dim = num_kv_heads * head_dim
+        self.n_layers = n_layers
 
-        self.tok_emb = nn.Embedding(vocab_size, dim)
-        self.val_embs = nn.ModuleList([ 
-            nn.Embedding(vocab_size, kv_inner_dim) \
-            for _ in range(ve)
-        ])
+        blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers) ]
+        self.future_ratio = future_percent / 100.0
 
-        self.blocks = nn.ModuleList([
-            Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers)
-        ])
+        if future_percent > 0: blocks.append(Future(dim, num_heads, num_kv_heads, max_seq_len, head_dim))
+        self.blocks = nn.ModuleList(blocks)
+        n_blks = len(self.blocks)
+
+        if ve > n_layers: ve = n_layers
+        if te > n_layers: te = n_layers
+
+        self.tok_embs = nn.ModuleList([ nn.Embedding(vocab_size, dim) for _ in range(te) ])
+        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, num_kv_heads * head_dim) for _ in range(ve) ])
 
         self.scalars = nn.Parameter(torch.cat([
-          torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
-          *[torch.tensor([1.0, 0.0]) for _ in range(n_layers)], # token emb mix
-          *[torch.tensor([0.5, 0.5]) for _ in range(n_layers)], # value emb mix
+          torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
+          *[torch.tensor([1.0, 0.0]) for _ in range(n_blks)], # token emb mix
+          *[torch.tensor([0.5, 0.5]) for _ in range(n_blks)], # value emb mix
         ]))
 
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
-
+         
         ## Future and tied head(s)
         # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
-        # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction
-        self.future_ratio = future_percent / 100.0
-        self.future = Future(vocab_size, dim, num_heads, num_kv_heads, \
-            max_seq_len, head_dim) if future_percent > 0 else None
-
+        # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction   
         tied_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): tied_head.weight.zero_()
         self.lm_heads = nn.ModuleList([ tied_head for i in range(exits) ])
@@ -263,33 +258,35 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq:Tensor):
-        n_layers = len(self.blocks)
+        # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16
+        n_blks = len(self.blocks)
+        t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
+        v_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.val_embs ]
 
-        # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16 
-        x = x0 = norm(self.tok_emb(input_seq).bfloat16())
-        v_embs = [norm(emb(input_seq).bfloat16()) for emb in self.val_embs]
+        x = x0 = t_embs[0]
+        t_embs += [x0]*(n_blks - len(t_embs))
+        assert len(t_embs) == n_blks
+    
+        nnnn = [None] * (n_blks - 2 * len(v_embs))
+        v_embs = (v_embs + nnnn + v_embs)[:n_blks]
+        assert len(v_embs) == n_blks
 
-        nnnnnn = [None] * (n_layers - 2 * len(v_embs))
-        v_embs = v_embs + nnnnnn + v_embs
-        v_embs = v_embs[:n_layers]
-        assert len(v_embs) == n_layers
-
-        skip_weights = self.scalars[ :n_layers]
-        lambdas      = self.scalars[1*n_layers : 3*n_layers].view(-1, 2)
-        sa_lambdas   = self.scalars[3*n_layers : 5*n_layers].view(-1, 2)
+        skip_weights = self.scalars[ :n_blks]
+        lambdas      = self.scalars[1*n_blks : 3*n_blks].view(-1, 2)
+        sa_lambdas   = self.scalars[3*n_blks : 5*n_blks].view(-1, 2)
         layer_outputs = []
 
-        for i in range(n_layers):
+        for i in range(self.n_layers):
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k]*layer_outputs[k]
             
-            def fwd(b, v, l, s): return lambda *inp: b(*inp, v, l, s)
-            f = fwd(self.blocks[i], v_embs[i], lambdas[i], sa_lambdas[i])
-            x = torch.utils.checkpoint.checkpoint(f, x, x0, use_reentrant=False)
+            def fwd(blk, te, ve, l, s): return lambda x: blk(x, te, ve, l, s)
+            f = fwd(self.blocks[i], t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
+            x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
-        return layer_outputs, x0
+        return layer_outputs, t_embs, v_embs, lambdas, sa_lambdas
 
 
 ###################
@@ -297,7 +294,7 @@ class WinGPT(nn.Module):
 ###################
 
 def _loss_fn(_loss_method, model, input_seq, target, future):
-    layer_outputs, x0 = model(input_seq)
+    layer_outputs, t, v, l, s = model(input_seq)
     target = target.flatten()
     loss = 0
 
@@ -308,10 +305,10 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
         x, _ = _loss_method(hidden, target, head)
         #########################################
         loss += model.exit_scales[i] * x
-    if not model.future: return loss
+    if model.n_layers == len(model.blocks): return loss
 
     future_loss, _ = _loss_method(
-        model.future(input_seq, layer_outputs[-1], x0),
+        model.blocks[-1](layer_outputs[-1], t[0], t[-1], v[-1], l[-1],s[-1]),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
