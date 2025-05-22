@@ -24,12 +24,12 @@ parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--exits", type=int, default=2, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
-parser.add_argument("--funloss", type=str, default="fused", choices="simple fused".split())
+parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-parser.add_argument("--ve", type=int, default=20)           # số layers được bổ xung value embeds 
+parser.add_argument("--ve", type=int, default=15)           # số layers được bổ xung value embeds 
 for x in "bf16  test  compile  S L M  future".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()

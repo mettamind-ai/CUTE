@@ -18,6 +18,11 @@ def init_linear(w: Tensor):
     bound = (3 ** 0.5) * std         # than default 1/sqrt(3)
     return w.uniform_(-bound, bound)
 
+
+#####################################
+## CausalSelfAttention Time Mixing ##
+#####################################
+
 class Rotary(nn.Module):
     def __init__(self, dim: int, max_seq_len: int):
         super().__init__()
@@ -47,10 +52,6 @@ class Rotary(nn.Module):
         y2 = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), 3).type_as(x_BTHD)
 
-
-#########################
-## CausalSelfAttention ##
-#########################
 
 def causal_moving_avg(x, k=3):
     B, C, T = x.shape
@@ -155,6 +156,10 @@ class CausalSelfAttention(nn.Module):
         return y  # trả về y có shape giống hệt x đầu vào
 
 
+####################################
+##  ReLuSquareMLP Channel Mixing  ##
+####################################
+
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int):
         super().__init__()
@@ -177,6 +182,10 @@ class ReLuSquareMLP(nn.Module):
         x = self.proj(y)
         return x
 
+
+##############################
+## Transformer for the WIN  ##
+##############################
 
 class Block(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
@@ -208,9 +217,6 @@ class Future(nn.Module):
         x = self.block(x, x0, None, None, None)
         return norm(x)
 
-##############################
-## Transformer for the WIN  ##
-##############################
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
@@ -321,8 +327,7 @@ def simple_loss_fn(model, input_seq, target, future):
     def _loss_method(hidden, target, head):
         logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
-        ## Dùng hàm smooth này có thể gây quá tải vram !!!
-        # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target), None
     return _loss_fn(_loss_method, model, input_seq, target, future)
 
