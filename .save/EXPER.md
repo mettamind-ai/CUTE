@@ -1,5 +1,14 @@
 # WinGPT 6k, 8k vocab
 
+![](/.save/wingpt.jpg)
+
+Model kết hợp nhiều input và ouput:
+- input có vẻ thắng thế
+- loss không nói được nhiều
+- cần eval để biết kết quả cuối
+
+---
+
 | Config    | Loss  | VRAM   | toks | t/s    | t/step |
 |-----------|-------|--------|------|--------|--------|
 |333m 12*3k cp0| 2.57 | 22.9G | 74m | 60_310 | 36k    |
