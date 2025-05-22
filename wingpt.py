@@ -225,10 +225,10 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
 
-        if ve > n_layers: ve = n_layers
-        if te > n_layers: te = n_layers
+        if ve > n_blks: ve = n_blks
+        if te > n_blks: te = n_blks
 
-        dd = dim//2
+        dd = dim // 2 # giảm 1/2 dim nếu không phải tok emb gốc
         self.tok_embs = [ nn.Embedding(vocab_size, dd)   for _ in range(te-1) ]
         self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te-1) ]
 
@@ -253,11 +253,11 @@ class WinGPT(nn.Module):
 
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
-         
+
         ## Future and tied head(s)
         # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
         # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction   
-        tied_head = nn.Linear(dim, vocab_size, bias=False).float() # float32 tăng accuracy
+        tied_head = nn.Linear(dim, vocab_size, bias=False).bfloat16()
         with torch.no_grad(): tied_head.weight.zero_()
         self.lm_heads = nn.ModuleList([ tied_head for i in range(exits) ])
 
@@ -280,6 +280,10 @@ class WinGPT(nn.Module):
         t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
         for i in range(1, len(t_embs)): t_embs[i] = self.tok_proj[i](t_embs[i])
 
+        if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
+            v_embs += [None]*(self.n_layers - 3 - len(v_embs)) + v_embs[:3]
+            assert len(v_embs) == self.n_layers
+
         v_embs += [None]*(n_blks - len(v_embs))
         t_embs += [None]*(n_blks - len(t_embs))
         assert len(v_embs) == len(t_embs) == n_blks
@@ -296,7 +300,7 @@ class WinGPT(nn.Module):
                 x += skip_weights[k] * layer_outputs[k]
             
             def fwd(blk, x0, te, ve, l, s): return lambda x: blk(x, x0, te, ve, l, s)
-            f = fwd(self.blocks[i], x0, t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
+            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
@@ -307,6 +311,7 @@ class WinGPT(nn.Module):
 ## Loss function ##
 ###################
 
+import gc
 def _loss_fn(_loss_method, model, input_seq, target, future):
     layer_outputs, t, v, l, s = model(input_seq)
     target = target.flatten()
@@ -319,19 +324,23 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
         x, _ = _loss_method(hidden, target, head)
         #########################################
         loss += model.exit_scales[i] * x
-    if model.n_layers == len(model.blocks): return loss
+
+    if model.future_ratio < 0.009: # the ratio is too small
+        return loss                # no future to explore
 
     future_loss, _ = _loss_method(
         model.blocks[-1](layer_outputs[-1], t[0], t[-1], v[-1], l[-1], s[-1]),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
+    # del layer_outputs, t, v, l, s
+    # gc.collect(); torch.cuda.empty_cache()
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
 def simple_loss_fn(model, input_seq, target, future):
     def _loss_method(hidden, target, head):
-        logits = head(hidden.float())
+        logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
         logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target), None
@@ -342,7 +351,7 @@ try: # pip install liger_kernel
     from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
     def fused_loss_fn(model, input_seq, target, future):
         def _loss_method(hidden, target, head):
-            hidden = hidden.view(-1, hidden.size(-1)).float()
+            hidden = hidden.view(-1, hidden.size(-1))
             return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
         return _loss_fn(_loss_method, model, input_seq, target, future)
 except: None

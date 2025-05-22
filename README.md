@@ -45,9 +45,12 @@
 - **Spiral** Tăng dần hidden dim 4 layer 1 lần, đến cuối lại thu nhỏ lại Đối xứng theo U shape
 - Tìm hiểu `exits > 1` + `torch.compile` khiến vram bị đội lên
 - Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
+- Gluon https://www.alphaxiv.org/abs/2505.13416
+  - https://github.com/LIONS-EPFL/scion
 
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
+- [ ] fused params: val_embs, tok_embs và qkvo
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
