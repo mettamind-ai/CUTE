@@ -96,21 +96,18 @@ class CausalSelfAttention(nn.Module):
                 self.attn_mask = mask
         else:   self.attn_mask = None
 
-        q_inner_dim = num_heads * head_dim
+        qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
-                
-        # Create separate projection matrices for queries vs key/values
-        self.q_proj = nn.Linear(dim, q_inner_dim, bias=False)
-        self.k_proj = nn.Linear(dim, kv_inner_dim, bias=False)
-        self.v_proj = nn.Linear(dim, kv_inner_dim, bias=False)
-        self.out_proj = nn.Linear(q_inner_dim, dim, bias=False)
+
+        self.kv_proj = nn.Linear(dim, 2*kv_inner_dim, bias=False)
+        self.q_proj = nn.Linear(dim, qo_inner_dim, bias=False)
+        self.o_proj = nn.Linear(qo_inner_dim, dim, bias=False)
 
         # Set the weights directly
         with torch.no_grad():
-            self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
-            self.k_proj.weight.copy_(init_linear(torch.empty(kv_inner_dim, dim)))
-            self.v_proj.weight.copy_(init_linear(torch.empty(kv_inner_dim, dim)))
-            self.out_proj.weight.zero_() # zero init
+            self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
+            self.q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
+            self.o_proj.weight.zero_() # zero init
 
         self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
@@ -130,16 +127,18 @@ class CausalSelfAttention(nn.Module):
         y = F.pad(x, (pad_left, 0))
         y = F.conv1d(y, self.kv_conv, groups=C)
         return (x + y).view(B, T, C)
+
     # """
 
     def forward(self, x:Tensor, v_emb:Tensor|None, sa_lambdas:Tensor):
-        q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)      # B, T, C
-        # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v) # B, T, C
+        k, v = self.kv_proj(x).chunk(2, dim=-1) # B, T, C
+        # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
 
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         B, T, C   = k.shape; assert C == Hkv * D
 
         ## Chuyển q, k, v hành x_BTHD
+        q = self.q_proj(x)
         q = q.view(B, T, H,   D)
         k = k.view(B, T, Hkv, D)
         v = v.view(B, T, Hkv, D)
@@ -161,17 +160,16 @@ class CausalSelfAttention(nn.Module):
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
-        attn_output = F.scaled_dot_product_attention(
+        ao = F.scaled_dot_product_attention(
             q, k, v,
             is_causal=True, attn_mask=self.attn_mask,
             dropout_p=0.0, scale=self.attn_scale,
         )
-        
         # Transpose back to original shape [B, T, H, D]
-        attn_output = attn_output.transpose(1, 2).contiguous()
+        ao = ao.transpose(1, 2).contiguous()
 
-        y = attn_output.reshape(B, T, H * D)
-        y = self.out_proj(y)  # y có shape (B, T, dim)
+        y = ao.reshape(B, T, H * D)
+        y = self.o_proj(y)  # y có shape (B, T, dim)
         return y  # trả về y có shape giống hệt x đầu vào
 
 
@@ -285,7 +283,8 @@ class WinGPT(nn.Module):
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
-            v_embs += [None]*(self.n_layers - 3 - len(v_embs)) + v_embs[:3]
+            skips = [None]*(self.n_layers - 3 - len(v_embs))
+            v_embs += skips + v_embs[:3]
             assert len(v_embs) == self.n_layers
 
         v_embs += [None]*(n_blks - len(v_embs))
