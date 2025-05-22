@@ -214,7 +214,7 @@ class Future(nn.Module):
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=4, exits=3, future=False):
+            dim:int, max_seq_len:int, head_dim=128, ve=4, exits=2, future=False):
 
         super().__init__()
         self.skip_from = { 

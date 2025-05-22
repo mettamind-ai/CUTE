@@ -16,28 +16,26 @@ from torch import Tensor, nn
 from optimus import Muon
 from train_utils import LRSchedule, print_model_stats, get_grad_norm
 
-# 98m@46.3min 16x4k 64k/step 36.8k/s => lợi cả computing và loss
-# 98m@44.5min 24*4k 96k/step 35.3k/s
-DEFAULT_BS, DEFAULT_CTX = 16, 1024*4 # 64k tokens/step works best!
-parser = argparse.ArgumentParser()  # bs chia hết cho 16 giúp perf ổn định hơn ???
-parser.add_argument("--bs", type=int, default=DEFAULT_BS)  
-parser.add_argument("--ctx", type=int, default=DEFAULT_CTX)
+parser = argparse.ArgumentParser()
+parser.add_argument("--bs", type=int, default=16) # 64k tokens/step works best in most cases
+parser.add_argument("--ctx", type=int, default=1024*4)
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
-parser.add_argument("--exits", type=int, default=3, choices=[1,2,3])
+parser.add_argument("--exits", type=int, default=2, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
-parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
-parser.add_argument("--schedule", type=json.loads, default={"warmup":0.05,"decay":0.15})
+parser.add_argument("--funloss", type=str, default="fused", choices="simple fused".split())
+parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
-parser.add_argument("--ve", type=int, default=10)           # số layers được bổ xung value embeds 
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
+parser.add_argument("--ve", type=int, default=20)           # số layers được bổ xung value embeds 
 for x in "bf16  test  compile  S L M  future".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
-INT8 = COMPILE = False
 
+## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
+INT8 = COMPILE = False
 if args.test:               # test trên GPU laptop 4G vram
     args.bf16 = True        # luôn dùng bf16 vì ko chạy đc int8
     args.compile = False    # luôn tắt compile để không phải đợi
@@ -50,7 +48,7 @@ elif args.bf16:  # Khởi động nhanh để dò số tokens / step hơn lý
     torch.backends.cuda.matmul.allow_tf32  = True
 else: # int8, need for speed mode!
     INT8 = True             # giúp 1.5x speedup
-    args.compile = True     # compile cho tốc độ tối đa
+    args.compile = True     # compile cho tốc độ tối đa, tốn time lúc đầu
     os.environ['INT8_MIXED_SR'] = args.int8rd
     from optimus import convert_int8_mixed_precision
 

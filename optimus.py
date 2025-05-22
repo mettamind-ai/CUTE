@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # INT8 Mixed Precision modified from github.com/gau-nernst/quantized-training
 # Muon optimizer modified from https://github.com/KellerJordan/Muon
 
@@ -652,7 +653,7 @@ def newtonschulz(G: Tensor, steps: int) -> Tensor:
     return X
 
 
-# DON'T CHANGE. mini fix from flash_muon.py to make it works with 1 GPU
+# DON'T CHANGE. mini fix to make it works with 1 GPU
 class MuonOrigin(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, nesterov=True, ns_steps=5, rank=None, world_size=None):
         if (rank is None) or (world_size is None):
@@ -884,12 +885,9 @@ if __name__ == "__main__":
     # 6) So sánh sai khác trọng số
     # -------------------------------------------------
     with torch.no_grad():
-        _ab = [ (x - y).abs().max().item()
-                  for x, y in zip(model_a.parameters(), model_b.parameters()) ]
-        _ac = [ (x - y).abs().max().item()
-                  for x, y in zip(model_a.parameters(), model_c.parameters()) ]
-        _bc = [ (x - y).abs().max().item()
-                  for x, y in zip(model_b.parameters(), model_c.parameters()) ]
+        _ab = [ (x - y).abs().max().item() for x, y in zip(model_a.parameters(), model_b.parameters()) ]
+        _ac = [ (x - y).abs().max().item() for x, y in zip(model_a.parameters(), model_c.parameters()) ]
+        _bc = [ (x - y).abs().max().item() for x, y in zip(model_b.parameters(), model_c.parameters()) ]
 
     print(f"a) Loss {loss_a:.6f} for {opt_a.__class__.__name__}")
     print(f"b) Loss {loss_b:.6f} for {opt_b.__class__.__name__}")

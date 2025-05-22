@@ -1,9 +1,9 @@
 ## 🌸`CUTE`🌸 Center for Upgrading Training Efficient
-- `ONE_` gamming GPUs is optimal for training ~1b models
-- `TWO_` gamming GPUs is optimal for training ~2b models
-- `FOUR` gamming GPUs is optimal for training ~4b models
+- `ONE_` gamming GPUs can train ~1b models
+- `TWO_` gamming GPUs can train ~2b models
+- `FOUR` gamming GPUs can train ~4b models
 ```
-                        BF16          INT8
+                             BF16        INT8
 3090      350W  24G     71 TFLOPS    284 TOPS
 4090      450W  24G    165 TFLOPS    660 TOPS
 5090      575W  32G    210 TFLOPS    838 TOPS
@@ -18,16 +18,17 @@
 
 - [x] **Muon** 2-3x
 - [x] **int8** 1.5x
-- [x] **Arch** ~~1.5x @ 6k ctxlen~~ (chưa đo lường)
+- [x] **Arch** 1.5x @ 6k ctxlen (chưa đo lường)
 - **Token**    1.5x (và **representation** nói chung)
 
 🌸__!!! TARGET 10x SPEEPUP !!!__🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
-- Muon is super good! loss giảm sâu hơn adam
+- Muon is super good! vram = 1/4 + loss giảm sâu hơn adam
 - int8 hữu dụng trong cả speedup và giảm vram
 - int8 cần kết hợp stochastic rounding (rd) để đường loss bám sát bf16
 - `muon + torch.optim.AdamW(fused=True) + int8rd` chạy rất tốt
+- `value embeddings` + `multi exits` + `future prediction` should be good nhưng chưa thể hiện trên loss
 
 ---
 
@@ -44,17 +45,13 @@
 - **Spiral** Tăng dần hidden dim 4 layer 1 lần, đến cuối lại thu nhỏ lại Đối xứng theo U shape
 
 ## [DONE](.save/DONE.md)
-- [x] `Parallel Layers` [Primer](https://www.alphaxiv.org/abs/2109.08668) => chính là multi head attn?
-- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
-  ![](https://arxiv.org/html/2502.12671v2/extracted/6253923/images/kv_shift_attention.png) => giống DConv 3x1 trong primer
-  ![](https://user-images.githubusercontent.com/544269/134764948-4aef8641-f9c5-43a5-9bfd-c2316df3a434.png)
-
 🌸__DOING__🌸
-- [ ] Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
-  - https://github.com/fla-org/flash-linear-attention/blob/canon/fla/modules/canon.py
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
-## SymMonsters: Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) + Tiny Monster Models
+- [ ] Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
+  - https://github.com/fla-org/flash-linear-attention/blob/canon/fla/modules/canon.py
+
+## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
 - Bài toán bộ gõ thông minh:
   - `auto-complete` + 
