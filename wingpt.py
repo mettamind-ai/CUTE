@@ -186,8 +186,11 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(
             dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
 
-    def forward(self, x:Tensor, te, ve, lambdas, sa_lambdas):
-        x = lambdas[0]*x + lambdas[1]*te     # trộn với tok emb
+    def forward(self, x, x0, te, ve, lambdas, sa_lambdas):
+        x                     = lambdas[0] *  x # lambdas[0] khởi tạo là 1
+        if x0 is not None: x += lambdas[1] * x0 # trộn với tok emb gốc
+        if te is not None: x += lambdas[2] * te # trộn với layer tok emb
+
         x = x + self.attn(x, ve, sa_lambdas) # residual connect
         x = x + self.mlp(norm(x))            # residual connect
         return x
@@ -205,7 +208,7 @@ class Future(nn.Module):
         # trộn feat của last layer với token embed gốc (x0)
         x = torch.cat((norm(x), x0), dim=2)
         x = self.proj(x) # mlp mixer
-        x = self.block(x, te, ve, l, s)
+        x = self.block(x, None, te, ve, l, s)
         return norm(x)
 
 
@@ -226,24 +229,26 @@ class WinGPT(nn.Module):
         if te > n_layers: te = n_layers
 
         dd = dim//2
-        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, num_kv_heads * head_dim) for _ in range(ve) ])     
-        self.tok_embs = [ nn.Embedding(vocab_size, dd) for _ in range(te) ]
-        self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te) ]
+        self.tok_embs = [ nn.Embedding(vocab_size, dd)   for _ in range(te-1) ]
+        self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te-1) ]
+
+        kv_dim = num_kv_heads * head_dim # có thể áp dụng val_proj như tok nếu val_embs quá to
+        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, kv_dim) for _ in range(ve) ]) 
 
         with torch.no_grad():
             for x in self.tok_proj:
                 x.weight.copy_(init_linear(torch.empty(dim, dd)))
 
-        self.tok_embs[0] = nn.Embedding(vocab_size, dim) # full for first tok emb
-        self.tok_proj[0] = nn.Module() # placeholder, do nothing
+        self.tok_embs.insert(0, nn.Embedding(vocab_size, dim)) # full for first tok emb
+        self.tok_proj.insert(0, nn.Module()) # placeholder, do nothing
 
         self.tok_embs = nn.ModuleList(self.tok_embs)
         self.tok_proj = nn.ModuleList(self.tok_proj)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
-          *[torch.tensor([1.0, 0.0]) for _ in range(n_blks)], # token emb mix
-          *[torch.tensor([0.5, 0.5]) for _ in range(n_blks)], # value emb mix
+          *[torch.tensor([1.0, 0.0, 0.0]) for _ in range(n_blks)], # token emb mix
+          *[torch.tensor([0.5, 0.5     ]) for _ in range(n_blks)], # value emb mix
         ]))
 
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
@@ -273,30 +278,25 @@ class WinGPT(nn.Module):
         n_blks = len(self.blocks)
         v_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.val_embs ]
         t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
+        for i in range(1, len(t_embs)): t_embs[i] = self.tok_proj[i](t_embs[i])
 
-        for i in range(1, len(t_embs)): # phóng to
-            t_embs[i] = self.tok_proj[i](t_embs[i])
-
-        x = x0 = t_embs[0]
-        t_embs += [x0]*(n_blks - len(t_embs))
-        assert len(t_embs) == n_blks
-    
-        skips = [None] * (n_blks - 2 * len(v_embs))
-        v_embs = (v_embs + skips + v_embs)[:n_blks]
-        assert len(v_embs) == n_blks # u-shape
+        v_embs += [None]*(n_blks - len(v_embs))
+        t_embs += [None]*(n_blks - len(t_embs))
+        assert len(v_embs) == len(t_embs) == n_blks
 
         skip_weights = self.scalars[ :n_blks]
-        lambdas      = self.scalars[1*n_blks : 3*n_blks].view(-1, 2)
-        sa_lambdas   = self.scalars[3*n_blks : 5*n_blks].view(-1, 2)
-        layer_outputs = []
+        lambdas      = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
+        sa_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
 
+        x = x0 = t_embs[0]
+        layer_outputs = []
         for i in range(self.n_layers):
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, te, ve, l, s): return lambda x: blk(x, te, ve, l, s)
-            f = fwd(self.blocks[i], t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
+            def fwd(blk, x0, te, ve, l, s): return lambda x: blk(x, x0, te, ve, l, s)
+            f = fwd(self.blocks[i], x0, t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
