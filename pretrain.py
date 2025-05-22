@@ -99,7 +99,12 @@ if INT8:
 ## Data loader ##
 #################
 
-data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+import pathlib
+fn   = pathlib.Path(f"data{args.vocab}.bin")
+size = fn.stat().st_size // 2 # số lượng uint16
+data = np.fromfile(fn, dtype=np.uint16, count=size) # load vào RAM
+
+# data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = args.ctx + 2
 N    = len(data) - CTX # số vị trí cho phép
 WIN  = torch.arange(CTX, dtype=torch.int32) # tái sử dụng
@@ -108,7 +113,7 @@ def get_batch(bs: int = args.bs):
     anchors = torch.randint(0, N, (bs,), dtype=torch.int32)
 
     # Tạo ma trận chỉ số (bs, CTX) bằng broadcast; không vòng for!
-    idx = anchors[:, None] + WIN     # shape = (bs, ctx)
+    idx = anchors[:, None] + WIN  # shape = (bs, ctx)
 
     # Lấy thẳng các token tương ứng từ memmap
     # idx.numpy() là view, không copy; data[...] trả ndarray (bs, ctx)
