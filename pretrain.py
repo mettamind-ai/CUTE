@@ -64,7 +64,7 @@ def print0(msg): is_master and print(msg)
 from wingpt import WinGPT
 if  args.L: # (L)arge @ 4090 ~ 999m
     model = WinGPT(
-        ve=args.ve, dim=2048, n_layers=28,
+        ve=args.ve, dim=2048, n_layers=27,
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future=args.future, exits=args.exits,
@@ -206,8 +206,7 @@ while step < args.steps and lossf > args.minloss:
         lossf = loss.item()
         adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossf, grad_norm=grad_norm, 
-            muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossf, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
 
         if not args.test: logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossf, adam=adam_lr, muon=muon_lr)

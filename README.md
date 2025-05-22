@@ -43,11 +43,11 @@
 ## PLANING
 - **Schedule free optim**
 - **Spiral** Tăng dần hidden dim 4 layer 1 lần, đến cuối lại thu nhỏ lại Đối xứng theo U shape
+- Tìm hiểu `exits > 1` + `torch.compile` khiến vram bị đội lên
 
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
-
 - [ ] Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
   - https://github.com/fla-org/flash-linear-attention/blob/canon/fla/modules/canon.py
 

@@ -169,7 +169,7 @@ class ReLuSquareMLP(nn.Module):
         self.proj = nn.Linear(hdim, dim, bias=False)
         
         with torch.no_grad():
-            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)).bfloat16())
+            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.proj.weight.zero_()
         
         # Add weight decay multiplier attribute to the weights
@@ -197,24 +197,26 @@ class Block(nn.Module):
 
     def forward(self, x:Tensor, x0:Tensor, ve:Tensor|None, lambdas, sa_lambdas):
         if lambdas is not None:
-            x = lambdas[0] * x + lambdas[1] * x0    # phối trộn feat với token embedding
+            x = lambdas[0] * x + lambdas[1] * x0    # mix feat with token embed
         x = x + self.attn(x, ve, sa_lambdas)        # residual connect
         x = x + self.mlp(norm(x))                   # residual connect
         return x
 
 
 class Future(nn.Module):
+    """ Dự đoán xa hơn 1 token, ideas from Multi-Token Prediction, DeepSeek và MiMo papers """
     def __init__(self, num_heads:int, num_kv_heads:int, dim:int, max_seq_len:int, head_dim=128):
         super().__init__()
         self.block = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
         self.proj = nn.Linear(2*dim, dim, bias=False)
         with torch.no_grad():
-            self.proj.weight.zero_()
+            self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
     def forward(self, x, x0):
+        # trộn feat của last layer với token embed
         x = torch.cat((norm(x), x0), dim=2)
-        x = self.proj(x)
-        x = self.block(x, x0, None, None, None)
+        x = self.proj(x) # rồi đẩy qua 1 transformer block
+        x = self.block(x, None, None, None, None)
         return norm(x)
 
 
@@ -239,11 +241,11 @@ class WinGPT(nn.Module):
         ])
 
         # Learnable skip connection weights for decoder layers
-        assert n_layers % 2 == 0
+        n = n_layers + n_layers % 2 # làm tròn lên số chẵn
         self.scalars = nn.Parameter(torch.cat([
-          torch.ones(n_layers), # skip_weights
-          *[torch.tensor([1.0, 0.0]) for _ in range(n_layers)], # block lambdas
-          *[torch.tensor([0.5, 0.5]) for _ in range(n_layers)], # SA lambdas
+          torch.ones(n), # skip_weights
+          *[torch.tensor([1.0, 0.0]) for _ in range(n)], # block lambdas
+          *[torch.tensor([0.5, 0.5]) for _ in range(n)], # SA lambdas
         ]))
 
         ## Future and tied head(s)
@@ -271,14 +273,16 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor):
         n_layers = len(self.blocks)
-        ve = len(self.val_embs)
+
+        # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16 
+        x = x0 = norm(self.tok_emb(input_seq).bfloat16())
         v_embs = [norm(emb(input_seq).bfloat16()) for emb in self.val_embs]
+
         nnnnnn = [None] * (n_layers - 2 * len(v_embs))
         v_embs = v_embs + nnnnnn + v_embs
         v_embs = v_embs[:n_layers]
         assert len(v_embs) == n_layers
 
-        x = x0 = norm(self.tok_emb(input_seq).bfloat16())
         skip_weights = self.scalars[ :n_layers]
         lambdas      = self.scalars[1*n_layers : 3*n_layers].view(-1, 2)
         sa_lambdas   = self.scalars[3*n_layers : 5*n_layers].view(-1, 2)
