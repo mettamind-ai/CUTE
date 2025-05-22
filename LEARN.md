@@ -14,7 +14,5 @@
   - fp8 then bf16 to stable training
 
 - gemma3 & https://ai.google.dev/gemma/docs/gemma-3n
-
-- falcon h1 https://x.com/teortaxesTex/status/1925285134900597214
-
+  
 - weighted loss https://x.com/kalomaze/status/1880923963880300941

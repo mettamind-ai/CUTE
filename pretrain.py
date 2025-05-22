@@ -98,14 +98,27 @@ if INT8:
 #################
 ## Data loader ##
 #################
-# https://github.com/karpathy/nanoGPT/blob/master/train.py#L115
-data = np.memmap(f'data{args.vocab}.bin', dtype=np.uint16, mode='r')
-ll = (args.ctx+2)
-def get_batch():
-    ix = torch.randint(len(data) - ll, (args.bs,))
-    batch = torch.stack([torch.from_numpy((data[i:i+ll]).astype(np.int64)) for i in ix])
-    # pin arrays which allows us to move them to GPU asynchronously (non_blocking=True)
-    return batch.pin_memory().to("cuda", non_blocking=True)
+
+data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+CTX  = args.ctx + 2
+N    = len(data) - CTX # số vị trí cho phép
+WIN  = torch.arange(CTX, dtype=torch.int32) # tái sử dụng
+
+def get_batch(bs: int = args.bs):
+    anchors = torch.randint(0, N, (bs,), dtype=torch.int32)
+
+    # Tạo ma trận chỉ số (bs, CTX) bằng broadcast; không vòng for!
+    idx = anchors[:, None] + WIN     # shape = (bs, ctx)
+
+    # Lấy thẳng các token tương ứng từ memmap
+    # idx.numpy() là view, không copy; data[...] trả ndarray (bs, ctx)
+    batch_np = data[idx.numpy()]
+
+    # Chuyển sang Tensor → pin_memory → GPU.
+    # Đổi dtype sang int32 chỉ MỘT lần trên GPU (nhanh hơn).
+    return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
+            .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
+
 batch = get_batch()
 
 #############################
