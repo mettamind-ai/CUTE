@@ -114,7 +114,9 @@ class CausalSelfAttention(nn.Module):
 
         self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
-        
+        self.conv_kernel = None
+
+    """ Implement casual_conv1d đơn giản
         self.conv_kernel = 3
         self.kv_conv = torch.ones(
             kv_inner_dim,       # số kênh (C, D or hidden dim)
@@ -128,14 +130,18 @@ class CausalSelfAttention(nn.Module):
         pad_left = self.conv_kernel - 1
         y = F.pad(x, (pad_left, 0))
         y = F.conv1d(y, self.kv_conv, groups=C)
-        return (x + y)  # residual
+        return (x + y).view(B, T, C)
+    # """
 
     def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
-        q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x) # B, T, C
-        k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
-        B, T = x.size(0), x.size(1) # x có shape (Batch, T seq_len, C dim)
-        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
+        q,  k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)       # B, T, C
+        if self.conv_kernel:
+            k, v = self.causal_moving_avg(k), self.causal_moving_avg(v) # B, T, C
 
+        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
+        B, T, C   = k.shape; assert C == Hkv * D
+
+        ## Chuyển q, k, v hành x_BTHD
         q = q.view(B, T, H,   D)
         k = k.view(B, T, Hkv, D)
         v = v.view(B, T, Hkv, D)
