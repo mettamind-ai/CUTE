@@ -129,7 +129,8 @@ class CausalSelfAttention(nn.Module):
         return (x + y).view(B, T, C)
     # """
 
-    def forward(self, x:Tensor, v_emb:Tensor|None, sa_lambdas:Tensor):
+    def forward(self, x, v_emb, ve_lambdas):
+        q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # B, T, C
         # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
 
@@ -137,7 +138,6 @@ class CausalSelfAttention(nn.Module):
         B, T, C   = k.shape; assert C == Hkv * D
 
         ## Chuyển q, k, v thành x_BTHD
-        q = self.q_proj(x)
         q = q.view(B, T, H,   D)
         k = k.view(B, T, Hkv, D)
         v = v.view(B, T, Hkv, D)
@@ -145,9 +145,9 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v)
         q, k = self.rotary(q), self.rotary(k)
 
-        if sa_lambdas is not None and v_emb is not None:
-            # Trộn value với value embedding (sa = self-attention)
-            v = sa_lambdas[0]*v + sa_lambdas[1]*v_emb.view(B, T, Hkv, D)
+        if ve_lambdas is not None and v_emb is not None:
+            # Trộn value với value embedding
+            v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb.view(B, T, Hkv, D)
 
         # Make tensors contiguous and transpose for attention
         q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
@@ -183,12 +183,12 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(
             dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
 
-    def forward(self, x, x0, te, ve, lambdas, sa_lambdas):
-        x                     = lambdas[0] *  x # lambdas[0] khởi tạo là 1
-        if x0 is not None: x += lambdas[1] * x0 # trộn với tok emb gốc
-        if te is not None: x += lambdas[2] * te # trộn với layer tok emb
+    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas):
+        x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
+        if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
+        if te is not None: x += te_lambdas[2] * te # trộn với layer tok emb
 
-        x = x + self.attn(x, ve, sa_lambdas) # residual connect
+        x = x + self.attn(x, ve, ve_lambdas) # residual connect
         x = x + self.mlp(norm(x))            # residual connect
         return x
 
@@ -210,15 +210,20 @@ class Future(nn.Module):
 
 
 class WinGPT(nn.Module):
+    def has_future(self):
+        return self.future_ratio > 0.009
+
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
             dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, exits=2, future_percent=0):
         super().__init__()
+
         self.n_layers = n_layers
-
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers) ]
-        self.future_ratio = future_percent / 100.0
 
-        if future_percent > 0: blocks.append(Future(dim, num_heads, num_kv_heads, max_seq_len, head_dim))
+        self.future_ratio = future_percent / 100.0
+        if self.has_future():
+            blocks.append(Future(dim, num_heads, num_kv_heads, max_seq_len, head_dim))
+
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
 
@@ -291,8 +296,8 @@ class WinGPT(nn.Module):
         assert len(v_embs) == len(t_embs) == n_blks
 
         skip_weights = self.scalars[ :n_blks]
-        lambdas      = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
-        sa_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
+        te_lambdas   = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
+        ve_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
 
         layer_outputs = []
         for i in range(self.n_layers):
@@ -300,12 +305,12 @@ class WinGPT(nn.Module):
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, x0, te, ve, l, s): return lambda x: blk(x, x0, te, ve, l, s)
-            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
+            def fwd(blk, x0, te, ve, tl, vl): return lambda x: blk(x, x0, te, ve, tl, vl)
+            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i])
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
-        return layer_outputs, t_embs, v_embs, lambdas, sa_lambdas
+        return layer_outputs, t_embs, v_embs, te_lambdas, ve_lambdas
 
 
 ###################
@@ -314,7 +319,7 @@ class WinGPT(nn.Module):
 
 import gc
 def _loss_fn(_loss_method, model, input_seq, target, future):
-    layer_outputs, t, v, l, s = model(input_seq)
+    layer_outputs, te, ve, tl, vl = model(input_seq)
     target = target.flatten()
     loss = 0
 
@@ -326,11 +331,11 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
         #########################################
         loss += model.exit_scales[i] * x
 
-    if model.future_ratio < 0.009: # the ratio is too small
-        return loss                # no future to explore
+    if not model.has_future(): return loss
+    assert len(layer_outputs) + 1 == len(model.blocks)
 
     future_loss, _ = _loss_method(
-        model.blocks[-1](layer_outputs[-1], t[0], t[-1], v[-1], l[-1], s[-1]),
+        model.blocks[-1](layer_outputs[-1], te[0], te[-1], ve[-1], tl[-1], vl[-1]),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
