@@ -217,7 +217,6 @@ class WinGPT(nn.Module):
             dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, exits=2, future_percent=0):
         super().__init__()
         self.n_layers = n_layers
-        self.ve, self.te = ve, te
 
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers) ]
         self.future_ratio = future_percent / 100.0
@@ -228,6 +227,7 @@ class WinGPT(nn.Module):
 
         if ve > n_blks: ve = n_blks
         if te > n_blks: te = n_blks
+        self.ve, self.te = ve, te
 
         dd = dim // 2 # giảm 1/2 dim nếu không phải tok emb gốc
         self.tok_embs = [ nn.Embedding(vocab_size, dd)   for _ in range(te-1) ]
