@@ -33,12 +33,12 @@
 ---
 
 # 🌸 TODO 🌸
-### DATA
+## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
 - Áp dụng được packed dataset để tránh cross attention giữa các samples thì tốt. Nếu không dùng mẹo sau:
 - Phối data cùng 1 domain theo tỉ lệ **chính-phụ** `40:20:20:10:10` 
-  - là cái gì core sẽ đưa vào group 40 đó
+  - cái nào core sẽ đưa vào group 40
   - cái nào phụ sẽ giảm dần theo tỉ lệ phía sau
 ## PLANING
 - **Schedule free optim**
@@ -47,11 +47,10 @@
 - Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
   - https://github.com/LIONS-EPFL/scion
-
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
-- [ ] đọc qua command+a, gemma3, ... papers
+
 - [ ] tìm hiểu mọi thứ về embedding / representation
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
