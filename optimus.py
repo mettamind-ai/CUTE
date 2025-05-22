@@ -600,22 +600,16 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-def linear2int8(module:nn.Module, count:int=0, ignore_param_names_contain=["head"]):
-    if isinstance(module, nn.Linear):
-        module.weight = nn.Parameter(
-            MixedPrecisionLinearWeight(module.weight.detach()),
-            requires_grad=module.weight.requires_grad,
-        ); count += 1
-    else:
-        for n, m in module.named_modules():
-            ignore = False
-            for x in ignore_param_names_contain:
-                if x.lower() in n.lower(): ignore = True; break
-            if ignore: continue
-            if n: linear2int8(m)
+def convert_int8_mixed_precision(module:nn.Module):
+    count = 0
+    for n, m in module.named_modules():
+        if isinstance(m, nn.Linear) and "head" not in n:
+            count += 1
+            m.weight = nn.Parameter(
+                MixedPrecisionLinearWeight(m.weight.detach()),
+                requires_grad=m.weight.requires_grad,
+            )
     return count
-
-convert_int8_mixed_precision = linear2int8
 
 
 

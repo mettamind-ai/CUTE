@@ -51,6 +51,7 @@
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
+- [ ] scan command+a, gemma3, ... papers
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
