@@ -30,6 +30,15 @@ https://selftok-team.github.io/report
 ## CLIP-like models and VLMs from Meta 
 https://x.com/gabriberton/status/1922542722558067079
 
+# Efficient Tokenizer
+_modded-nanogpt đổi sang tokenmonster sẽ giúp 40% speedup_
+- https://x.com/alexjc/status/1881410039639863622
+- https://huggingface.co/datasets/alexjc/fineweb-tokmon-10B/tree/main/english-28416-balanced
+Tôi phát hiện có thể đạt điểm Common Sense tương đương nhưng nhanh hơn 40% bằng cách chuyển sang bộ từ vựng TokenMonster tùy chỉnh có cùng kích thước với GPT-2. Tuy nhiên, do validation loss giữa các bộ từ vựng khác nhau không thể so sánh trực tiếp, bộ từ vựng tôi dùng lúc đó không vượt trội hơn GPT-2 trên thang đo riêng của nó. Sau nhiều thử nghiệm để tận dụng lợi thế 40% này, tôi quyết định giảm kích thước từ vựng xuống hơn 40%. Vì **các mô hình đạt kỷ lục sử dụng embedding ở nhiều vị trí**, việc giảm số lượng token tạo ra sự khác biệt đáng kể về hiệu suất (giảm hơn 10% mỗi bước). Bộ từ vựng gồm 28_416 token được tạo ra bằng cách lọc các mục từ bộ từ vựng TokenMonster english-100256-balanced mặc định.
+1. `lọc thủ công` các token dựa trên các quy tắc cứng đơn giản
+2. `loại bỏ các token ít được sử dụng nhất`.
+Các token còn lại có xu hướng nguyên tử hơn, và ít token tổng hợp kết hợp nhiều thành phần: ví dụ như từ và dấu câu. **Tôi tin rằng sự đơn giản tương đối của các token là yếu tố cho phép tăng tốc độ học lên 8%.**
+
 ---
 
 - Learning Deep Representations of Data Distributions
