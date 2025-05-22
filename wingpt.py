@@ -225,7 +225,7 @@ class WinGPT(nn.Module):
         if ve > n_layers: ve = n_layers
         if te > n_layers: te = n_layers
 
-        dd = dim//4
+        dd = dim//2
         self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, num_kv_heads * head_dim) for _ in range(ve) ])     
         self.tok_embs = [ nn.Embedding(vocab_size, dd) for _ in range(te) ]
         self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te) ]
