@@ -1,5 +1,5 @@
-./pretrain.py --S --steps 1125 --bs 16 --te 999
-./pretrain.py --S --steps 1125 --bs 16
+./pretrain.py --S --steps 1125 --bs 8 --te 999
+./pretrain.py --S --steps 1125 --bs 8
 
 # ./pretrain.py --M --steps 1125 --bs 16
 # ./pretrain.py --M --steps 1125 --bs 16 --future 10

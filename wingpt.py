@@ -91,10 +91,10 @@ class CausalSelfAttention(nn.Module):
         self.head_dim = head_dim
 
         if window: # SWA chậm hơn full attn
-            l, w, mask = seq_len, window, torch.zeros(l, l)
-            for i in range(l): mask[i, max(0, i-w) : min(l, i+w+1)] = 1
-            self.attn_mask = mask
-        else: self.attn_mask = None
+                l, w, mask = seq_len, window, torch.zeros(l, l)
+                for i in range(l): mask[i, max(0, i-w) : min(l, i+w+1)] = 1
+                self.attn_mask = mask
+        else:   self.attn_mask = None
 
         q_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
@@ -118,7 +118,7 @@ class CausalSelfAttention(nn.Module):
     """ Implement casual_conv1d đơn giản
         self.conv_kernel = 3
         self.kv_conv = torch.ones(
-            kv_inner_dim,       # số kênh (C, D or hidden dim)
+            kv_inner_dim,       # số kênh (C / D / hidden dim)
             1,                  # số kênh đầu vào cho mỗi nhóm
             self.conv_kernel,   # kích thước cửa sổ trượt conv
         ).cuda() / self.conv_kernel # khởi tạo 1 / k => avg
@@ -132,7 +132,7 @@ class CausalSelfAttention(nn.Module):
         return (x + y).view(B, T, C)
     # """
 
-    def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
+    def forward(self, x:Tensor, v_emb:Tensor|None, sa_lambdas:Tensor):
         q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)      # B, T, C
         # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v) # B, T, C
 
@@ -147,9 +147,9 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v)
         q, k = self.rotary(q), self.rotary(k)
 
-        if lambdas is not None and v_emb is not None:
-            # Trộn value với value embedding
-            v = lambdas[0]*v + lambdas[1]*v_emb.view(B, T, Hkv, D)
+        if sa_lambdas is not None and v_emb is not None:
+            # Trộn value với value embedding (sa = self-attention)
+            v = sa_lambdas[0]*v + sa_lambdas[1]*v_emb.view(B, T, Hkv, D)
 
         # Make tensors contiguous and transpose for attention
         q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
@@ -186,11 +186,10 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(
             dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
 
-    def forward(self, x:Tensor, x0:Tensor, ve:Tensor|None, lambdas, sa_lambdas):
-        if lambdas is not None and x0 is not None:
-            x = lambdas[0] * x + lambdas[1] * x0    # mix feat with token embed
-        x = x + self.attn(x, ve, sa_lambdas)        # residual connect
-        x = x + self.mlp(norm(x))                   # residual connect
+    def forward(self, x:Tensor, te, ve, lambdas, sa_lambdas):
+        x = lambdas[0]*x + lambdas[1]*te     # trộn với tok emb
+        x = x + self.attn(x, ve, sa_lambdas) # residual connect
+        x = x + self.mlp(norm(x))            # residual connect
         return x
 
 
@@ -203,9 +202,9 @@ class Future(nn.Module):
         with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
     def forward(self, x, x0, te, ve, l, s):
-        # trộn feat của last layer với token embed
+        # trộn feat của last layer với token embed gốc (x0)
         x = torch.cat((norm(x), x0), dim=2)
-        x = self.proj(x) # rồi đẩy qua 1 transformer block
+        x = self.proj(x) # mlp mixer
         x = self.block(x, te, ve, l, s)
         return norm(x)
 
@@ -226,8 +225,20 @@ class WinGPT(nn.Module):
         if ve > n_layers: ve = n_layers
         if te > n_layers: te = n_layers
 
-        self.tok_embs = nn.ModuleList([ nn.Embedding(vocab_size, dim) for _ in range(te) ])
-        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, num_kv_heads * head_dim) for _ in range(ve) ])
+        dd = dim//4
+        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, num_kv_heads * head_dim) for _ in range(ve) ])     
+        self.tok_embs = [ nn.Embedding(vocab_size, dd) for _ in range(te) ]
+        self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te) ]
+
+        with torch.no_grad():
+            for x in self.tok_proj:
+                x.weight.copy_(init_linear(torch.empty(dim, dd)))
+
+        self.tok_embs[0] = nn.Embedding(vocab_size, dim) # full for first tok emb
+        self.tok_proj[0] = nn.Module() # placeholder, do nothing
+
+        self.tok_embs = nn.ModuleList(self.tok_embs)
+        self.tok_proj = nn.ModuleList(self.tok_proj)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
@@ -260,16 +271,19 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor):
         # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16
         n_blks = len(self.blocks)
-        t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
         v_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.val_embs ]
+        t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
+
+        for i in range(1, len(t_embs)): # phóng to
+            t_embs[i] = self.tok_proj[i](t_embs[i])
 
         x = x0 = t_embs[0]
         t_embs += [x0]*(n_blks - len(t_embs))
         assert len(t_embs) == n_blks
     
-        nnnn = [None] * (n_blks - 2 * len(v_embs))
-        v_embs = (v_embs + nnnn + v_embs)[:n_blks]
-        assert len(v_embs) == n_blks
+        skips = [None] * (n_blks - 2 * len(v_embs))
+        v_embs = (v_embs + skips + v_embs)[:n_blks]
+        assert len(v_embs) == n_blks # u-shape
 
         skip_weights = self.scalars[ :n_blks]
         lambdas      = self.scalars[1*n_blks : 3*n_blks].view(-1, 2)
@@ -279,7 +293,7 @@ class WinGPT(nn.Module):
         for i in range(self.n_layers):
             if i in self.skip_from:
                 k = self.skip_from[i]
-                x += skip_weights[k]*layer_outputs[k]
+                x += skip_weights[k] * layer_outputs[k]
             
             def fwd(blk, te, ve, l, s): return lambda x: blk(x, te, ve, l, s)
             f = fwd(self.blocks[i], t_embs[i], v_embs[i], lambdas[i], sa_lambdas[i])
@@ -308,7 +322,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if model.n_layers == len(model.blocks): return loss
 
     future_loss, _ = _loss_method(
-        model.blocks[-1](layer_outputs[-1], t[0], t[-1], v[-1], l[-1],s[-1]),
+        model.blocks[-1](layer_outputs[-1], t[0], t[-1], v[-1], l[-1], s[-1]),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
