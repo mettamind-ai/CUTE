@@ -26,11 +26,12 @@ parser.add_argument("--exits", type=int, default=2, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
 parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
+parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=15)           # số layers được bổ xung value embeds 
-for x in "bf16  test  compile  S L M  future".split():
+for x in "bf16  test  compile  S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -67,21 +68,21 @@ if  args.L: # (L)arge @ 4090 ~ 999m
         ve=args.ve, dim=2048, n_layers=27,
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future=args.future, exits=args.exits,
+        future_percent=args.future, exits=args.exits,
     )
 elif args.M: # (M)edium @ 4090 ~ 666m
     model = WinGPT(
         ve=args.ve, dim=1664, n_layers=26, # dim=1024 1280 1536 1792 2048
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future=args.future, exits=args.exits,
+        future_percent=args.future, exits=args.exits,
     )
 else:        # (S)mall @ 4090 ~ 333m
     model = WinGPT(
         ve=args.ve, dim=1280, n_layers=22,
         num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future=args.future, exits=args.exits,
+        future_percent=args.future, exits=args.exits,
     )
 
 TOKS_PER_STEP = args.bs*args.ctx
@@ -175,7 +176,7 @@ if args.compile:
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
-* int8? {INT8},  loss_fn {args.funloss}, future? {not not model.future}
+* int8? {INT8}, loss_fn {args.funloss}, future_ratio {model.future_ratio}
 * device_bs {args.bs}, seq_len {args.ctx}, {(TOKS_PER_STEP)//1024}k tokens/step
 * layers {len(model.blocks)}, exits {model.exit_ids}, scales {model.exit_scales}
 """)

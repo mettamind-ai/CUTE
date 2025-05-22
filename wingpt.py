@@ -204,7 +204,7 @@ class Future(nn.Module):
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=4, exits=2, future=False):
+            dim:int, max_seq_len:int, head_dim=128, ve=4, exits=2, future_percent=0):
 
         super().__init__()
         kv_inner_dim = num_kv_heads * head_dim
@@ -231,8 +231,9 @@ class WinGPT(nn.Module):
         ## Future and tied head(s)
         # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
         # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction
-        if future: self.future = Future(vocab_size, dim, num_heads, num_kv_heads, max_seq_len, head_dim)
-        else: self.future = None
+        self.future_ratio = future_percent / 100.0
+        self.future = Future(vocab_size, dim, num_heads, num_kv_heads, \
+            max_seq_len, head_dim) if future_percent > 0 else None
 
         tied_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): tied_head.weight.zero_()
@@ -303,7 +304,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
-    return loss * 0.9 + future_loss * 0.1
+    return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
 def simple_loss_fn(model, input_seq, target, future):
@@ -342,7 +343,7 @@ if __name__ == "__main__":
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}")
     
     batch_size, seq_len = 2, 256
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20).cuda()
 
     if os.environ.get('int8', '0') == '1':
         print(convert_int8_mixed_precision(model), "linear converted to int8") # lỗi trên 3050
