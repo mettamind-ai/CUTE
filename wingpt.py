@@ -217,6 +217,7 @@ class WinGPT(nn.Module):
             dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, exits=2, future_percent=0):
         super().__init__()
         self.n_layers = n_layers
+        self.ve, self.te = ve, te
 
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers) ]
         self.future_ratio = future_percent / 100.0
@@ -233,7 +234,7 @@ class WinGPT(nn.Module):
         self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te-1) ]
 
         kv_dim = num_kv_heads * head_dim # có thể áp dụng val_proj như tok nếu val_embs quá to
-        self.val_embs = nn.ModuleList([ nn.Embedding(vocab_size, kv_dim) for _ in range(ve) ]) 
+        self.val_embs = nn.Embedding(vocab_size, kv_dim*ve) 
 
         with torch.no_grad():
             for x in self.tok_proj:
@@ -276,7 +277,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor):
         # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16
         n_blks = len(self.blocks)
-        v_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.val_embs ]
+        v_embs = list(self.val_embs(input_seq).bfloat16().chunk(self.ve, dim=-1))
         t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
         for i in range(1, len(t_embs)): t_embs[i] = self.tok_proj[i](t_embs[i])
 
