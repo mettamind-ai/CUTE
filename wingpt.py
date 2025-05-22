@@ -230,21 +230,17 @@ class WinGPT(nn.Module):
         self.ve, self.te = ve, te
 
         dd = dim // 2 # giảm 1/2 dim nếu không phải tok emb gốc
-        self.tok_embs = [ nn.Embedding(vocab_size, dd)   for _ in range(te-1) ]
-        self.tok_proj = [ nn.Linear(dd, dim, bias=False) for _ in range(te-1) ]
+        ddd = dd*(te-1) # combine lại thành 1 ma trận
+        self.tok_emb0 = nn.Embedding(vocab_size, dim) # tok emb gốc
 
-        kv_dim = num_kv_heads * head_dim # có thể áp dụng val_proj như tok nếu val_embs quá to
+        if ddd > 0:
+            self.tok_embs = nn.Embedding(vocab_size, ddd)
+            self.tok_proj = nn.Linear(ddd, dim, bias=False)
+            with torch.no_grad():
+                self.tok_proj.weight.copy_(init_linear(torch.empty(dim, ddd)))
+
+        kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
         self.val_embs = nn.Embedding(vocab_size, kv_dim*ve) 
-
-        with torch.no_grad():
-            for x in self.tok_proj:
-                x.weight.copy_(init_linear(torch.empty(dim, dd)))
-
-        self.tok_embs.insert(0, nn.Embedding(vocab_size, dim)) # full for first tok emb
-        self.tok_proj.insert(0, nn.Module()) # placeholder, do nothing
-
-        self.tok_embs = nn.ModuleList(self.tok_embs)
-        self.tok_proj = nn.ModuleList(self.tok_proj)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
@@ -277,9 +273,16 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor):
         # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16
         n_blks = len(self.blocks)
-        v_embs = list(self.val_embs(input_seq).bfloat16().chunk(self.ve, dim=-1))
-        t_embs = [ norm(emb(input_seq).bfloat16()) for emb in self.tok_embs ]
-        for i in range(1, len(t_embs)): t_embs[i] = self.tok_proj[i](t_embs[i])
+        x = x0 = norm(self.tok_emb0(input_seq))
+
+        if self.te > 1:
+                t_embs = self.tok_embs(input_seq).bfloat16()
+                t_embs = norm(self.tok_proj(t_embs))
+                t_embs = [x0] + list(t_embs.chunk(self.te-1))
+        else:   t_embs = [x0]
+
+        v_embs = self.val_embs(input_seq).bfloat16()
+        v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
             v_embs += [None]*(self.n_layers - 3 - len(v_embs)) + v_embs[:3]
@@ -293,7 +296,6 @@ class WinGPT(nn.Module):
         lambdas      = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
         sa_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
 
-        x = x0 = t_embs[0]
         layer_outputs = []
         for i in range(self.n_layers):
             if i in self.skip_from:
@@ -376,7 +378,8 @@ if __name__ == "__main__":
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}")
     
     batch_size, seq_len = 2, 256
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
+                        ve=3, te=3, future_percent=20).cuda()
 
     if os.environ.get('int8', '0') == '1':
         print(convert_int8_mixed_precision(model), "linear converted to int8") # lỗi trên 3050
