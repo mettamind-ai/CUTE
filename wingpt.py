@@ -80,15 +80,6 @@ class Rotary(nn.Module):
         return torch.cat((y1, y2), 3).type_as(x_BTHD)
 
 
-def causal_moving_avg(x, k=3):
-    B, C, T = x.shape
-    pad_left = k - 1
-    y = F.pad(x, (pad_left, 0))
-    weight = torch.ones(C, 1, k).cuda() / k
-    y = F.conv1d(y, weight, groups=C)
-    return x + y  # residual
-
-
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
             seq_len:int, head_dim=128, window=None):
@@ -103,8 +94,7 @@ class CausalSelfAttention(nn.Module):
             l, w, mask = seq_len, window, torch.zeros(l, l)
             for i in range(l): mask[i, max(0, i-w) : min(l, i+w+1)] = 1
             self.attn_mask = mask
-        else:
-            self.attn_mask = None
+        else: self.attn_mask = None
 
         q_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
@@ -120,20 +110,35 @@ class CausalSelfAttention(nn.Module):
             self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
             self.k_proj.weight.copy_(init_linear(torch.empty(kv_inner_dim, dim)))
             self.v_proj.weight.copy_(init_linear(torch.empty(kv_inner_dim, dim)))
-            self.out_proj.weight.copy_(torch.zeros(dim, q_inner_dim)) # zero init
+            self.out_proj.weight.zero_() # zero init
 
         self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
+        
+        self.conv_kernel = 3
+        self.kv_conv = torch.ones(
+            kv_inner_dim,       # số kênh (C, D or hidden dim)
+            1,                  # số kênh đầu vào cho mỗi nhóm
+            self.conv_kernel,   # kích thước cửa sổ trượt conv
+        ).cuda() / self.conv_kernel # khởi tạo 1 / k => avg
 
+    def causal_moving_avg(self, x):
+        B, T, C = x.shape
+        x = x.view(B, C, T)
+        pad_left = self.conv_kernel - 1
+        y = F.pad(x, (pad_left, 0))
+        y = F.conv1d(y, self.kv_conv, groups=C)
+        return (x + y)  # residual
 
     def forward(self, x:Tensor, v_emb:Tensor|None, lambdas:Tensor):
-        B, T = x.size(0), x.size(1)  # x có shape (Batch, T seq_len, C dim)
+        q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x) # B, T, C
+        k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
+        B, T = x.size(0), x.size(1) # x có shape (Batch, T seq_len, C dim)
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
 
-        # Project and reshape query, key, value tensors
-        q = self.q_proj(x).view(B, T, H, D)
-        k = causal_moving_avg(self.k_proj(x)).view(B, T, Hkv, D)
-        v = causal_moving_avg(self.v_proj(x)).view(B, T, Hkv, D)
+        q = q.view(B, T, H,   D)
+        k = k.view(B, T, Hkv, D)
+        v = v.view(B, T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v)
         q, k = self.rotary(q), self.rotary(k)
