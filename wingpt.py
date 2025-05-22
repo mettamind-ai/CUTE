@@ -127,7 +127,6 @@ class CausalSelfAttention(nn.Module):
         y = F.pad(x, (pad_left, 0))
         y = F.conv1d(y, self.kv_conv, groups=C)
         return (x + y).view(B, T, C)
-
     # """
 
     def forward(self, x:Tensor, v_emb:Tensor|None, sa_lambdas:Tensor):
@@ -137,7 +136,7 @@ class CausalSelfAttention(nn.Module):
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         B, T, C   = k.shape; assert C == Hkv * D
 
-        ## Chuyển q, k, v hành x_BTHD
+        ## Chuyển q, k, v thành x_BTHD
         q = self.q_proj(x)
         q = q.view(B, T, H,   D)
         k = k.view(B, T, Hkv, D)
@@ -227,10 +226,10 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
         self.ve, self.te = ve, te
 
-        dd = dim // 2 # giảm 1/2 dim nếu không phải tok emb gốc
-        ddd = dd*(te-1) # combine lại thành 1 ma trận
         self.tok_emb0 = nn.Embedding(vocab_size, dim) # tok emb gốc
 
+        dd = dim // 2   # giảm 1/2 dim nếu không phải tok emb gốc
+        ddd = dd*(te-1) # combine lại thành 1 ma trận
         if ddd > 0:
             self.tok_embs = nn.Embedding(vocab_size, ddd)
             self.tok_proj = nn.Linear(ddd, dim, bias=False)

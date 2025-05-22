@@ -98,3 +98,6 @@
 - [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
   ![](https://arxiv.org/html/2502.12671v2/extracted/6253923/images/kv_shift_attention.png) => giống DConv 3x1 trong primer
   ![](https://user-images.githubusercontent.com/544269/134764948-4aef8641-f9c5-43a5-9bfd-c2316df3a434.png)
+
+- [x] fused params: val_embs, tok_embs và qk
+  https://github.com/KellerJordan/modded-nanogpt/blob/master/records/120424_ValueEmbed/train_gpt2.py#L268

@@ -50,9 +50,6 @@
 
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
-- [ ] fused params: val_embs, tok_embs và qkvo
-  https://github.com/KellerJordan/modded-nanogpt/blob/master/records/120424_ValueEmbed/train_gpt2.py#L268
-
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
