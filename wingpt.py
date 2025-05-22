@@ -211,7 +211,7 @@ class Future(nn.Module):
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=4, te=1, exits=2, future_percent=0):
+            dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, exits=2, future_percent=0):
         super().__init__()
         self.n_layers = n_layers
 
