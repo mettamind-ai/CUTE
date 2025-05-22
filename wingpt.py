@@ -19,6 +19,33 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 
+####################################
+##  ReLuSquareMLP Channel Mixing  ##
+####################################
+
+class ReLuSquareMLP(nn.Module):
+    def __init__(self, dim:int):
+        super().__init__()
+        hdim = int(3 * dim) 
+
+        self.fc = nn.Linear(dim, hdim, bias=False)
+        self.proj = nn.Linear(hdim, dim, bias=False)
+        
+        with torch.no_grad():
+            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.proj.weight.zero_()
+        
+        # Add weight decay multiplier attribute to the weights
+        self.fc.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
+
+    def forward(self, x:Tensor):
+        y = self.fc(x)
+        y = F.relu(y).square() 
+        x = self.proj(y)
+        return x
+
+
 #####################################
 ## CausalSelfAttention Time Mixing ##
 #####################################
@@ -61,19 +88,6 @@ def causal_moving_avg(x, k=3):
     y = F.conv1d(y, weight, groups=C)
     return x + y  # residual
 
-""" Đang lỗi `pip install causal-conv1d`, dùng causal_moving_avg
-from causal_conv1d import causal_conv1d_fn
-class Canon(nn.Module):
-    def __init__(self, dim:int, k:int=3):
-        super().__init__()
-        assert k in [2, 3, 4]
-        self.weight = nn.Parameter(torch.ones(dim, k) / k)
-        self.k = k
-
-    def forward(self, x): # h: [B, T, C]
-        y = causal_conv1d_fn(x.transpose(1, 2), self.weight)   # [B, C, T]
-        return x + y.transpose(1, 2)                           # residual
-# """
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
@@ -101,9 +115,6 @@ class CausalSelfAttention(nn.Module):
         self.v_proj = nn.Linear(dim, kv_inner_dim, bias=False)
         self.out_proj = nn.Linear(q_inner_dim, dim, bias=False)
 
-        # self.k_canon = Canon(kv_inner_dim)
-        # self.v_canon = Canon(kv_inner_dim)
-
         # Set the weights directly
         with torch.no_grad():
             self.q_proj.weight.copy_(init_linear(torch.empty(q_inner_dim, dim)))
@@ -127,10 +138,9 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v)
         q, k = self.rotary(q), self.rotary(k)
 
-        if lambdas is not None:
-            if v_emb is None:
-                    v = lambdas[0]*v # Apply value embedding mixing
-            else:   v = lambdas[0]*v + lambdas[1]*v_emb.view(B, T, Hkv, D)
+        if lambdas is not None and v_emb is not None:
+            # Trộn value với value embedding
+            v = lambdas[0]*v + lambdas[1]*v_emb.view(B, T, Hkv, D)
 
         # Make tensors contiguous and transpose for attention
         q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
@@ -156,47 +166,19 @@ class CausalSelfAttention(nn.Module):
         return y  # trả về y có shape giống hệt x đầu vào
 
 
-####################################
-##  ReLuSquareMLP Channel Mixing  ##
-####################################
-
-class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int):
-        super().__init__()
-        hdim = int(3 * dim) 
-
-        self.fc = nn.Linear(dim, hdim, bias=False)
-        self.proj = nn.Linear(hdim, dim, bias=False)
-        
-        with torch.no_grad():
-            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            self.proj.weight.zero_()
-        
-        # Add weight decay multiplier attribute to the weights
-        self.fc.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
-
-    def forward(self, x:Tensor):
-        y = self.fc(x)
-        y = F.relu(y).square() 
-        x = self.proj(y)
-        return x
-
-
 ##############################
 ## Transformer for the WIN  ##
 ##############################
 
 class Block(nn.Module):
-    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-                max_seq_len:int, head_dim=128):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
         super().__init__()
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(
             dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
 
     def forward(self, x:Tensor, x0:Tensor, ve:Tensor|None, lambdas, sa_lambdas):
-        if lambdas is not None:
+        if lambdas is not None and x0 is not None:
             x = lambdas[0] * x + lambdas[1] * x0    # mix feat with token embed
         x = x + self.attn(x, ve, sa_lambdas)        # residual connect
         x = x + self.mlp(norm(x))                   # residual connect
@@ -205,18 +187,18 @@ class Block(nn.Module):
 
 class Future(nn.Module):
     """ Dự đoán xa hơn 1 token, ideas from Multi-Token Prediction, DeepSeek và MiMo papers """
-    def __init__(self, num_heads:int, num_kv_heads:int, dim:int, max_seq_len:int, head_dim=128):
+    def __init__(self, vocab_size, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
         super().__init__()
         self.block = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
         self.proj = nn.Linear(2*dim, dim, bias=False)
-        with torch.no_grad():
-            self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
+        with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
+        self.val_emb = nn.Embedding(vocab_size, num_kv_heads * head_dim)
 
-    def forward(self, x, x0):
+    def forward(self, input_seq, x, x0):
         # trộn feat của last layer với token embed
         x = torch.cat((norm(x), x0), dim=2)
         x = self.proj(x) # rồi đẩy qua 1 transformer block
-        x = self.block(x, None, None, None, None)
+        x = self.block(x, None, self.val_emb(input_seq), None, sa_lambdas=[0.5, 0.5])
         return norm(x)
 
 
@@ -225,9 +207,6 @@ class WinGPT(nn.Module):
             dim:int, max_seq_len:int, head_dim=128, ve=4, exits=2, future=False):
 
         super().__init__()
-        self.skip_from = { 
-            (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) 
-        }; print("WinGPT.skip_from", self.skip_from)
         kv_inner_dim = num_kv_heads * head_dim
 
         self.tok_emb = nn.Embedding(vocab_size, dim)
@@ -235,24 +214,24 @@ class WinGPT(nn.Module):
             nn.Embedding(vocab_size, kv_inner_dim) \
             for _ in range(ve)
         ])
+
         self.blocks = nn.ModuleList([
-            Block(dim, num_heads, num_kv_heads, max_seq_len, \
-                head_dim=head_dim) for _ in range(n_layers)
+            Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers)
         ])
 
-        # Learnable skip connection weights for decoder layers
-        n = n_layers + n_layers % 2 # làm tròn lên số chẵn
         self.scalars = nn.Parameter(torch.cat([
-          torch.ones(n), # skip_weights
-          *[torch.tensor([1.0, 0.0]) for _ in range(n)], # block lambdas
-          *[torch.tensor([0.5, 0.5]) for _ in range(n)], # SA lambdas
+          torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
+          *[torch.tensor([1.0, 0.0]) for _ in range(n_layers)], # token emb mix
+          *[torch.tensor([0.5, 0.5]) for _ in range(n_layers)], # value emb mix
         ]))
+
+        self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
+        print("WinGPT.skip_from", self.skip_from)
 
         ## Future and tied head(s)
         # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
         # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction
-        if future:
-            self.future = Future(num_heads, num_kv_heads, dim, max_seq_len, head_dim=head_dim)
+        if future: self.future = Future(vocab_size, dim, num_heads, num_kv_heads, max_seq_len, head_dim)
         else: self.future = None
 
         tied_head = nn.Linear(dim, vocab_size, bias=False)
@@ -320,7 +299,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if not model.future: return loss
 
     future_loss, _ = _loss_method(
-        model.future(layer_outputs[-1], x0), # đã đc norm
+        model.future(input_seq, layer_outputs[-1], x0),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
