@@ -238,7 +238,7 @@ class WinGPT(nn.Module):
 
         lte = te - 1 # layer token embeddings
         if lte > 1:
-            dd = dim // 2 # giảm 1/2 dim nếu không phải tok emb gốc
+            dd = dim // 4 # giảm 1/2 dim nếu không phải tok emb gốc
             self.tok_embs = nn.Embedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
