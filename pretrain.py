@@ -97,12 +97,7 @@ if INT8:
 ## Data loader ##
 #################
 
-import pathlib
-fn   = pathlib.Path(f"data{args.vocab}.bin")
-size = fn.stat().st_size // 2 # số lượng uint16
-data = np.fromfile(fn, dtype=np.uint16, count=size) # load vào RAM
-
-# data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = args.ctx + 2
 N    = len(data) - CTX # số vị trí cho phép
 WIN  = torch.arange(CTX, dtype=torch.int32) # tái sử dụng
