@@ -50,7 +50,7 @@
 ## [DONE](.save/DONE.md)
 🌸__DOING__🌸
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
-
+- [ ] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
 - [ ] tìm hiểu mọi thứ về embedding / representation
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models

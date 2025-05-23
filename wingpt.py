@@ -85,7 +85,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, window=None):
+            seq_len:int, head_dim=128, window=None, nope=False):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
@@ -112,7 +112,8 @@ class CausalSelfAttention(nn.Module):
             self.q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self.o_proj.weight.zero_() # zero init
 
-        self.rotary = Rotary(head_dim, seq_len)
+        if nope: self.rotary = None; print(f"=> NoPE")
+        else: self.rotary = Rotary(head_dim, seq_len)
         self.attn_scale = 0.12
 
     """ Implement casual_conv1d đơn giản
@@ -146,7 +147,7 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v)
-        q, k = self.rotary(q), self.rotary(k)
+        if self.rotary: q, k = self.rotary(q), self.rotary(k)
 
         if ve_lambdas is not None and v_emb is not None:
             # Trộn value với value embedding
@@ -180,11 +181,12 @@ class CausalSelfAttention(nn.Module):
 ##############################
 
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
+        self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
-        self.attn = CausalSelfAttention(
-            dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
+            head_dim=head_dim, nope=layer_id % 3 == 2) # 2, 5, 8, 11 ...
 
     def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
@@ -221,7 +223,7 @@ class WinGPT(nn.Module):
         super().__init__()
 
         self.n_layers = n_layers
-        blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim) for _ in range(n_layers) ]
+        blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
 
         self.future_ratio = future_percent / 100.0
         if self.has_future():
