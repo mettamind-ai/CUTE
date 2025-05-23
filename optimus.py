@@ -44,7 +44,6 @@ def _scaled_mm_kernel(
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
-    ACC_DTYPE: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
     EVEN_K: tl.constexpr = True,
     COL_SCALE_SCALAR: tl.constexpr = False,
@@ -69,14 +68,9 @@ def _scaled_mm_kernel(
     A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
     B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_DTYPE)
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32) # ACC_DTYPE = tl.int32
     for k in range(K, 0, -BLOCK_K):
-        if EVEN_K:
-            a = tl.load(A)
-            b = tl.load(B)
-        else:
-            a = tl.load(A, mask=rk[None, :] < k, other=0.0)
-            b = tl.load(B, mask=rk[:, None] < k, other=0.0)
+        a, b = tl.load(A), tl.load(B)  # EVEN_K = True
         acc += tl.dot(a, b)
         A += BLOCK_K * stride_ak
         B += BLOCK_K * stride_bk
@@ -138,9 +132,9 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
         triton.cdiv(meta["N"], meta["BLOCK_N"]),
     )
 
-    assert K % 2 == 0
-    assert A.dtype == torch.int8
-
+    assert K % 2 == 0             # => EVEN_K = True
+    assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
+    assert col_scale.numel() != 1 # => COL_SCALE_SCALAR = False
     _scaled_mm_kernel[grid](
         A, B, C,
         row_scale,
@@ -149,8 +143,6 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
         *A.stride(),
         *B.stride(),
         *C.stride(),
-        ACC_DTYPE=tl.int32,
-        EVEN_K=True,
         COL_SCALE_SCALAR=col_scale.numel() == 1,
     )
     return C
