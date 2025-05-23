@@ -10,26 +10,51 @@ torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
 torch.set_default_dtype(torch.bfloat16)
 
-###################################################################
-# SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
-torch.backends.cuda.enable_flash_sdp(            True)  # 50kt/step
-torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 35kt/step
-torch.backends.cuda.enable_math_sdp(            False)  # 14kt/step
-torch.backends.cuda.enable_cudnn_sdp(           False)  # 49kt/step
-
-print(f""">> scaled_dot_product_attention engine
-flash? {torch.backends.cuda.flash_sdp_enabled()}
-mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
-math_? {torch.backends.cuda.math_sdp_enabled()}
-cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
-###################################################################
+#######################################################################
 USE_FLASH_ATTN = ( os.getenv('flash_attn', '1') == '1' )
 if USE_FLASH_ATTN:
     try:# to use flash_attn directly
         from flash_attn import flash_attn_func, flash_attn_varlen_func
         print("!!! Use Flash Attn 2 Directly !!!")
     except: USE_FLASH_ATTN = False
-###################################################################
+'''####################################################################
+USAGE https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_attn_interface.py
+flash_attn_varlen_func(q, k, v,
+    cu_seqlens_q, cu_seqlens_k,
+    max_seqlen_q, max_seqlen_k,
+    dropout_p=0.0, softmax_scale=None,
+    causal=False, window_size=(-1, -1), # -1 means infinite context window
+)
+If causal=True, the causal mask is:
+seqlen_q=3 & seqlen_k=4 | seqlen_q=3 & seqlen_k=2
+       1 1 0 0                   0 0
+       1 1 1 0                   1 0
+       1 1 1 1                   1 1
+
+If window_size != (-1, -1), implements sliding window local attention.
+Query at position i will only attend to keys between
+[ i + seqlen_k - seqlen_q - window_size[0], 
+  i + seqlen_k - seqlen_q + window_size[1] ] inclusive.
+
+cu_seqlens_q: (bs + 1,), int32. The cumulative sequence lengths
+cu_seqlens_k: (bs + 1,), int32. ... used to index into kv.
+max_seqlen_q: int. Maximum query sequence length in the batch.
+max_seqlen_k: int. Maximum key sequence length in the batch.
+
+'''####################################################################
+if not USE_FLASH_ATTN:
+    # SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
+    torch.backends.cuda.enable_flash_sdp(            True)   # 50kt/sec
+    torch.backends.cuda.enable_mem_efficient_sdp(   False)   # 35kt/sec
+    torch.backends.cuda.enable_math_sdp(            False)   # 14kt/sec
+    torch.backends.cuda.enable_cudnn_sdp(            True)   # 49kt/sec
+
+    print(f""">> scaled_dot_product_attention engine
+    flash? {torch.backends.cuda.flash_sdp_enabled()}
+    mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
+    math_? {torch.backends.cuda.math_sdp_enabled()}
+    cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
+#######################################################################
 
 def norm(x: Tensor):
     return F.rms_norm(x, (x.size(-1),))
@@ -196,7 +221,7 @@ class CausalSelfAttention(nn.Module):
             y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
                 q=q, k=k, v=v, causal=True,
                 softmax_scale=self.attn_scale,
-                window_size=(self.window, self.window),
+                window_size=(self.window, 0),
             ) # out: (batch_size, seqlen, nheads, headdim) => BTHD
             y = y.contiguous()
         y = y.reshape(B, T, H * D)
