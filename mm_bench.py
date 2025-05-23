@@ -108,6 +108,9 @@ if __name__ == "__main__":
     data = []
     sizes = [1024, 2048, 1024*3, 4096, 1024*6, 1024*8]
 
+    support_pf8 = torch.cuda.get_device_capability() >= (8, 9)
+    if not support_pf8: sizes = sizes[:-3] # giảm khối lượng bench
+
     for sz in sizes:
         print(f"M=N=K={sz}")
 
@@ -131,9 +134,8 @@ if __name__ == "__main__":
         i8_triton_time  = bench_f(int8_mm,       A_i8,   B_i8)
         torch.testing.assert_close(torch._int_mm(A_i8, B_i8), int8_mm(A_i8, B_i8))
 
-        if torch.cuda.get_device_capability() >= (8, 9):
-            f8_triton_time = bench_f(_triton_mm, A_f8, B_f8, torch.bfloat16, torch.float32)
-        else: f8_triton_time = float("inf") 
+        if not support_pf8: f8_triton_time = float("inf")
+        else:    f8_triton_time = bench_f(_triton_mm, A_f8, B_f8, torch.bfloat16, torch.float32)
         f16_acc_f16_triton_time = bench_f(_triton_mm, A_f16, B_f16, torch.float16, torch.float16)
 
         data.append(
@@ -155,3 +157,4 @@ if __name__ == "__main__":
         ],
     )
     print(df.round(2).T.to_markdown())
+    print("Note: larger is faster, compare to bf16 matmul")
