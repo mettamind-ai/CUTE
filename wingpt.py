@@ -12,6 +12,13 @@ import torch.nn.functional as F
 torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
 
+# SDPA engine use cudnn only
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(False)
+torch.backends.cuda.enable_cudnn_sdp(True)
+
+
 def norm(x: Tensor):
     return F.rms_norm(x, (x.size(-1),))
 
@@ -166,7 +173,7 @@ class CausalSelfAttention(nn.Module):
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
         ''' 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
-        # attn bench https://miro.medium.com/v2/resize:fit:1322/format:webp/1*-oDY4_r2DLMDiuJP64RL2w.png
+        # attn bench @ https://medium.com/data-science/increasing-transformer-model-efficiency-through-attention-layer-optimization-fefa6f87b1d6
         '''
         y = F.scaled_dot_product_attention(
             q, k, v, # attn_mask=self.attn_mask,
