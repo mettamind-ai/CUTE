@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 ## GPT for the WIN (cải biên từ modded nanogpt)
+import os, math, torch
+from torch import Tensor, nn
+import torch.nn.functional as F
 
-import os, math, torch # Tránh lỗi và tăng tốc
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch.backends.cuda.enable_math_sdp(False)
+torch.backends.cuda.enable_cudnn_sdp(False)
+
+print(f""">> scaled_dot_product_attention engine
+flash? {torch.backends.cuda.flash_sdp_enabled()}
+mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
+math_? {torch.backends.cuda.math_sdp_enabled()}
+cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
+
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
 
-from torch import Tensor, nn
-import torch.nn.functional as F
-
 torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
-
-# SDPA engine use cudnn only
-torch.backends.cuda.enable_flash_sdp(False)
-torch.backends.cuda.enable_mem_efficient_sdp(False)
-torch.backends.cuda.enable_math_sdp(False)
-torch.backends.cuda.enable_cudnn_sdp(True)
-
 
 def norm(x: Tensor):
     return F.rms_norm(x, (x.size(-1),))
