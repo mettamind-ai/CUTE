@@ -4,10 +4,11 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-torch.backends.cuda.enable_flash_sdp(False)
-torch.backends.cuda.enable_mem_efficient_sdp(True)
-torch.backends.cuda.enable_math_sdp(False)
-torch.backends.cuda.enable_cudnn_sdp(False)
+# https://medium.com/data-science/fefa6f87b1d6          # Avg Step Time (ms)
+torch.backends.cuda.enable_flash_sdp(           False)  # 370
+torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 252   35kt/step
+torch.backends.cuda.enable_math_sdp(             True)  # 272
+torch.backends.cuda.enable_cudnn_sdp(           False)  # 250   49kt/step
 
 print(f""">> scaled_dot_product_attention engine
 flash? {torch.backends.cuda.flash_sdp_enabled()}
@@ -104,6 +105,7 @@ class CausalSelfAttention(nn.Module):
         self.head_dim = head_dim
 
         if window: # SWA chậm hơn full attn
+                # 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
                 l, w, mask = seq_len, window, torch.zeros(l, l)
                 for i in range(l): mask[i, max(0, i-w) : min(l, i+w+1)] = 1
                 self.attn_mask = mask
@@ -175,9 +177,6 @@ class CausalSelfAttention(nn.Module):
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
-        ''' 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
-        # attn bench @ https://medium.com/data-science/increasing-transformer-model-efficiency-through-attention-layer-optimization-fefa6f87b1d6
-        '''
         y = F.scaled_dot_product_attention(
             q, k, v, # attn_mask=self.attn_mask,
             is_causal=True, dropout_p=0.0, scale=self.attn_scale,
