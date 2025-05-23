@@ -57,6 +57,7 @@ is_dist = False
 world_size = 1
 is_master = (rank == 0)
 def print0(msg): is_master and print(msg)
+torch.manual_seed(1981 + rank) # đảm bảo random giống nhau
 
 #############################
 ## Init model for pretraining
@@ -100,26 +101,16 @@ if INT8:
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 N    = len(data)
 CTX  = args.ctx + 2
-BLK  = CTX * args.bs
 WIN  = torch.arange(CTX)
-END  = BLK
 
 def get_batch(randomize=False):
-    if randomize:
-        anchors = torch.randint(0, N - CTX, (args.bs,))
-    else: # Lấy dữ liệu tuần tự
-        global END;  END += 256
-        if END >= N: END  = BLK
-        anchors = torch.arange(END - BLK, END, CTX)
-
+    anchors = torch.randint(0, N - CTX, (args.bs,))
     # Tạo ma trận chỉ số (bs, CTX) bằng broadcast
     idx = anchors[:, None] + WIN  # shape = (bs, ctx)
     batch_np = data[idx.numpy()] # # idx.numpy() là view, không copy
-
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
     return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
             .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
-
 batch = get_batch()
 
 #############################
