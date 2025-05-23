@@ -284,7 +284,7 @@ class WinGPT(nn.Module):
                 t_embs = self.tok_embs(input_seq).bfloat16()
                 t_embs = norm(self.tok_proj(t_embs))
                 print(t_embs.size())
-                t_embs = [x0] + list(t_embs.chunk(self.te-1))
+                t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
                 print(t_embs[-1].size()); input()
         else:   t_embs = [x0]
 
