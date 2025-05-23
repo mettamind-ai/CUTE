@@ -216,7 +216,7 @@ while step < args.steps and lossf > args.minloss:
         log_dict = dict(loss=lossf, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
 
         if not args.test: logger.log(log_dict, step=step)
-        pbar.set_postfix(l=lossf, a=adam_lr, m=muon_lr) # tối thiểu chiều rộng
+        pbar.set_postfix(loss=lossf, lr=muon_lr) # tối thiểu chiều rộng
 
     muon_optim.step(); muon_optim.zero_grad()
     adam_optim.step(); adam_optim.zero_grad()

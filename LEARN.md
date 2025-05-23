@@ -4,6 +4,11 @@
 - https://github.com/kyegomez/FlashAttention20Triton
 - https://github.com/hkproj/triton-flash-attention
 
+GPUMODE
+- https://www.youtube.com/watch?v=zEuwuCTEf_0
+- https://www.youtube.com/watch?v=4jQTb6sRGLg
+- https://www.youtube.com/watch?v=zy8ChVd_oTM
+
 # READING / IDEA
 - Train trên 2k ctxlen trước, sau đó freeze 2/3 layers rồi train tiếp với 4k ctxlen
   => mô phỏng long short layers
