@@ -4,7 +4,14 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-#SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 # THROUGHPUT
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+torch._inductor.config.coordinate_descent_tuning = True
+torch.set_float32_matmul_precision('high') # better for f32 head
+torch.backends.cuda.matmul.allow_tf32  = True
+torch.set_default_dtype(torch.bfloat16)
+
+###################################################################
+# SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
 torch.backends.cuda.enable_flash_sdp(            True)  # 50kt/step
 torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 35kt/step
 torch.backends.cuda.enable_math_sdp(            False)  # 14kt/step
@@ -15,13 +22,10 @@ flash? {torch.backends.cuda.flash_sdp_enabled()}
 mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
 math_? {torch.backends.cuda.math_sdp_enabled()}
 cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
-
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-torch._inductor.config.coordinate_descent_tuning = True
-torch.set_default_dtype(torch.bfloat16)
-
-torch.set_float32_matmul_precision('high') # better for f32 head
-torch.backends.cuda.matmul.allow_tf32  = True
+###################################################################
+from flash_attn import flash_attn_func
+print(">> Use Flash Attn 2 Directly")
+###################################################################
 
 def norm(x: Tensor):
     return F.rms_norm(x, (x.size(-1),))
@@ -103,15 +107,7 @@ class CausalSelfAttention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
-
-        if window: # SWA chậm hơn full attn
-                # 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
-                l, w, mask = seq_len, window, torch.zeros(l, l)
-                for i in range(l): mask[i, max(0, i-w) : min(l, i+w+1)] = 1
-                self.attn_mask = mask
-        else:   self.attn_mask = None
-
-
+        self.window = window
 
         qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
@@ -177,10 +173,11 @@ class CausalSelfAttention(nn.Module):
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
-        y = F.scaled_dot_product_attention(
-            q, k, v, # attn_mask=self.attn_mask,
-            is_causal=True, dropout_p=0.0, scale=self.attn_scale,
-        )
+        # y = F.scaled_dot_product_attention( q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
+        # TODO: self.window = độ dài cửa sổ SWA => apply to flash_attn
+        y = flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=self.attn_scale, 
+            causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+
         # Transpose back to original shape [B, T, H, D]
         y = y.transpose(1, 2).contiguous()
         y = y.reshape(B, T, H * D)
