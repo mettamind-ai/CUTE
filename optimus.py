@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
-# INT8 Mixed Precision modified from github.com/gau-nernst/quantized-training
-# Muon optimizer modified from https://github.com/KellerJordan/Muon
+'''
+INT8 Mixed Precision modified from github.com/gau-nernst/quantized-training
+Muon optimizer modified from https://github.com/KellerJordan/Muon
+
+Revert commit https://github.com/gau-nernst/quantized-training/commit/d430911a5fcf70ba4d4331933b8d0147927a9d6f
+để giữ triton code đơn giản. Commit này có nhiều điểm thú vị:
+- `scaled_mm` chấp nhận cả int8 và pf8
+- `tile_scaled_mm` kernel mới cho ma trận đã được lượng tử hoá block-wise (32×32
+  => Đọc một block K nhỏ nhiều lần giúp giảm cache miss và
+  => Độ chính xác cao hơn: Block-wise scale (16, 32 phần tử) khiến sai số lượng tử hoá 
+    thấp hơn kiểu per-row/col, đặc biệt với mạng lớn.
+'''
 
 #################################
 ##  INT8 Triton Matmul support ##
@@ -113,6 +123,8 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
 def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
+_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     M, K = A.shape
@@ -122,9 +134,7 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
 
     C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
-    grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
-
-    _scaled_mm_kernel[grid](
+    _scaled_mm_kernel[_grid](
         A, B, C,
         row_scale,
         col_scale,
