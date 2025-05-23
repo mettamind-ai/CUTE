@@ -2,9 +2,9 @@
 # INT8 Mixed Precision modified from github.com/gau-nernst/quantized-training
 # Muon optimizer modified from https://github.com/KellerJordan/Muon
 
-############################################
-##  Modded Triton Matmul to support INT8  ##
-############################################
+#################################
+##  INT8 Triton Matmul support ##
+#################################
 
 import torch
 import triton
@@ -13,8 +13,7 @@ from torch import Tensor
 
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
-
-cfg = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup autotune
+cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup autotune ??
     # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
     (128, 256,  64, 3, 8), ( 64, 256,  32, 4, 4), (128, 128,  32, 4, 4), (128,  64, 32, 4, 4),
     ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4), ( 64,  32,  32, 5, 2), ( 32,  64, 32, 5, 2),
@@ -26,11 +25,11 @@ cfg = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup
     ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), ( 64,  32,  32, 5, 8),
     ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
     # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
-    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need?
+    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
 ]
-configs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfg]
+cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
+@triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 
-@triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr,
@@ -58,9 +57,11 @@ def _scaled_mm_kernel(
 
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+
     ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
     rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
     rk = tl.arange(0, BLOCK_K)
+
     A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
     B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
@@ -90,8 +91,7 @@ def _scaled_mm_kernel(
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     """Matmul for tile-wise quantized A and B. `A` and `B` are both INT8 to utilize
-    INT8 tensor cores. `scale_A` and `scaled_B` are quantization scales for A and B.
-    E.g.
+    INT8 tensor cores. `scale_A` and `scaled_B` are quantization scales for A and B. E.g.
     - if `A` is quantized with tile shape (128, 64), `scale_A`'s shape will be `(A.shape[0] / 128, A.shape[1] / 64)`.
     - if `A` is row-wise quantized, `scale_A`'s shape will be `(A.shape[0], 1)`.
     """
@@ -140,14 +140,12 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
 ##############################################
 
 from typing import NamedTuple
-
 import torch, os
 import torch.nn.functional as F
 import torch.utils._pytree as pytree
 from torch import Tensor, nn
 
 aten = torch.ops.aten
-
 INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', '0')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
@@ -160,47 +158,6 @@ def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
     else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
     return ( tensor.clip(-128, 127).to(torch.int8), scale )
-
-
-class MixedPrecisionLinearWeight(Tensor):
-    @staticmethod
-    @torch._dynamo.disable
-    def __new__(cls, data: Tensor):
-        return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
-
-    @torch._dynamo.disable
-    def __init__(self, data: Tensor):
-        self._data = data
-
-    def __tensor_flatten__(self):
-        return ["_data"], []
-
-    @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["_data"])
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(data={self._data})"
-
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = kwargs or dict()
-        if func is F.linear: return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
-        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
-
-    # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        def unwrap(x: cls): return x._data
-        out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
-        others = { 
-            aten.t.default, aten.detach.default, aten.empty_like.default, 
-            aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
-            aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default, 
-        }
-        if func is aten.copy_.default: return args[0] # original object
-        elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
-        else: return out # new unwrapped object
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
@@ -221,7 +178,7 @@ BWD_INPUT_SR = INT8_MIXED_SR in ["half", "full", "hack", "abit"]
 
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input: Tensor, weight: MixedPrecisionLinearWeight, bias: Tensor | None = None):
+    def forward(input: Tensor, weight, bias: Tensor | None = None):
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
         # Có thể không sử dụng stochasic rounding ở forward vì 
@@ -265,6 +222,47 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
+class MixedPrecisionLinearWeight(Tensor):
+    @staticmethod
+    @torch._dynamo.disable
+    def __new__(cls, data: Tensor):
+        return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
+
+    @torch._dynamo.disable
+    def __init__(self, data: Tensor):
+        self._data = data
+
+    def __tensor_flatten__(self):
+        return ["_data"], []
+
+    @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
+        return cls(tensor_data_dict["_data"])
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(data={self._data})"
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = kwargs or dict()
+        if func is F.linear: return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
+        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
+
+    # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        def unwrap(x: cls): return x._data
+        out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
+        others = { 
+            aten.t.default, aten.detach.default, aten.empty_like.default, 
+            aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
+            aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default, 
+        }
+        if func is aten.copy_.default: return args[0] # original object
+        elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
+        else: return out # new unwrapped object
+
+
 def convert_int8_mixed_precision(module:nn.Module):
     count = 0
     for n, m in module.named_modules():
@@ -275,7 +273,6 @@ def convert_int8_mixed_precision(module:nn.Module):
                 requires_grad=m.weight.requires_grad,
             )
     return count
-
 
 
 #################################################################
