@@ -166,18 +166,12 @@ class CausalSelfAttention(nn.Module):
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
         ''' 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
-        y = F.scaled_dot_product_attention(
-            q, k, v,
-            is_causal=True, attn_mask=self.attn_mask,
-            dropout_p=0.0, scale=self.attn_scale,
-        )
+        # attn bench https://miro.medium.com/v2/resize:fit:1322/format:webp/1*-oDY4_r2DLMDiuJP64RL2w.png
         '''
-        attn = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
-        causal_mask = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
-        attn = attn.masked_fill(causal_mask == 0, float('-inf'))
-        attn = F.softmax(attn, dim=-1)
-        y = attn @ v
-
+        y = F.scaled_dot_product_attention(
+            q, k, v, # attn_mask=self.attn_mask,
+            is_causal=True, dropout_p=0.0, scale=self.attn_scale,
+        )
         # Transpose back to original shape [B, T, H, D]
         y = y.transpose(1, 2).contiguous()
         y = y.reshape(B, T, H * D)
