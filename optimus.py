@@ -26,28 +26,21 @@ cfg = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup
     ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), ( 64,  32,  32, 5, 8),
     ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
     # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
-    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need?
+    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need?
 ]
 configs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfg]
-def _grid(meta): return (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
+
 
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
+@triton.heuristics({"EVEN_K": lambda args: args["K"] % args["BLOCK_K"] == 0})
 @triton.jit
 def _scaled_mm_kernel(
-    A_ptr,
-    B_ptr,
-    C_ptr,
-    row_scale_ptr,
-    col_scale_ptr,
-    M,
-    N,
-    K,
-    stride_am,
-    stride_ak,
-    stride_bk,
-    stride_bn,
-    stride_cm,
-    stride_cn,
+    A_ptr, B_ptr, C_ptr,
+    row_scale_ptr, col_scale_ptr,
+    M, N, K,
+    stride_am, stride_ak,
+    stride_bk, stride_bn,
+    stride_cm, stride_cn,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
@@ -110,26 +103,24 @@ def _scaled_mm_kernel(
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
-    """Matmul for tile-wise quantized A and B. `A` and `B` are both INT8 or FP8 to utilize
-    INT8/FP8 tensor cores. `scale_A` and `scaled_B` are quantization scales for A and B
-    respectively with appropriate shapes.
-
+    """Matmul for tile-wise quantized A and B. `A` and `B` are both INT8 to utilize
+    INT8 tensor cores. `scale_A` and `scaled_B` are quantization scales for A and B.
     E.g.
-      - if `A` is quantized with tile shape (128, 64), `scale_A`'s shape will be
-    `(A.shape[0] / 128, A.shape[1] / 64)`.
-      - if `A` is row-wise quantized, `scale_A`'s shape will be `(A.shape[0], 1)`.
+    - if `A` is quantized with tile shape (128, 64), `scale_A`'s shape will be `(A.shape[0] / 128, A.shape[1] / 64)`.
+    - if `A` is row-wise quantized, `scale_A`'s shape will be `(A.shape[0], 1)`.
     """
-    _f8 = (torch.float8_e4m3fn, torch.float8_e5m2)
-    assert (A.dtype == B.dtype == torch.int8) or (A.dtype in _f8 and B.dtype in _f8)
+    assert A.dtype == B.dtype == torch.int8
     assert scale_A.dtype == scale_B.dtype
     assert A.ndim == B.ndim == scale_A.ndim == scale_B.ndim == 2
     assert A.shape[1] == B.shape[0]
 
     # row-scale + col-scale or row-scale + tensor-scale
-    if scale_A.shape == (A.shape[0], 1) and scale_B.shape in ((1, B.shape[1]), (1, 1)):
-        assert scale_A.is_contiguous()
-        assert scale_B.is_contiguous()
-        return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+    assert scale_A.shape == (A.shape[0], 1)
+    assert scale_B.shape in ((1, B.shape[1]), (1, 1))
+
+    assert scale_A.is_contiguous()
+    assert scale_B.is_contiguous()
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
@@ -141,21 +132,25 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     M, K = A.shape
     _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
-    grid = lambda meta: (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
+
+    grid = lambda meta: (
+        triton.cdiv(meta["M"], meta["BLOCK_M"]) * 
+        triton.cdiv(meta["N"], meta["BLOCK_N"]),
+    )
+
+    assert K % 2 == 0
+    assert A.dtype == torch.int8
+
     _scaled_mm_kernel[grid](
-        A,
-        B,
-        C,
+        A, B, C,
         row_scale,
         col_scale,
-        M,
-        N,
-        K,
+        M, N, K,
         *A.stride(),
         *B.stride(),
         *C.stride(),
-        ACC_DTYPE=tl.int32 if A.dtype == torch.int8 else tl.float32,
-        EVEN_K=K % 2 == 0,
+        ACC_DTYPE=tl.int32,
+        EVEN_K=True,
         COL_SCALE_SCALAR=col_scale.numel() == 1,
     )
     return C
@@ -186,6 +181,7 @@ def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
     return ( tensor.clip(-128, 127).to(torch.int8), scale )
 
+
 class MixedPrecisionLinearWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
@@ -200,8 +196,7 @@ class MixedPrecisionLinearWeight(Tensor):
         return ["_data"], []
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict,
-            tensor_attributes, outer_size=None, outer_stride=None):
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(tensor_data_dict["_data"])
 
     def __repr__(self):
@@ -210,46 +205,22 @@ class MixedPrecisionLinearWeight(Tensor):
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         kwargs = kwargs or dict()
-
-        if func is F.linear:
-            return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
+        if func is F.linear: return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
+        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
 
     # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
-        def unwrap(x: cls):
-            return x._data
-
-        out = func(
-            *pytree.tree_map_only(cls, unwrap, args),
-            **pytree.tree_map_only(cls, unwrap, kwargs),
-        )
-
-        if func is aten.copy_.default:
-            # return original object
-            return args[0]
-
-        elif func in {
-            aten.t.default,
-            aten.detach.default,
-            aten.empty_like.default,
-            aten.new_zeros.default,
-            aten.slice.Tensor,
-            aten.view.default,
-            aten.as_strided.default,
-            aten._to_copy.default,
-            aten._pin_memory.default,
-            aten.split.Tensor,
-            aten.clone.default,
-        }:
-            # return new wrapped object
-            return pytree.tree_map_only(Tensor, lambda x: cls(x), out)
-        else:
-            # return new unwrapped object
-            return out
+        def unwrap(x: cls): return x._data
+        out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
+        others = { 
+            aten.t.default, aten.detach.default, aten.empty_like.default, 
+            aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
+            aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default, 
+        }
+        if func is aten.copy_.default: return args[0] # original object
+        elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
+        else: return out # new unwrapped object
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
