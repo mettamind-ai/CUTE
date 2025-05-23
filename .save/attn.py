@@ -201,16 +201,20 @@ attention = _attention.apply
 
 if __name__ == "__main__":
 
-    import flash_attn
-    from flash_attn import flash_attn_func
+    try:
+        import flash_attn
+        from flash_attn import flash_attn_func
+    except: flash_attn_func = None
 
-    BATCH, N_HEADS, HEAD_DIM = 4, 8, 128 # vary seq length for fixed head and batch=4
+
+    lines =["triton-fp16", "pytorch"]
+    if flash_attn_func is not None: lines += [ "flash_attn" ]
+
+    BATCH, N_HEADS, HEAD_DIM = 4, 8, 128
     config = triton.testing.Benchmark(
-        line_arg="provider",
-        x_names=["N_CTX"], ylabel="ms", 
+        line_vals=lines, line_names=lines,
+        line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
         x_vals=[2**i for i in range(10, 14)], # 1024 2048 4096 8192 16384   
-        line_vals=["triton-fp16", "flash-v2", "pytorch"],
-        line_names=["triton", "flash_attn", "pytorch"],
         styles=[("red", "-"), ("blue", "-"), ("green", "-")],
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
         args=dict(H=N_HEADS, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
