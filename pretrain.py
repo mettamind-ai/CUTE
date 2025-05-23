@@ -101,10 +101,10 @@ if INT8:
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = args.ctx + 2
 N    = len(data) - CTX
-WIN  = torch.arange(CTX, dtype=torch.int32)
+WIN  = torch.arange(CTX, dtype=torch.int64)
 
 def get_batch(bs=args.bs):
-    anchors = torch.randint(0, N, (bs,), dtype=torch.int32)
+    anchors = torch.randint(0, N, (bs,), dtype=torch.int64)
     # Tạo ma trận chỉ số (bs, CTX) bằng broadcast
     idx = anchors[:, None] + WIN  # shape = (bs, ctx)
     batch_np = data[idx.numpy()] # # idx.numpy() là view, không copy
