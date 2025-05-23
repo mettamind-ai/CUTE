@@ -127,7 +127,7 @@ class CausalSelfAttention(nn.Module):
             self.window = -1 # full attn
         else:
             self.rotary = Rotary(head_dim, seq_len)
-            self.window = seq_len // 2
+            self.window = 1024
         self.attn_scale = 0.12
 
     """ Implement casual_conv1d đơn giản
@@ -179,7 +179,7 @@ class CausalSelfAttention(nn.Module):
         
         # y = F.scaled_dot_product_attention( q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
         # self.window = độ dài cửa sổ SWA => apply to flash_attn
-        y = flash_attn_func(
+        y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
             q=q, k=k, v=v, causal=True,      # q, k, v đã ở bf16
             # softmax_scale=self.attn_scale, # có thể sai chỗ này?
             window_size=(self.window, self.window),
@@ -202,7 +202,7 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
-            head_dim=head_dim, nope=layer_id % 3 == 2, layer_id=layer_id) # 2, 5, 8, 11 ...
+            head_dim=head_dim, nope=layer_id % 4 == 3, layer_id=layer_id) # 2, 5, 8, 11 ...
 
     def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
