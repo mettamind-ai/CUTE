@@ -23,12 +23,12 @@ mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
 math_? {torch.backends.cuda.math_sdp_enabled()}
 cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
 ###################################################################
-flash_attn_func = None
-if os.getenv('flash_attn', '1') == '1':
+USE_FLASH_ATTN = ( os.getenv('flash_attn', '1') == '1' )
+if USE_FLASH_ATTN:
     try:# to use flash_attn directly
-        from flash_attn import flash_attn_func
+        from flash_attn import flash_attn_func, flash_attn_varlen_func
         print("!!! Use Flash Attn 2 Directly !!!")
-    except: None
+    except: USE_FLASH_ATTN = False
 ###################################################################
 
 def norm(x: Tensor):
@@ -172,7 +172,7 @@ class CausalSelfAttention(nn.Module):
             # Trộn value với value embedding
             v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb.view(B, T, Hkv, D)
 
-        if flash_attn_func is None:
+        if not USE_FLASH_ATTN:
             # Make tensors contiguous and transpose for attention
             q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
             k = k.transpose(1, 2).contiguous()  # BTHD -> BHTD

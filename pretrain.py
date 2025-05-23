@@ -17,12 +17,12 @@ from optimus import Muon
 from train_utils import LRSchedule, print_model_stats, get_grad_norm
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=16) # 64k tokens/step works best in most cases
-parser.add_argument("--ctx", type=int, default=1024*4)
+parser.add_argument("--bs", type=int, default=8) # 64k tokens/step works best in most cases
+parser.add_argument("--ctx", type=int, default=1024*8)
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
-parser.add_argument("--exits", type=int, default=2, choices=[1,2,3])
+parser.add_argument("--exits", type=int, default=1, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
 parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
