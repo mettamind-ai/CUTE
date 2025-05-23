@@ -106,7 +106,7 @@ if __name__ == "__main__":
     torch.set_default_device("cuda")
 
     data = []
-    sizes = [1024, 2048, 4096]
+    sizes = [1024, 2048, 1024*3, 4096, 1024*6, 1024*8]
 
     for sz in sizes:
         print(f"M=N=K={sz}")
