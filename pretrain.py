@@ -85,7 +85,6 @@ else:        # (S)mall @ 4090 ~ 333m
         future_percent=args.future, exits=args.exits,
     )
 
-TOKS_PER_STEP = args.bs*args.ctx
 model = model.cuda()
 # print0(f"1st_LAYER {model.blocks[0]}")
 # print0(f'ATTN_IMPL sdpa')
@@ -101,16 +100,16 @@ if INT8:
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = args.ctx + 2
 N    = len(data) - CTX
-WIN  = torch.arange(CTX, dtype=torch.int64)
+WIN  = torch.arange(CTX)
 
-def get_batch(bs=args.bs):
-    anchors = torch.randint(0, N, (bs,), dtype=torch.int64)
+def get_batch():
+    anchors = torch.randint(0, N, (args.bs,))
     # Tạo ma trận chỉ số (bs, CTX) bằng broadcast
     idx = anchors[:, None] + WIN  # shape = (bs, ctx)
     batch_np = data[idx.numpy()] # # idx.numpy() là view, không copy
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
     return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
-            .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
+            .pin_memory().to("cuda", dtype=torch.int64, non_blocking=True))
 batch = get_batch()
 
 #############################
@@ -183,7 +182,7 @@ if args.compile:
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
 * int8? {INT8}, loss_fn {args.funloss}, future_ratio {model.future_ratio}
-* device_bs {args.bs}, seq_len {args.ctx}, {(TOKS_PER_STEP)//1024}k tokens/step
+* device_bs {args.bs}, seq_len {args.ctx}, {(args.bs*args.ctx)//1024}k tokens/step
 * layers {len(model.blocks)}, exits {model.exit_ids}, scales {model.exit_scales}
 """)
 model.train()
