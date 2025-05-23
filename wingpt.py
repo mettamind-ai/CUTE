@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 ## GPT for the WIN (cải biên từ modded nanogpt)
 
-import os, torch # Tránh lỗi và tăng tốc
+import os, math, torch # Tránh lỗi và tăng tốc
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
@@ -99,6 +99,8 @@ class CausalSelfAttention(nn.Module):
                 self.attn_mask = mask
         else:   self.attn_mask = None
 
+
+
         qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
 
@@ -163,15 +165,22 @@ class CausalSelfAttention(nn.Module):
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
-        ao = F.scaled_dot_product_attention(
+        ''' 4D mask https://github.com/huggingface/nanoVLM/blob/main/models/language_model.py#L128
+        y = F.scaled_dot_product_attention(
             q, k, v,
             is_causal=True, attn_mask=self.attn_mask,
             dropout_p=0.0, scale=self.attn_scale,
         )
-        # Transpose back to original shape [B, T, H, D]
-        ao = ao.transpose(1, 2).contiguous()
+        '''
+        attn = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
+        causal_mask = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
+        attn = attn.masked_fill(causal_mask == 0, float('-inf'))
+        attn = F.softmax(attn, dim=-1)
+        y = attn @ v
 
-        y = ao.reshape(B, T, H * D)
+        # Transpose back to original shape [B, T, H, D]
+        y = y.transpose(1, 2).contiguous()
+        y = y.reshape(B, T, H * D)
         y = self.o_proj(y)  # y có shape (B, T, dim)
         return y  # trả về y có shape giống hệt x đầu vào
 
