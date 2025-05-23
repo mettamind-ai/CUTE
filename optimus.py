@@ -350,10 +350,6 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
         assert scale_B.is_contiguous()
         return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
-    # generic tile-wise scaling
-    assert scale_A.shape[1] == scale_B.shape[0]
-    return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
-
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
 @torch.library.impl(lib, "tile_scaled_mm", "Meta")
@@ -435,7 +431,7 @@ print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
 @torch.no_grad()
 def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
-    ''' absmax symmetric quantization '''
+    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
     scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
     inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
     tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
