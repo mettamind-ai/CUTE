@@ -50,7 +50,8 @@
 - [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
 - [x] bench các sdpa engines
 🌸__DOING__🌸
-- [ ] áp dụng `flash_attn` cho SWA và packed sequence (mỗi sample chỉ attn chính nó)
+- [ ] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
+  - [ ] Làm lại tknz để tok_id 0 là <|end-of-text|>
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## Super Token

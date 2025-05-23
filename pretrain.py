@@ -48,7 +48,7 @@ elif args.bf16:  # Khởi động nhanh để dò số tokens / step hơn lý
     args.funloss = "fused"  # fused loss lúc compile sẽ báo warning
 else: # int8, need for speed mode!
     INT8 = True             # giúp 1.5x speedup
-    args.compile = True     # compile cho tốc độ tối đa, tốn time lúc đầu
+    # args.compile = True   # compile cho tốc độ tối đa, tốn time lúc đầu
     os.environ['INT8_MIXED_SR'] = args.int8rd
     from optimus import convert_int8_mixed_precision
 
