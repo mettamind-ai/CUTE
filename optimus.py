@@ -30,9 +30,7 @@ cfg = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup
 ]
 configs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfg]
 
-
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
-@triton.heuristics({"EVEN_K": lambda args: args["K"] % args["BLOCK_K"] == 0})
 @triton.jit
 def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr,
@@ -45,8 +43,6 @@ def _scaled_mm_kernel(
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
-    EVEN_K: tl.constexpr = True,
-    COL_SCALE_SCALAR: tl.constexpr = False,
 ):
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -83,11 +79,7 @@ def _scaled_mm_kernel(
     mask = (idx_m < M) & (idx_n < N)
 
     row_scale = tl.load(row_scale_ptr + idx_m, mask=idx_m < M).to(tl.float32)
-    if COL_SCALE_SCALAR:
-        # hack to support BitNet. col_scale is now a scalar
-        col_scale = tl.load(col_scale_ptr).to(tl.float32)
-    else:
-        col_scale = tl.load(col_scale_ptr + idx_n, mask=idx_n < N).to(tl.float32)
+    col_scale = tl.load(col_scale_ptr + idx_n, mask=idx_n < N).to(tl.float32)
     acc = acc.to(tl.float32) * row_scale * col_scale
 
     # inductor generates a suffix
@@ -125,16 +117,13 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
 def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     M, K = A.shape
     _, N = B.shape
-    C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
-
-    grid = lambda meta: (
-        triton.cdiv(meta["M"], meta["BLOCK_M"]) * 
-        triton.cdiv(meta["N"], meta["BLOCK_N"]),
-    )
 
     assert K % 2 == 0             # => EVEN_K = True
     assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
-    assert col_scale.numel() != 1 # => COL_SCALE_SCALAR = False
+
+    C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
+    grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+
     _scaled_mm_kernel[grid](
         A, B, C,
         row_scale,
@@ -143,7 +132,6 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
         *A.stride(),
         *B.stride(),
         *C.stride(),
-        COL_SCALE_SCALAR=col_scale.numel() == 1,
     )
     return C
 
