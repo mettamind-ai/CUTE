@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.bfloat16)
 torch.backends.cuda.enable_flash_sdp(            True)  # 50kt/step
 torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 35kt/step
 torch.backends.cuda.enable_math_sdp(            False)  # 14kt/step
-torch.backends.cuda.enable_cudnn_sdp(            True)  # 49kt/step
+torch.backends.cuda.enable_cudnn_sdp(           False)  # 49kt/step
 
 print(f""">> scaled_dot_product_attention engine
 flash? {torch.backends.cuda.flash_sdp_enabled()}
@@ -23,8 +23,12 @@ mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
 math_? {torch.backends.cuda.math_sdp_enabled()}
 cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
 ###################################################################
-from flash_attn import flash_attn_func
-print(">> Use Flash Attn 2 Directly")
+flash_attn_func = None
+if os.getenv('flash_attn', '1') == '1':
+    try:# to use flash_attn directly
+        from flash_attn import flash_attn_func
+        print("!!! Use Flash Attn 2 Directly !!!")
+    except: None
 ###################################################################
 
 def norm(x: Tensor):
@@ -168,20 +172,34 @@ class CausalSelfAttention(nn.Module):
             # Trộn value với value embedding
             v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb.view(B, T, Hkv, D)
 
-        # Make tensors contiguous and transpose for attention
-        q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD      
-        # Repeat KV heads to match query head count (GQA)
-        if self.num_kv_groups > 1:
+        if flash_attn_func is None:
+            # Make tensors contiguous and transpose for attention
+            q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
+            k = k.transpose(1, 2).contiguous()  # BTHD -> BHTD
+            v = v.transpose(1, 2).contiguous()  # BTHD -> BHTD
+            
+            # Repeat KV heads to match query head count (GQA)
+            k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
+            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
+            
+            y = F.scaled_dot_product_attention(
+                q, k, v, # attn_mask=self.attn_mask,
+                is_causal=True, dropout_p=0.0, scale=self.attn_scale,
+            )
+            # Transpose back to original shape [B, T, H, D]
+            y = y.transpose(1, 2).contiguous()
+        else:
+            # Make tensors contiguous and transpose for attention
+            q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD      
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=2)
-            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=2)
-        
-        y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
-            q=q, k=k, v=v, causal=True,
-            softmax_scale=self.attn_scale,
-            window_size=(self.window, self.window),
-        ) # out: (batch_size, seqlen, nheads, headdim) => BTHD
-
-        y = y.contiguous().reshape(B, T, H * D)
+            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=2)        
+            y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
+                q=q, k=k, v=v, causal=True,
+                softmax_scale=self.attn_scale,
+                window_size=(self.window, self.window),
+            ) # out: (batch_size, seqlen, nheads, headdim) => BTHD
+            y = y.contiguous()
+        y = y.reshape(B, T, H * D)
         y = self.o_proj(y) # y có shape (B, T, dim)
         return y    # trả về y có shape giống hệt x đầu vào
 
