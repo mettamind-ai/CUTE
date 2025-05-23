@@ -46,8 +46,6 @@ if args.test:               # test trên GPU laptop 4G vram
     args.bs = 1
 elif args.bf16:  # Khởi động nhanh để dò số tokens / step hơn lý
     args.funloss = "fused"  # fused loss lúc compile sẽ báo warning
-    torch.set_float32_matmul_precision('high') # tăng tốc bf16
-    torch.backends.cuda.matmul.allow_tf32  = True
 else: # int8, need for speed mode!
     INT8 = True             # giúp 1.5x speedup
     args.compile = True     # compile cho tốc độ tối đa, tốn time lúc đầu

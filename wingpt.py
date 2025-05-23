@@ -9,6 +9,9 @@ torch.set_default_dtype(torch.bfloat16)
 from torch import Tensor, nn
 import torch.nn.functional as F
 
+torch.set_float32_matmul_precision('high') # better for f32 head
+torch.backends.cuda.matmul.allow_tf32  = True
+
 def norm(x: Tensor):
     return F.rms_norm(x, (x.size(-1),))
 
