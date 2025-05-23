@@ -352,7 +352,7 @@ def simple_loss_fn(model, input_seq, target, future):
         logits = head(hidden.float())
         logits = logits.view(-1, logits.size(-1))
         logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
-        return F.cross_entropy(logits.float(), target), None
+        return F.cross_entropy(logits.float(), target.long()), None
     return _loss_fn(_loss_method, model, input_seq, target, future)
 
 
