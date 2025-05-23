@@ -168,28 +168,21 @@ class CausalSelfAttention(nn.Module):
             v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb.view(B, T, Hkv, D)
 
         # Make tensors contiguous and transpose for attention
-        q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
-        k = k.transpose(1, 2).contiguous()  # BTHD -> BHTD
-        v = v.transpose(1, 2).contiguous()  # BTHD -> BHTD
-        
+        q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD      
         # Repeat KV heads to match query head count (GQA)
         if self.num_kv_groups > 1:
-            k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
-            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
+            k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=2)
+            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=2)
         
-        # y = F.scaled_dot_product_attention( q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
-        # self.window = độ dài cửa sổ SWA => apply to flash_attn
         y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
-            q=q, k=k, v=v, causal=True,      # q, k, v đã ở bf16
-            # softmax_scale=self.attn_scale, # có thể sai chỗ này?
+            q=q, k=k, v=v, causal=True,
+            softmax_scale=self.attn_scale,
             window_size=(self.window, self.window),
-        )
+        ) # out: (batch_size, seqlen, nheads, headdim) => BTHD
 
-        # Transpose back to original shape [B, T, H, D]
-        y = y.transpose(1, 2).contiguous()
-        y = y.reshape(B, T, H * D)
-        y = self.o_proj(y)  # y có shape (B, T, dim)
-        return y  # trả về y có shape giống hệt x đầu vào
+        y = y.contiguous().reshape(B, T, H * D)
+        y = self.o_proj(y) # y có shape (B, T, dim)
+        return y    # trả về y có shape giống hệt x đầu vào
 
 
 ##############################
