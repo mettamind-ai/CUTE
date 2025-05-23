@@ -436,7 +436,7 @@ print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 @torch.no_grad()
 def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     ''' absmax symmetric quantization '''
-    scale = tensor.abs().amax(dim) / 127            # same dtype
+    scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
     inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
     tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
     if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
