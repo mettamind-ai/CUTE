@@ -5,9 +5,9 @@ from torch import Tensor, nn
 import torch.nn.functional as F
 
 # https://medium.com/data-science/fefa6f87b1d6          # Avg Step Time (ms)
-torch.backends.cuda.enable_flash_sdp(           False)  # 370
-torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 252   35kt/step
-torch.backends.cuda.enable_math_sdp(             True)  # 272
+torch.backends.cuda.enable_flash_sdp(            True)  # 252   
+torch.backends.cuda.enable_mem_efficient_sdp(   False)  # 272   35kt/step
+torch.backends.cuda.enable_math_sdp(            False)  # 377   14kt/step
 torch.backends.cuda.enable_cudnn_sdp(           False)  # 250   49kt/step
 
 print(f""">> scaled_dot_product_attention engine

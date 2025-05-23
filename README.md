@@ -41,16 +41,32 @@
   - cái nào core sẽ đưa vào group 40
   - cái nào phụ sẽ giảm dần theo tỉ lệ phía sau
 ## PLANING
-- **Schedule free optim**
-- **Spiral** Tăng dần hidden dim 4 layer 1 lần, đến cuối lại thu nhỏ lại Đối xứng theo U shape
 - Tìm hiểu `exits > 1` + `torch.compile` khiến vram bị đội lên
-- Canon impl in triton https://github.com/fla-org/flash-linear-attention/pull/388
+- Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
-  - https://github.com/LIONS-EPFL/scion
+- Scion https://github.com/LIONS-EPFL/scion
 ## [DONE](.save/DONE.md)
+- [x] tinh gọn `optimus.py`
+- [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
+- [x] bench các sdpa engines
 🌸__DOING__🌸
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
-- [ ] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
+
+## Super Token
+1 visual token có rất nhiều thông tin (diễn đạt bằng nhiều text token)
+Liệu có thể làm tương tự như visual encoder nhưng mà cho text? => **SUPER TEXT TOKEN**
+1 cụm n text tokens giờ đc biểu diễn = 1 embedding vector thay vì n như trước =>
+đó là biên giới hạn của ngôn ngữ con người.
+
+Máy có thể khai thác cái này để thông minh hơn ví dụ: Con lai của hổ và sư tử miêu tả là 
+`"1 con gì đó giống con hổ và con sư tử"` => từ mới `hổ sư` thay vì biểu diễn bằng 1 câu 
+sẽ có 1 miền trong token embeddings biểu diễn cái này
+miền đó nằm giữa trung điểm của vector hổ và vector sư tử
+
+biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ) 
+để đảm bảo tính cross entropy loss như bình thường, 
+nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
+
 - [ ] tìm hiểu mọi thứ về embedding / representation
 
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
