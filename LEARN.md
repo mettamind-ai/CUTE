@@ -1,17 +1,13 @@
 # Flash Attn in Triton
-- https://github.com/66RING/tiny-flash-attention
-- https://github.com/openai/triton/blob/main/python/tutorials/06-fused-attention.py
-- https://github.com/kyegomez/FlashAttention20Triton
-- https://github.com/hkproj/triton-flash-attention
-
-GPUMODE
+- [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
 - https://www.youtube.com/watch?v=zEuwuCTEf_0
 - https://www.youtube.com/watch?v=4jQTb6sRGLg
 - https://www.youtube.com/watch?v=zy8ChVd_oTM
 
-# READING / IDEA
-- Train trên 2k ctxlen trước, sau đó freeze 2/3 layers rồi train tiếp với 4k ctxlen
-  => mô phỏng long short layers
+# mô phỏng long short layers
+- Train 2k ctxlen trước, sau đó freeze 2/3 layers rồi train tiếp với 4k ctxlen
+
+---
 
 - optim scheduler: scaling laws for wd & bs in llm training
   https://x.com/dmsobol/status/1925273068840390801
