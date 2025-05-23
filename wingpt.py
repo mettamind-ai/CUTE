@@ -131,7 +131,7 @@ class CausalSelfAttention(nn.Module):
             print(f"Layer {layer_id} => NoPE, win {self.window}")
         else:
             self.rotary = Rotary(head_dim, seq_len)
-            self.window = 1024
+            self.window = seq_len // 4
             print(f"Layer {layer_id} => RoPE, win {self.window}")
         self.attn_scale = 0.12
 
