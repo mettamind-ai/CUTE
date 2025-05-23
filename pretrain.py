@@ -104,12 +104,11 @@ WIN  = torch.arange(CTX)
 
 def get_batch():
     anchors = torch.randint(0, N, (args.bs,))
-    # Tạo ma trận chỉ số (bs, CTX) bằng broadcast
     idx = anchors[:, None] + WIN  # shape = (bs, ctx)
-    batch_np = data[idx.numpy()] # # idx.numpy() là view, không copy
+    batch_np = data[idx.numpy()]  # idx.numpy() là view, không copy
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
     return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
-            .pin_memory().to("cuda", dtype=torch.int64, non_blocking=True))
+            .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
 batch = get_batch()
 
 #############################
