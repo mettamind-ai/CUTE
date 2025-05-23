@@ -98,22 +98,25 @@ if INT8:
 #################
 
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+N    = len(data)
 CTX  = args.ctx + 2
-N    = len(data) - CTX # số vị trí cho phép
-WIN  = torch.arange(CTX, dtype=torch.int32) # tái sử dụng
+BLK  = CTX * args.bs
+WIN  = torch.arange(CTX)
+END  = BLK
 
-def get_batch(bs: int = args.bs):
-    anchors = torch.randint(0, N, (bs,), dtype=torch.int32)
+def get_batch(randomize=False):
+    if randomize:
+        anchors = torch.randint(0, N - CTX, (args.bs,))
+    else: # Lấy dữ liệu tuần tự
+        global END;  END += 256
+        if END >= N: END  = BLK
+        anchors = torch.arange(END - BLK, END, CTX)
 
-    # Tạo ma trận chỉ số (bs, CTX) bằng broadcast; không vòng for!
+    # Tạo ma trận chỉ số (bs, CTX) bằng broadcast
     idx = anchors[:, None] + WIN  # shape = (bs, ctx)
+    batch_np = data[idx.numpy()] # # idx.numpy() là view, không copy
 
-    # Lấy thẳng các token tương ứng từ memmap
-    # idx.numpy() là view, không copy; data[...] trả ndarray (bs, ctx)
-    batch_np = data[idx.numpy()]
-
-    # Chuyển sang Tensor → pin_memory → GPU.
-    # Đổi dtype sang int32 chỉ MỘT lần trên GPU (nhanh hơn).
+    # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
     return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
             .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
 
