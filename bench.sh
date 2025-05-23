@@ -1,10 +1,9 @@
 
-./pretrain.py --S --steps 1125 --bs 32 --exits 1                 # minimal
+#./pretrain.py --S --steps 1125 --bs 32 --exits 1                 # minimal
 ./pretrain.py --S --steps 1125 --bs 32 --exits 1 --te 99 --ve 99 # max-inp
-./pretrain.py --S --steps 1125 --bs 32 --exits 1 --future        # future
+./pretrain.py --S --steps 1125 --bs 32 --exits 1 --future 10     # future
 
-# ./pretrain.py --S --steps 1125 --bs 16 --exits 3 --future                 # max-out
-# ./pretrain.py --S --steps 1125 --bs 16 --exits 3 --future --te 99 --ve 99 # maximal
+# ./pretrain.py --S --steps 1125 --bs 16 --exits 3 --future 10 --te 99 --ve 99 # maximal
 
 # ./pretrain.py --M --steps 1125 --bs 16
 # ./pretrain.py --M --steps 1125 --bs 16 --future 10
