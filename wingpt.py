@@ -96,7 +96,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, window=None, nope=False):
+            seq_len:int, head_dim=128, window=None, nope=False, layer_id=None):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
@@ -126,8 +126,8 @@ class CausalSelfAttention(nn.Module):
             self.q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self.o_proj.weight.zero_() # zero init
 
-        if nope: self.rotary = None; print(f"=> NoPE")
-        else: self.rotary = Rotary(head_dim, seq_len)
+        if nope: self.rotary = None                   ;print(f"Layer {layer_id} => NoPE")
+        else: self.rotary = Rotary(head_dim, seq_len)#;print(f"Layer {layer_id} => RoPE")
         self.attn_scale = 0.12
 
     """ Implement casual_conv1d đơn giản
@@ -198,7 +198,7 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
-            head_dim=head_dim, nope=layer_id % 3 == 2) # 2, 5, 8, 11 ...
+            head_dim=head_dim, nope=layer_id % 3 == 2, layer_id=layer_id) # 2, 5, 8, 11 ...
 
     def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
