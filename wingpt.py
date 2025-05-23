@@ -123,11 +123,12 @@ class CausalSelfAttention(nn.Module):
 
         if nope: 
             self.rotary = None
-            print(f"Layer {layer_id} => NoPE")
             self.window = -1 # full attn
+            print(f"Layer {layer_id} => NoPE, win {self.window}")
         else:
             self.rotary = Rotary(head_dim, seq_len)
             self.window = 1024
+            print(f"Layer {layer_id} => RoPE, win {self.window}")
         self.attn_scale = 0.12
 
     """ Implement casual_conv1d đơn giản
