@@ -262,3 +262,4 @@ if __name__ == "__main__":
     # 测试推理正确性.
     assert_triton_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
+    print("total_flops, higher is better.")
