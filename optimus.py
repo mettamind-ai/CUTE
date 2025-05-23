@@ -29,11 +29,7 @@ cfg = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup
     # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need?
 ]
 configs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfg]
-
-
-def _grid(meta):
-    return (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
-
+def _grid(meta): return (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
 
 # templated matmul from pytorch
 # https://github.com/pytorch/pytorch/blob/c2e2602ecdc2ec1f120e19198dfc18fc39f7bd09/torch/_inductor/kernel/mm.py
@@ -438,18 +434,14 @@ INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', '0')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
 @torch.no_grad()
-def quantize_int8(tensor: Tensor, *, dim: int = -1, eps: float = 1e-12, sr=False) -> Tensor:
-    # absmax symmetric quantization
-    dtype = tensor.dtype
-    tensor = tensor.float()
-    scale = tensor.abs().amax(dim, keepdim=True) / 127
-    tensor = tensor / scale.clip(eps)
-
+def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
+    ''' absmax symmetric quantization '''
+    scale = tensor.abs().amax(dim) / 127            # same dtype
+    inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
+    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
     if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
     else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
-
-    tensor = tensor.clip(-128, 127).to(torch.int8)
-    return tensor, scale.to(dtype)
+    return ( tensor.clip(-128, 127).to(torch.int8), scale )
 
 class MixedPrecisionLinearWeight(Tensor):
     @staticmethod
