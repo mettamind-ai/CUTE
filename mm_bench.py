@@ -120,6 +120,9 @@ if __name__ == "__main__":
         A_i8 = torch.randint(-128, 127, size=(sz, sz), dtype=torch.int8)
         B_i8 = torch.randint(-128, 127, size=(sz, sz), dtype=torch.int8)
 
+        A_f8 = torch.randn(sz, sz).to(torch.float8_e4m3fn)
+        B_f8 = torch.randn(sz, sz).to(torch.float8_e4m3fn)
+
         A_bf16, A_f16, A_i8 = [to_layout(x, args.a_column_major) for x in [A_bf16, A_f16, A_i8]]
         B_bf16, B_f16, B_i8 = [to_layout(x, args.b_column_major) for x in [B_bf16, B_f16, B_i8]]
 
