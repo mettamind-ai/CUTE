@@ -100,14 +100,13 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, window=None, nope=False, layer_id=None):
+            seq_len:int, head_dim=128, nope=False, layer_id=None):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
         self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
-        self.window = window
 
         qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
@@ -122,8 +121,13 @@ class CausalSelfAttention(nn.Module):
             self.q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self.o_proj.weight.zero_() # zero init
 
-        if nope: self.rotary = None                   ;print(f"Layer {layer_id} => NoPE")
-        else: self.rotary = Rotary(head_dim, seq_len)#;print(f"Layer {layer_id} => RoPE")
+        if nope: 
+            self.rotary = None
+            print(f"Layer {layer_id} => NoPE")
+            self.window = -1 # full attn
+        else:
+            self.rotary = Rotary(head_dim, seq_len)
+            self.window = seq_len // 2
         self.attn_scale = 0.12
 
     """ Implement casual_conv1d đơn giản
@@ -174,9 +178,12 @@ class CausalSelfAttention(nn.Module):
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
         
         # y = F.scaled_dot_product_attention( q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
-        # TODO: self.window = độ dài cửa sổ SWA => apply to flash_attn
-        y = flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=self.attn_scale, 
-            causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+        # self.window = độ dài cửa sổ SWA => apply to flash_attn
+        y = flash_attn_func(
+            q=q, k=k, v=v, causal=True,      # q, k, v đã ở bf16
+            # softmax_scale=self.attn_scale, # có thể sai chỗ này?
+            window_size=(self.window, self.window),
+        )
 
         # Transpose back to original shape [B, T, H, D]
         y = y.transpose(1, 2).contiguous()

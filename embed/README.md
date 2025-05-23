@@ -54,3 +54,13 @@ https://x.com/gabriberton/status/1922542722558067079
 ## ModernBERT
 https://arxiv.org/html/2412.13663v2
 
+**Alternating Attention** from Gemma et al. (2024), attention layers in ModernBERT alternate between global attention, where every token within a sequence attends to every other token, and local attention, where tokens only attend to each other within a small sliding window Beltagy et al. (2020). In ModernBERT, every third layer employs global attention with a RoPE theta of 160,000 and the remaining layers use a 128 token, local sliding window attention with a RoPE theta of 10,000.
+
+We use Flash Attention’s variable length attention and RoPE implementations, allowing jagged attention masks and RoPE applications on one unpadded sequence. **ModernBERT unpads inputs before the token embedding layer and optionally repads model outputs** leading to a 10-to-20 percent performance improvement over other unpadding methods.
+
+ModernBERT has `22 and 28 layers` for the base and large models, for a total parameter count of `149 and 395 million`, respectively, striking the balance between downstream performance and hardware efficiency. ModernBERT `base has a hidden size of 768` with a GLU expansion of 2,304, while `large has a hidden size of 1,024` and GLU expansion of 5,248. These ratios allow optimal tiling across tensor cores and the most efficient tiling across the differing number of streaming multiprocessors on our target basket of GPUs. More details on model design are provided in [Appendix B](https://arxiv.org/html/2412.13663v2#A2).
+
+We warmup ModernBERT’s batch size from `768 to 4,608` over 50 billion tokens and from `448 to 4,928` over 10 billion tokens, for -base and -large, respectively, with an uneven token schedule so each batch size has the same number of update steps.
+
+**Context Length Extension** After training on `1.7 trillion tokens at a 1024 sequence length` and RoPE theta of 10,000, we extend the native context length of ModernBERT to 8192 tokens by increasing the global attention layer’s RoPE theta to 160,000 and train for an additional 300 billion tokens. We first train at a constant lower learning rate6 of 3e-4 for 250 billion tokens on an 8192 token mixture of the original pretraining dataset sampled following  Fu et al. (2024).
+
