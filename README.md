@@ -52,6 +52,7 @@
 🌸__DOING__🌸
 - [ ] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
   - [ ] Làm lại tknz để tok_id 0 là <|end-of-text|>
+  - [ ] tại sao flash_attn + compile lại đội VRAM lên? => Thử Torch 2.5?
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## Super Token
