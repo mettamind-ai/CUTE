@@ -13,7 +13,6 @@ import numpy as np
 from tqdm import tqdm
 from torch import Tensor, nn
 
-from optimus import Muon1GPU as Muon
 from train_utils import LRSchedule, print_model_stats, get_grad_norm
 
 parser = argparse.ArgumentParser()
@@ -36,6 +35,8 @@ for x in "T C XS S L M".split():
 args = parser.parse_args()
 
 os.environ['INT8_MIXED_SR'] = args.int8rd
+from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
+
 ## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
 if args.T:            # test trên GPU laptop 4G vram
     args.steps = 100  # thử nhỏ cho vui
@@ -82,7 +83,6 @@ else:        # (XS)mall ~ 100m
         vocab_size=args.vocab, max_seq_len=args.ctx,
     )
 model = model.cuda()
-from optimus import convert_int8_mixed_precision
 count = convert_int8_mixed_precision(model)
 print0(f"INT8 Mixed Precision: {count} Linear converted.")
 
