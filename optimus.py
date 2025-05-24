@@ -408,7 +408,8 @@ def newtonschulz(G: Tensor, steps: int, fast=True) -> Tensor:
             matmul_transpose_assign(X, buf1)
             matmul_transpose_assign(buf1, buf2)
             B = b * buf1 + c * buf2
-            X = a * X + B @ X
+            # X = a * X + B @ X
+            X = a * X +     _dynamic_int8_mm(B,    X, sr=True)
             ''' INT8
             A =             _dynamic_int8_mm(X, X.mT, sr=True)
             B = b * A + c * _dynamic_int8_mm(A,    A, sr=True)
