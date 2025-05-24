@@ -13,7 +13,7 @@ import numpy as np
 from tqdm import tqdm
 from torch import Tensor, nn
 
-from optimus import Muon
+from optimus import Muon1GPU as Muon
 from train_utils import LRSchedule, print_model_stats, get_grad_norm
 
 parser = argparse.ArgumentParser()

@@ -230,15 +230,20 @@ class Future(nn.Module):
     """ Dự đoán xa hơn 1 token, ideas from Multi-Token Prediction, DeepSeek và MiMo papers """
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
         super().__init__()
-        self.block = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim)
+        self.mlp = ReLuSquareMLP(dim, 2*dim) # nhẹ 2/3 MLP bình thường
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim, nope=True)
+
         self.proj = nn.Linear(2*dim, dim, bias=False)
         with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
-    def forward(self, x, x0, te, ve, l, s, cu_seqlens, max_seqlen):
+    def forward(self, x, x0, te, ve, tl, vl, cu_seqlens, max_seqlen):
         # trộn feat của last layer với token embed gốc (x0)
-        x = torch.cat((norm(x), x0), dim=2)
+        x = torch.cat((x, x0), dim=2)
         x = self.proj(x) # mlp mixer
-        x = self.block(x, None, te, ve, l, s, cu_seqlens, max_seqlen)
+        x = norm(x)
+        if te is not None: x += tl[2] * te # trộn với layer tok emb
+        x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen)
+        x = x + self.mlp(norm(x))
         return norm(x)
 
 
@@ -255,7 +260,7 @@ class WinGPT(nn.Module):
 
         self.future_ratio = future_percent / 100.0
         if self.has_future():
-            blocks.append(Future(dim, num_heads, num_kv_heads, max_seq_len, head_dim))
+            blocks.append(Future(dim, num_heads//2, num_kv_heads//2, max_seq_len, head_dim))
 
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
@@ -378,8 +383,9 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
         loss += model.exit_scales[i] * x
 
     if not model.has_future(): return loss
-    assert len(layer_outputs) + 1 == len(model.blocks)
+    if torch.rand(1).item() > model.future_ratio: return loss
 
+    assert len(layer_outputs) + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
         model.blocks[-1](layer_outputs[-1], te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m),
         future.flatten(),  # lm_head của main task nằm đầu
@@ -411,7 +417,8 @@ except: None
 if __name__ == "__main__":
     import os
     import numpy as np
-    from optimus import Muon, convert_int8_mixed_precision
+    from optimus import Muon1GPU as Muon
+    from optimus import convert_int8_mixed_precision
 
     loss_fn = simple_loss_fn
     # loss_fn = fused_loss_fn
