@@ -102,14 +102,13 @@ class CausalSelfAttention(nn.Module):
         kv_inner_dim = num_kv_heads * head_dim
 
         self.kv_proj = nn.Linear(dim, 2*kv_inner_dim, bias=False)
-        self.q_proj = nn.Linear(dim, qo_inner_dim, bias=False)
-        self.o_proj = nn.Linear(qo_inner_dim, dim, bias=False)
+        self. q_proj = nn.Linear(dim,   qo_inner_dim, bias=False)
+        self. o_proj = nn.Linear(  qo_inner_dim, dim, bias=False)
 
-        # Set the weights directly
-        with torch.no_grad():
+        with torch.no_grad(): # init weights
             self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
-            self.q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
-            self.o_proj.weight.zero_() # zero init
+            self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
+            self. o_proj.weight.zero_() # zero init
 
         if nope: 
             self.rotary = None
@@ -119,6 +118,7 @@ class CausalSelfAttention(nn.Module):
             self.rotary = Rotary(head_dim, seq_len)
             self.window = 1024  # short
             print(f"Layer {layer_id} => RoPE, win {self.window}")
+
         self.attn_scale = 0.12
 
 
