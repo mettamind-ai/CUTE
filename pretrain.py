@@ -174,8 +174,8 @@ if   args.funloss ==  "simple": from wingpt import  simple_loss_fn as loss_fn
 elif args.funloss ==   "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
-if args.compile:
-    model   = torch.compile(model);    print(">> torch.compile(model)")
+# if args.compile:
+    # model   = torch.compile(model);    print(">> torch.compile(model)")
     # loss_fn = torch.compile(loss_fn);  print(">> torch.compile(loss_fn)")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
