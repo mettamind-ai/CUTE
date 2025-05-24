@@ -47,7 +47,6 @@ parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
-parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
@@ -55,7 +54,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "T C XS S L M".split():
+for x in "T C XS S L M fusedloss".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -118,10 +117,13 @@ WIN  = torch.arange(CTX)
 def get_batch():
     idx = torch.randint(0, N, (1,)) + WIN  # shape = (CTX)
     idx = idx.numpy() # idx.numpy() là view, không copy
-    x = torch.from_numpy(data[idx])
+    x = torch.from_numpy(data[idx]) 
+    c, m = get_cu_max_seqlens_from(x[:-2], eot=6399)
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
-    return x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
-batch = get_batch()
+    x = x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
+    c = c.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
+    return x, c, m
+batch, cu_seqlens, max_seqlen = get_batch()
 
 #############################
 ## Init Optimizer(s)
@@ -182,18 +184,17 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 ## LOSS FUNCTION & PREPARE ##
 #############################
-if   args.funloss == "simple": from wingpt import  simple_loss_fn as loss_fn
-elif args.funloss ==  "fused": from wingpt import   fused_loss_fn as loss_fn
-else: assert False, f"Not support {args.funloss}"
+from wingpt import simple_loss_fn, fused_loss_fn
+loss_fn = fused_loss_fn if args.fusedloss else simple_loss_fn
 
 if args.C:
     model = torch.compile(model); print(">>> torch.compile(model) <<<")
-    if args.funloss == "simple":
+    if not args.fusedloss:
         loss_fn = torch.compile(loss_fn); print(">>> torch.compile(loss_fn) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * world_size {world_size}, compile? {args.C}
-* loss_fn {args.funloss}, future_ratio {model.future_ratio}
+* loss_fn {loss_fn.__name__}, future_ratio {model.future_ratio}
 * seq_len {tokens_per_batch//1024}k tokens/step
 """)
 model.train()
@@ -210,10 +211,8 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 while step < args.steps and lossf > args.minloss:
     # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
-    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=6399)
-
-    loss  = loss_fn(model, tokens, targets, future, cu_seqlens, max_seqlen)
-    batch = get_batch()  # async prefetch next batch
+    loss = loss_fn(model, tokens, targets, future, cu_seqlens, max_seqlen)
+    batch, cu_seqlens, max_seqlen = get_batch() # async prefetch next batch
     loss.backward()
 
     adam_lr_schedule.set_lr(step, adam_optim)
