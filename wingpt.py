@@ -358,7 +358,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if maximum_seqlen < m: maximum_seqlen = m; print(f">>> maximum_seqlen {m}")
 
     if not model.has_future(): return loss
-    if torch.rand(1).item() > model.future_ratio: return loss
+    if torch.rand(1).item() > 0.5: return loss
 
     assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
