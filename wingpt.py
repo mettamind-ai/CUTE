@@ -3,6 +3,7 @@
 import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
+from optimus import Int8MixedLinear
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -52,21 +53,16 @@ class ReLuSquareMLP(nn.Module):
         if not hdim: hdim = int(3 * dim)
         if not odim: odim = dim
 
-        self.fc = nn.Linear(dim, hdim, bias=False)
-        self.proj = nn.Linear(hdim, odim, bias=False)
-        
-        with torch.no_grad():
-            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            self.proj.weight.zero_()
-        
-        # Add weight decay multiplier attribute to the weights
-        self.fc.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
+        self.fc_w = nn.Parameter(init_linear(torch.empty(hdim, dim)).bfloat16())
+        self.proj_w = nn.Parameter(torch.zeros(odim, hdim).bfloat16())
+
+        self.fc_w.wd_mul   = 2.0  # điều chỉnh hệ số weight decay
+        self.proj_w.wd_mul = 2.0  # gấp đôi so với mặc định 
 
     def forward(self, x:Tensor):
-        y = self.fc(x)
+        y = Int8MixedLinear.apply(x, self.fc_w)
         y = F.relu(y).square() 
-        x = self.proj(y)
+        x = Int8MixedLinear.apply(y, self.proj_w)
         return x
 
 
@@ -394,7 +390,6 @@ if __name__ == "__main__":
     import os
     import numpy as np
     from optimus import Muon1GPU as Muon
-    from optimus import convert_int8_mixed_precision
 
     # Clear cache and reset peak memory stats
     torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
@@ -409,9 +404,6 @@ if __name__ == "__main__":
     print(f"batch_size {batch_size}, seq_len {seq_len}")
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
                         ve=3, te=3, future_percent=20).cuda()
-
-    if os.environ.get('int8', '1') == '1':
-        print(convert_int8_mixed_precision(model), "linear converted to int8") # lỗi trên 3050
 
     ## Generate sequences with batch dimension
     input_seq = torch.randint(0, vocab_size, (batch_size, seq_len)).cuda()
