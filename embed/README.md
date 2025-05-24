@@ -64,3 +64,22 @@ We warmup ModernBERT’s batch size from `768 to 4,608` over 50 billion tokens a
 
 **Context Length Extension** After training on `1.7 trillion tokens at a 1024 sequence length` and RoPE theta of 10,000, we extend the native context length of ModernBERT to 8192 tokens by increasing the global attention layer’s RoPE theta to 160,000 and train for an additional 300 billion tokens. We first train at a constant lower learning rate6 of 3e-4 for 250 billion tokens on an 8192 token mixture of the original pretraining dataset sampled following  Fu et al. (2024).
 
+## ViT, VLM
+- InternVL https://arxiv.org/html/2412.05271v4
+- VFM via Visual Linguistic Task https://alphaxiv.org/abs/2312.14238
+
+![](https://arxiv.org/html/2412.05271v4/x2.png)
+- `448 × 448 image tile` is represented by `256 visual tokens`
+- randomly initialized 2-layer MLP projector (to map visual token to LLM embeddings)
+
+InternViT-300M-448px-Distill is a distilled variant of the teacher model, InternViT-6B-448px-V1.5, utilizing a cosine distillation loss. This model comprises 0.3B parameters, 24 layers, a hidden size of 1024, and 16 attention heads. Unlike the 6B version, the 0.3B variant employs standard LayerNorm [11] without QK-Norm [53]. To reduce distillation costs, we initialized this model using CLIP-ViT-Large-336px [195] where applicable, despite some architectural differences. After distillation, we integrated this model with an LLM and, following a similar procedure as described above, trained the vision encoder with dynamic high-resolution and the NTP loss. Then, we extracted the vision encoder and released it as InternViT-300M-448px. In this report, we further refined the InternViT-300M by incrementally pre-training the previous weights on a more diverse data mixture using the NTP loss, leading to the enhanced InternViT-300M-448px-V2.5.
+
+![](internvl-00-crunch.png)
+
+### VLM inputs
+![](https://arxiv.org/html/2412.05271v4/x3.png)
+
+### 3.2 Single Model Training Pipeline
+![](https://arxiv.org/html/2412.05271v4/x4.png)
+![](internvl-01-crunch.png)
+
