@@ -11,29 +11,12 @@ torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
 torch.set_default_dtype(torch.bfloat16)
 
-#######################################################################
-USE_FLASH_ATTN = ( os.getenv('flash_attn', '1') == '1' )
-if USE_FLASH_ATTN:
-    try:# to use flash_attn directly
-        from flash_attn import flash_attn_func, flash_attn_varlen_func
-        print("!!! Use Flash Attn 2 Directly !!!")
-    except: USE_FLASH_ATTN = False
-#######################################################################
-if not USE_FLASH_ATTN:
-    # SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
-    torch.backends.cuda.enable_flash_sdp(            True)   # 50kt/sec
-    torch.backends.cuda.enable_mem_efficient_sdp(   False)   # 35kt/sec
-    torch.backends.cuda.enable_math_sdp(            False)   # 14kt/sec
-    torch.backends.cuda.enable_cudnn_sdp(            True)   # 49kt/sec
+##############################################################
+from flash_attn import flash_attn_func, flash_attn_varlen_func
+print("!!! Muse Use Flash Attn 2 for Sample Packing !!!")
+##############################################################
 
-    print(f""">> scaled_dot_product_attention engine
-    flash? {torch.backends.cuda.flash_sdp_enabled()}
-    mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
-    math_? {torch.backends.cuda.math_sdp_enabled()}
-    cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
-#######################################################################
-
-def norm(x: Tensor):
+def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
 
 @torch.no_grad()
@@ -91,18 +74,18 @@ class Rotary(nn.Module):
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
 
-    def forward(self, x_BTHD: Tensor):
-        seq_len = x_BTHD.size(-3) # batch, T seq_len, head, dim (of head)
+    def forward(self, x_THD: Tensor):
+        seq_len = x_THD.size(-3) # T seq_len, head, dim (of head)
         assert self.cos.size(0) >= seq_len, f"{self.cos.size(0)} >= {seq_len}?"
 
-        cos = self.cos[None, :seq_len, None, :] # [1, seq_len, 1, dim]
-        sin = self.sin[None, :seq_len, None, :] # [1, seq_len, 1, dim]
+        cos = self.cos[:seq_len, None, :] # [seq_len, 1, dim]
+        sin = self.sin[:seq_len, None, :] # [seq_len, 1, dim]
 
-        x1, x2 = x_BTHD.to(dtype=torch.float32).chunk(2, dim=-1)
+        x1, x2 = x_THD.to(dtype=torch.float32).chunk(2, dim=-1)
 
         y1 = x1 * (+cos) + x2 * sin
         y2 = x1 * (-sin) + x2 * cos
-        return torch.cat((y1, y2), 3).type_as(x_BTHD)
+        return torch.cat((y1, y2), -1).type_as(x_THD)
 
 
 class CausalSelfAttention(nn.Module):
@@ -130,78 +113,44 @@ class CausalSelfAttention(nn.Module):
 
         if nope: 
             self.rotary = None
-            self.window = -1 # full attn
+            self.window = 1024*4 # long
             print(f"Layer {layer_id} => NoPE, win {self.window}")
         else:
             self.rotary = Rotary(head_dim, seq_len)
-            self.window = seq_len // 4
+            self.window = 1024  # short
             print(f"Layer {layer_id} => RoPE, win {self.window}")
         self.attn_scale = 0.12
 
-    """ Implement casual_conv1d đơn giản
-        self.conv_kernel = 3
-        self.kv_conv = torch.ones(
-            kv_inner_dim,       # số kênh (C / D / hidden dim)
-            1,                  # số kênh đầu vào cho mỗi nhóm
-            self.conv_kernel,   # kích thước cửa sổ trượt conv
-        ).cuda() / self.conv_kernel # khởi tạo 1 / k => avg
-
-    def causal_moving_avg(self, x):
-        B, T, C = x.shape
-        x = x.view(B, C, T)
-        pad_left = self.conv_kernel - 1
-        y = F.pad(x, (pad_left, 0))
-        y = F.conv1d(y, self.kv_conv, groups=C)
-        return (x + y).view(B, T, C)
-    # """
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen):
         q    = self.q_proj(x)
-        k, v = self.kv_proj(x).chunk(2, dim=-1) # B, T, C
-        # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
-
-        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
-        B, T, C   = k.shape; assert C == Hkv * D
-
-        ## Chuyển q, k, v thành x_BTHD
-        q = q.view(B, T, H,   D)
-        k = k.view(B, T, Hkv, D)
-        v = v.view(B, T, Hkv, D)
-
-        q, k, v = norm(q), norm(k), norm(v)
-        if self.rotary: q, k = self.rotary(q), self.rotary(k)
+        k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
 
         if ve_lambdas is not None and v_emb is not None:
-            # Trộn value với value embedding
-            v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb.view(B, T, Hkv, D)
+            v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
 
-        if not USE_FLASH_ATTN:
-            # Make tensors contiguous and transpose for attention
-            q = q.transpose(1, 2).contiguous()  # BTHD -> BHTD
-            k = k.transpose(1, 2).contiguous()  # BTHD -> BHTD
-            v = v.transpose(1, 2).contiguous()  # BTHD -> BHTD
-            
-            # Repeat KV heads to match query head count (GQA)
-            k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
-            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
-            
-            y = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
-            y = y.transpose(1, 2) # back to [B, T, H, D]
-        else:
-            # Make tensors contiguous and transpose for attention
-            # q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD
-            y = flash_attn_varlen_func(
-                q.reshape(B*T, H, D),
-                k.reshape(B*T, Hkv, D), 
-                v.reshape(B*T, Hkv, D),
-                cu_seqlens, cu_seqlens,
-                max_seqlen, max_seqlen,
-                causal=True, dropout_p=0.0,
-                softmax_scale=self.attn_scale,
-                window_size=(self.window, 0),
-            )
-        y = y.contiguous().reshape(B, T, H * D)
-        y = self.o_proj(y) # y có shape (B, T, dim)
+        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
+        T, C = k.shape; assert C == Hkv * D
+
+        ## Chuyển q, k, v thành x_THD
+        q = q.view(T, H,   D)
+        k = k.view(T, Hkv, D)
+        v = v.view(T, Hkv, D)
+
+        q, k, v = norm(q), norm(k), norm(v) # theo chiều D
+        if self.rotary: q, k = self.rotary(q), self.rotary(k)
+
+        y = flash_attn_varlen_func(
+            q, k, v,
+            cu_seqlens, cu_seqlens,
+            max_seqlen, max_seqlen,
+            causal=True, dropout_p=0.0,
+            softmax_scale=self.attn_scale,
+            window_size=(self.window, 0),
+        )
+        # y = y.contiguous()
+        y = y.reshape(T, H * D)
+        y = self.o_proj(y) # y có shape (T, dim)
         return y    # trả về y có shape giống hệt x đầu vào
 
 
@@ -239,7 +188,7 @@ class Future(nn.Module):
 
     def forward(self, x, x0, te, ve, tl, vl, cu_seqlens, max_seqlen):
         # trộn feat của last layer với token embed gốc (x0)
-        x = torch.cat((x, x0), dim=2)
+        x = torch.cat((x, x0), dim=-1)
         x = self.proj(x) # mlp mixer
         x = norm(x)
         if te is not None: x += tl[2] * te # trộn với layer tok emb
@@ -340,13 +289,13 @@ class WinGPT(nn.Module):
 ## Loss function ##
 ###################
 
-maximum_seqlen = 0
+max_sample_len = 0
 def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
     x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
-    global maximum_seqlen # log lại seqlen lớn nhất
-    if maximum_seqlen < m: maximum_seqlen = m; print(f">>> maximum_seqlen {m}")
+    global max_sample_len
+    if max_sample_len < m: max_sample_len = m; print(f">>> max_sample_len {m}")
 
     if not model.has_future(): return loss
     if torch.rand(1).item() > 0.5: return loss
@@ -381,13 +330,13 @@ except: None
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
-        mask[:, -1] = True
+        mask[-1] = True
         cu_seqlens = torch.cat([
             torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
-            torch.where(mask.flatten())[0].to(torch.int32) + 1,
+            torch.where(mask)[0].to(torch.int32) + 1,
         ])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
-        # print(cu_seqlens, max_seqlen) # DEBUG
+        # print(mask, cu_seqlens, max_seqlen)
         return cu_seqlens, max_seqlen
 
 ## TEST MODEL
@@ -398,24 +347,24 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     # Clear cache and reset peak memory stats
-    torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
     
-    # Use a medium-sized model to show memory benefits
+    seq_len = 256
     vocab_size = 1981
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 8, 4
-    print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}")
+    print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
     
-    batch_size, seq_len = 2, 256
-    print(f"batch_size {batch_size}, seq_len {seq_len}")
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
-                        ve=3, te=3, future_percent=20).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3, te=3, future_percent=20).cuda()
     convert_int8_mixed_precision(model)
+    # model = torch.compile(model) # chậm !!!
 
     ## Generate sequences with batch dimension
-    input_seq = torch.randint(0, vocab_size, (batch_size, seq_len)).cuda()
-    target    = torch.randint(0, vocab_size, (batch_size, seq_len,)).cuda()
-    future    = torch.randint(0, vocab_size, (batch_size, seq_len,)).cuda()
+    input_seq = torch.randint(0, vocab_size, (seq_len,)).cuda()
+    target    = torch.randint(0, vocab_size, (seq_len,)).cuda()
+    future    = torch.randint(0, vocab_size, (seq_len,)).cuda()
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
     aptim = torch.optim.Adam([p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n])
     optim = Muon([p for n, p in model.named_parameters() if "fc" in n or "proj" in n])
@@ -425,12 +374,10 @@ if __name__ == "__main__":
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
     for step in range(10):
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
         loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
         loss.backward()
         optim.step(); optim.zero_grad()
         aptim.step(); aptim.zero_grad()
-
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")

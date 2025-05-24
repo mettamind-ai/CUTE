@@ -13,11 +13,36 @@ import numpy as np
 from tqdm import tqdm
 from torch import Tensor, nn
 
-from train_utils import LRSchedule, print_model_stats, get_grad_norm
+class LRSchedule:
+    def __init__(self, lr, n_steps, decay_type="linear",
+        warmup: float = 0.05, # 05% warmup đi từ 0 -> init_lr
+        decay:  float = 0.15, # 80% stable @ init_lr, 15% decay to 0
+    ):
+        self.lr = lr
+        self.t1 = int(n_steps * warmup)
+        self.t2 = int(n_steps * (1 - decay))
+        self.t3 = n_steps
+        self.decay_type = decay_type
+        assert self.t1 <= self.t2
+        assert decay_type in ("linear", "cosine")
+
+    def get_lr(self, step: int) -> float:
+        if step < 0 or step > self.t3: return 0.0
+        if step < self.t1: return self.lr * step / self.t1
+        if step < self.t2: return self.lr
+
+        progress = (step - self.t2) / (self.t3 - self.t2)
+        if self.decay_type == "linear": return self.lr * (1 - progress)
+        return 0.5 * self.lr * (1 + math.cos(progress * math.pi)) # cosine
+
+    def set_lr(self, step: int, optim: torch.optim.Optimizer):
+        for param_group in optim.param_groups:
+            if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
+            else: param_group["lr"] = self.get_lr(step)
+
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=8) # 64k tokens/step works best in most cases
-parser.add_argument("--ctx", type=int, default=1024*8)
+parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
@@ -38,49 +63,44 @@ os.environ['INT8_MIXED_SR'] = args.int8rd
 from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
 ## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
-if args.T:            # test trên GPU laptop 4G vram
-    args.steps = 100  # thử nhỏ cho vui
-    args.bs = 1
-
-rank = 0
-is_dist = False
-world_size = 1
-is_master = (rank == 0)
+if args.T: args.bs, args.steps = 1, 100 # thử nhỏ thôi
+rank, world_size, is_master = 0, 1, True # 1 GPU
 def print0(msg): is_master and print(msg)
-torch.manual_seed(1981 + rank) # đảm bảo random giống nhau
+torch.manual_seed(1981 + rank)
 
 #############################
 ## Init model for pretraining
 #############################
 from wingpt import WinGPT, get_cu_max_seqlens_from
+tokens_per_batch = args.bs*1024
 
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(
         future_percent=args.future,
         ve=args.ve, dim=2048, n_layers=27,
         te=args.te, num_heads=8, num_kv_heads=4,
-        vocab_size=args.vocab, max_seq_len=args.ctx,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 elif args.M: # (M)edium ~ 666m
     model = WinGPT(
         future_percent=args.future,
         ve=args.ve, dim=1664, n_layers=26,
         te=args.te, num_heads=8, num_kv_heads=4,
-        vocab_size=args.vocab, max_seq_len=args.ctx,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 elif args.S: # (S)mall ~ 333m
     model = WinGPT(
         future_percent=args.future,
         ve=args.ve, dim=1280, n_layers=22,
         te=args.te, num_heads=8, num_kv_heads=4,
-        vocab_size=args.vocab, max_seq_len=args.ctx,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 else:        # (XS)mall ~ 100m
     model = WinGPT(
         future_percent=args.future,
         ve=args.ve, dim=768, n_layers=16,
         te=args.te, num_heads=8, num_kv_heads=4,
-        vocab_size=args.vocab, max_seq_len=args.ctx,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 model = model.cuda()
 count = convert_int8_mixed_precision(model)
@@ -91,17 +111,16 @@ print0(f"INT8 Mixed Precision: {count} Linear converted.")
 ## Data loader ##
 #################
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
-CTX  = args.ctx + 2
+CTX  = tokens_per_batch + 2
 N    = len(data) - CTX
 WIN  = torch.arange(CTX)
 
 def get_batch():
-    anchors = torch.randint(0, N, (args.bs,))
-    idx = anchors[:, None] + WIN  # shape = (bs, ctx)
-    batch_np = data[idx.numpy()]  # idx.numpy() là view, không copy
+    idx = torch.randint(0, N, (1,)) + WIN  # shape = (CTX)
+    idx = idx.numpy() # idx.numpy() là view, không copy
+    x = torch.from_numpy(data[idx])
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
-    return (torch.from_numpy(batch_np)  # uint16, CPU, pinned
-            .pin_memory().to("cuda", dtype=torch.int32, non_blocking=True))
+    return x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
 batch = get_batch()
 
 #############################
@@ -173,9 +192,9 @@ if args.C:
         loss_fn = torch.compile(loss_fn); print(">>> torch.compile(loss_fn) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
-* is_dist {is_dist}, world_size {world_size}, compile? {args.C}
+* world_size {world_size}, compile? {args.C}
 * loss_fn {args.funloss}, future_ratio {model.future_ratio}
-* device_bs {args.bs}, seq_len {args.ctx}, {(args.bs*args.ctx)//1024}k tokens/step
+* seq_len {tokens_per_batch//1024}k tokens/step
 """)
 model.train()
 step = 0
@@ -190,8 +209,8 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 #############################
 while step < args.steps and lossf > args.minloss:
     # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
-    tokens, targets, future = batch[:, :-2], batch[:, 1:-1], batch[:, 2:]
-    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens)
+    tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=6399)
 
     loss  = loss_fn(model, tokens, targets, future, cu_seqlens, max_seqlen)
     batch = get_batch()  # async prefetch next batch
@@ -201,12 +220,10 @@ while step < args.steps and lossf > args.minloss:
     muon_lr_schedule.set_lr(step, muon_optim)
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
-        grad_norm = get_grad_norm(model)
-
         lossf = loss.item()
         adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossf, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossf, muon_lr=muon_lr, adam_lr=adam_lr)
 
         if not args.T: logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossf, lr=muon_lr) # tối thiểu chiều rộng
@@ -223,7 +240,6 @@ while step < args.steps and lossf > args.minloss:
 
     step += 1
     if step % log_interval == 0 and not args.T:
-        tokens_per_batch = args.bs * args.ctx
         log_dict = dict(
             max_memory_allocated=torch.cuda.max_memory_allocated(),
             num_tokens_seen_millions=tokens_per_batch * step / 1e6,
