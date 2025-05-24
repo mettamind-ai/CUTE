@@ -36,10 +36,9 @@ for x in "bf16  test  compile  XS S L M".split():
 args = parser.parse_args()
 
 ## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
-INT8 = COMPILE = False
+INT8 = False
 if args.test:               # test trên GPU laptop 4G vram
     args.bf16 = True        # luôn dùng bf16 vì ko chạy đc int8
-    args.compile = False    # luôn tắt compile để không phải đợi
     args.steps = 100        # thử nhỏ cho vui
     args.funloss = "fused"  # bf16 + fused loss tiết kiệm vram
     args.bs = 1

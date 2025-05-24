@@ -54,3 +54,4 @@ And one last small thing I didn't like: the papers don't cite the `INFOnce loss`
 - https://www.alphaxiv.org/abs/2405.17247
 - https://arxiv.org/html/2405.17247v1
 
+![](https://arxiv.org/html/2405.17247v1/x1.png)
