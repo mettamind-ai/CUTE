@@ -351,8 +351,8 @@ class WinGPT(nn.Module):
 
 maximum_seqlen = 0
 def _loss_fn(_loss_method, model, input_seq, target, future):
-    hidden, te, ve, tl, vl, c, m = model(input_seq) # hidden đã norm
-    loss, _ = _loss_method(hidden, target.flatten(), model.lm_head)
+    x, te, ve, tl, vl, c, m = model(input_seq) # x đã norm
+    loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
     global maximum_seqlen # log lại seqlen lớn nhất
     if maximum_seqlen < m: maximum_seqlen = m; print(f">>> maximum_seqlen {m}")
@@ -360,7 +360,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if not model.has_future(): return loss
     if torch.rand(1).item() > model.future_ratio: return loss
 
-    assert len(layer_outputs) + 1 == len(model.blocks)
+    assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
         model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m), # đã norm
         future.flatten(), model.lm_head, # tied với main task head 
