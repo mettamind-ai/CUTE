@@ -360,7 +360,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if not model.has_future(): return loss
     if torch.rand(1).item() > 0.5: return loss
 
-    # assert model.n_layers + 1 == len(model.blocks)
+    assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
         model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m), # đã norm
         future.flatten(), model.lm_head, # tied với main task head 
@@ -373,7 +373,7 @@ def simple_loss_fn(model, input_seq, target, future):
     def _loss_method(hidden, target, head):
         logits = head(hidden.float())
         logits = logits.view(-1, logits.size(-1))
-        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+        # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
     return _loss_fn(_loss_method, model, input_seq, target, future)
 
@@ -395,7 +395,7 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     loss_fn = simple_loss_fn
-    # loss_fn = fused_loss_fn
+    loss_fn = fused_loss_fn
     vocab_size = 1981
 
     # Clear cache and reset peak memory stats
