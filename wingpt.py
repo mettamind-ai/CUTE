@@ -184,16 +184,11 @@ class CausalSelfAttention(nn.Module):
             k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=1)
             v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=1)
             
-            y = F.scaled_dot_product_attention(
-                q, k, v, # attn_mask=self.attn_mask,
-                is_causal=True, dropout_p=0.0, scale=self.attn_scale,
-            )
-            # Transpose back to original shape [B, T, H, D]
-            y = y.transpose(1, 2).contiguous()
+            y = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0, scale=self.attn_scale,)
+            y = y.transpose(1, 2) # back to [B, T, H, D]
         else:
             # Make tensors contiguous and transpose for attention
-            q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD        
-            # y = flash_attn_func( q, k, v, causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0)) # out: (batch_size, seqlen, nheads, headdim) => BTHD
+            # q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD
             y = flash_attn_varlen_func(
                 q.reshape(B*T, H, D),
                 k.reshape(B*T, Hkv, D), 
@@ -204,8 +199,7 @@ class CausalSelfAttention(nn.Module):
                 softmax_scale=self.attn_scale,
                 window_size=(self.window, 0),
             )
-            y = y.contiguous()
-        y = y.reshape(B, T, H * D)
+        y = y.contiguous().reshape(B, T, H * D)
         y = self.o_proj(y) # y có shape (B, T, dim)
         return y    # trả về y có shape giống hệt x đầu vào
 

@@ -32,7 +32,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "bf16  test  compile  S L M".split():
+for x in "bf16  test  compile  XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -63,23 +63,30 @@ torch.manual_seed(1981 + rank) # đảm bảo random giống nhau
 ## Init model for pretraining
 #############################
 from wingpt import WinGPT
-if  args.L: # (L)arge @ 4090 ~ 999m
+if  args.L: # (L)arge ~ 999m
     model = WinGPT(
         ve=args.ve, dim=2048, n_layers=27,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
     )
-elif args.M: # (M)edium @ 4090 ~ 666m
+elif args.M: # (M)edium ~ 666m
     model = WinGPT(
         ve=args.ve, dim=1664, n_layers=26, # dim=1024 1280 1536 1792 2048
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
     )
-else:        # (S)mall @ 4090 ~ 333m
+elif args.S: # (S)mall ~ 333m
     model = WinGPT(
         ve=args.ve, dim=1280, n_layers=22,
+        te=args.te, num_heads=8, num_kv_heads=4,
+        vocab_size=args.vocab, max_seq_len=args.ctx,
+        future_percent=args.future, exits=args.exits,
+    )
+else:        # (XS)mall ~ 100m
+    model = WinGPT(
+        ve=args.ve, dim=768, n_layers=16,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
         future_percent=args.future, exits=args.exits,
