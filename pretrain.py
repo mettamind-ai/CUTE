@@ -82,6 +82,10 @@ else:        # (XS)mall ~ 100m
         vocab_size=args.vocab, max_seq_len=args.ctx,
     )
 model = model.cuda()
+from optimus import convert_int8_mixed_precision
+count = convert_int8_mixed_precision(model)
+print0(f"INT8 Mixed Precision: {count} Linear converted.")
+
 
 #################
 ## Data loader ##
