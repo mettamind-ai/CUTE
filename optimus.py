@@ -231,6 +231,8 @@ class Int8MixedLinear(torch.autograd.Function):
 
         return grad_input, grad_weight, grad_bias
 
+
+## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
 class MixedPrecisionLinearWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
@@ -257,7 +259,7 @@ class MixedPrecisionLinearWeight(Tensor):
         if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)
         with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
 
-    # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
+    # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         def unwrap(x: cls): return x._data
@@ -300,7 +302,7 @@ import torch, math
 import torch.distributed as dist
 from torch import Tensor
 
-def newtonschulz(G: Tensor, steps: int) -> Tensor:
+def newtonschulz(G: Tensor, steps: int, int8=True) -> Tensor:
     # G: The gradient or momentum matrix to be orthogonalized.
     # steps: Number of Newton-Schulz iterations.
     assert G.ndim >= 2
@@ -311,10 +313,16 @@ def newtonschulz(G: Tensor, steps: int) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
 
-    for _ in range(steps):  # NS iterations
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if not int8:
+        for _ in range(steps):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+    else:
+        for _ in range(steps):
+            A =             _dynamic_int8_mm(X, X.mT, sr=True)
+            B = b * A + c * _dynamic_int8_mm(A,    A, sr=True)
+            X = a * X +     _dynamic_int8_mm(B,    X, sr=True)
 
     if G.size(-2) > G.size(-1): X = X.mT
     return X
@@ -365,7 +373,7 @@ class MuonOrigin(torch.optim.Optimizer):
                     g = g.lerp_(buf, group["momentum"]) if group["nesterov"] else buf
                     if g.ndim == 4: # for the case of conv filters
                         g = g.view(len(g), -1)
-                    g = newtonschulz(g, steps=group["ns_steps"]).flatten()
+                    g = newtonschulz(g, steps=group["ns_steps"], int8=False).flatten()
                 else:
                     g = update_buffer_views[self.rank]
                 if base_i > 0: update_prev() # mẹo update muộn để dist.all_gather có time gather data
