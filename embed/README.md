@@ -83,3 +83,12 @@ InternViT-300M-448px-Distill is a distilled variant of the teacher model, Intern
 ![](https://arxiv.org/html/2412.05271v4/x4.png)
 ![](internvl-01-crunch.png)
 
+### InternLM3 (có liên quan tới InternVL?)
+https://huggingface.co/internlm/internlm3-8b-instruct/blob/main/modeling_internlm3.py
+
+---
+
+## mGPT: Stand-alone Autoregressive Image Modeling
+https://github.com/Alpha-VLLM/Lumina-mGPT-2.0
+![](https://github.com/Alpha-VLLM/Lumina-mGPT-2.0/raw/main/assets/architecture.png)
+
