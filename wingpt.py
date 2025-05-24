@@ -133,9 +133,9 @@ class CausalSelfAttention(nn.Module):
         T, C = k.shape; assert C == Hkv * D
 
         ## Chuyển q, k, v thành x_THD
-        q = q.view(T, H,   D)
-        k = k.view(T, Hkv, D)
-        v = v.view(T, Hkv, D)
+        q = q.contiguous().view(T, H,   D)
+        k = k.contiguous().view(T, Hkv, D)
+        v = v.contiguous().view(T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rotary: q, k = self.rotary(q), self.rotary(k)
@@ -148,7 +148,7 @@ class CausalSelfAttention(nn.Module):
             softmax_scale=self.attn_scale,
             window_size=(self.window, 0),
         )
-        # y = y.contiguous()
+        y = y.contiguous()
         y = y.reshape(T, H * D)
         y = self.o_proj(y) # y có shape (T, dim)
         return y    # trả về y có shape giống hệt x đầu vào
