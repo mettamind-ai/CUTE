@@ -276,7 +276,8 @@ class MixedPrecisionLinearWeight(Tensor):
 def convert_int8_mixed_precision(module:nn.Module):
     count = 0
     for n, m in module.named_modules():
-        if isinstance(m, nn.Linear) and "head" not in n:
+        if isinstance(m, nn.Linear) and "head" not in n and "attn" is not in n:
+            print(f">>> int8? {n}")
             count += 1
             m.weight = nn.Parameter(
                 MixedPrecisionLinearWeight(m.weight.detach()),
