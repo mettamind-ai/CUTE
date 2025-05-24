@@ -273,19 +273,17 @@ class MixedPrecisionLinearWeight(Tensor):
         elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
         else: return out # new unwrapped object
 
-
-def convert_int8_mixed_precision(module:nn.Module):
+import re
+def convert_int8_mixed_precision(module:nn.Module, ignore=re.compile(r'head|kv_proj|q_proj')):
     count = 0
     for n, m in module.named_modules():
-        if isinstance(m, nn.Linear) \
-            and "head" not in n     \
-            and "kv_proj" not in n:
-                print(f">>> int8? {n}")
-                count += 1
-                m.weight = nn.Parameter(
-                    MixedPrecisionLinearWeight(m.weight.detach()),
-                    requires_grad=m.weight.requires_grad,
-                )
+        if isinstance(m, nn.Linear) and not ignore.search(n): 
+            print(f">>> int8? {n}")
+            count += 1
+            m.weight = nn.Parameter(
+                MixedPrecisionLinearWeight(m.weight.detach()),
+                requires_grad=m.weight.requires_grad,
+            )
     return count
 
 
@@ -409,7 +407,7 @@ def newtonschulz(G: Tensor, steps: int, fast=True) -> Tensor:
             matmul_transpose_assign(buf1, buf2)
             B = b * buf1 + c * buf2
             # X = a * X + B @ X
-            X = a * X +     _dynamic_int8_mm(B,    X, sr=True)
+            X = a * X +     _dynamic_int8_mm(B,    X, sr=False)
             ''' INT8
             A =             _dynamic_int8_mm(X, X.mT, sr=True)
             B = b * A + c * _dynamic_int8_mm(A,    A, sr=True)
@@ -417,6 +415,36 @@ def newtonschulz(G: Tensor, steps: int, fast=True) -> Tensor:
             '''
     if G.size(-2) > G.size(-1): X = X.mT
     return X
+
+
+class Muon1GPU(torch.optim.Optimizer):
+    ''' Viết lại Muon cho 1 GPU, bỏ distributed code cho dễ hiểu '''
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, ns_steps=5, **args):
+        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, ns=ns_steps))
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            for p in group['params']:               # với mỗi tham số p trong model
+                if p.grad is None: continue         # bỏ qua nếu không có gradient
+
+                g, st = p.grad, self.state[p]       # lấy gradient và optim state
+                if 'mm' not in st:                  # khởi tạo momentum nếu chưa có
+                    st['mm'] = torch.zeros_like(g)  # (g, dtype=torch.bfloat16)
+
+                st['mm'].lerp_(g, 1 - group['mm'])  # Áp dụng momentum vào gradient
+                g = g.lerp_(st['mm'], group['mm'])  # tương đương với 2 phép tính:
+                    # 1) momentum_state = momentum_state * 0.95 + gradient * 0.05
+                    # 2) final_gradient = gradient * 0.05 + momentum_state * 0.95
+
+                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
+                g = newtonschulz(g, steps=group['ns'])  # Trực giao Newton-Schulz
+                if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
+
+                # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
+                p.mul_(1 - group['lr']*group['wd'])  # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
+                rows, cols = p.size(-2), p.size(-1)  # 2) p -= g * lr * sqrt(max(1, rows / cols))
+                p.add_(g, alpha=-group['lr']*max(1, rows/cols)**0.5)
 
 
 # DON'T CHANGE. mini fix to make it works with 1 GPU
@@ -548,36 +576,6 @@ class Muon(torch.optim.Optimizer):
                     a = -group["lr"] * max(1, pw.size(-2) / pw.size(-1))**0.5
                     pw.add_(gw.view_as(pw), alpha=a)
 # Muon = torch.compile(Muon)
-
-
-class Muon1GPU(torch.optim.Optimizer):
-    ''' Viết lại Muon cho 1 GPU, bỏ distributed code cho dễ hiểu '''
-    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, ns_steps=5, **args):
-        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, ns=ns_steps))
-
-    @torch.no_grad()
-    def step(self):
-        for group in self.param_groups:
-            for p in group['params']:               # với mỗi tham số p trong model
-                if p.grad is None: continue         # bỏ qua nếu không có gradient
-
-                g, st = p.grad, self.state[p]       # lấy gradient và optim state
-                if 'mm' not in st:                  # khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g)  # (g, dtype=torch.bfloat16)
-
-                st['mm'].lerp_(g, 1 - group['mm'])  # Áp dụng momentum vào gradient
-                g = g.lerp_(st['mm'], group['mm'])  # tương đương với 2 phép tính:
-                    # 1) momentum_state = momentum_state * 0.95 + gradient * 0.05
-                    # 2) final_gradient = gradient * 0.05 + momentum_state * 0.95
-
-                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                g = newtonschulz(g, steps=group['ns'])  # Trực giao Newton-Schulz
-                if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
-
-                # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
-                p.mul_(1 - group['lr']*group['wd'])  # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
-                rows, cols = p.size(-2), p.size(-1)  # 2) p -= g * lr * sqrt(max(1, rows / cols))
-                p.add_(g, alpha=-group['lr']*max(1, rows/cols)**0.5)
 
 # test muon
 if __name__ == "__main__":
