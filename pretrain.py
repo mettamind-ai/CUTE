@@ -175,8 +175,8 @@ elif args.funloss ==   "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
 if args.compile:
-    print(">> torch.compile(loss_fn)")
-    loss_fn = torch.compile(loss_fn)
+    model   = torch.compile(model);    print(">> torch.compile(model)")
+    # loss_fn = torch.compile(loss_fn);  print(">> torch.compile(loss_fn)")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
