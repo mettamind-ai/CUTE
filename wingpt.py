@@ -47,12 +47,13 @@ def init_linear(w: Tensor):
 ####################################
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int):
+    def __init__(self, dim:int, hdim=None, odim=None):
         super().__init__()
-        hdim = int(3 * dim) 
+        if not hdim: hdim = int(3 * dim)
+        if not odim: odim = dim
 
         self.fc = nn.Linear(dim, hdim, bias=False)
-        self.proj = nn.Linear(hdim, dim, bias=False)
+        self.proj = nn.Linear(hdim, odim, bias=False)
         
         with torch.no_grad():
             self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
@@ -294,8 +295,9 @@ class WinGPT(nn.Module):
         ## Future and tied head(s)
         # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
         # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction   
-        tied_head = nn.Linear(dim, vocab_size, bias=False).float()
-        with torch.no_grad(): tied_head.weight.zero_()
+        # tied_head = nn.Linear(dim, vocab_size, bias=False).float()
+        # with torch.no_grad(): tied_head.weight.zero_()
+        tied_head = ReLuSquareMLP(dim, 2*dim, vocab_size)
         self.lm_heads = nn.ModuleList([ tied_head for i in range(exits) ])
 
         # Điểm predict next token và hệ số cho từng điểm
@@ -395,7 +397,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
 
 def simple_loss_fn(model, input_seq, target, future):
     def _loss_method(hidden, target, head):
-        logits = head(hidden.float())
+        logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
         logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
@@ -406,7 +408,7 @@ try: # pip install liger_kernel
     from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
     def fused_loss_fn(model, input_seq, target, future):
         def _loss_method(hidden, target, head):
-            hidden = hidden.view(-1, hidden.size(-1)).float()
+            hidden = hidden.view(-1, hidden.size(-1))
             return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
         return _loss_fn(_loss_method, model, input_seq, target, future)
 except: None
