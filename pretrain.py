@@ -31,23 +31,17 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "bf16  test  compile  XS S L M".split():
+for x in "T C XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
+os.environ['INT8_MIXED_SR'] = args.int8rd
 ## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
-INT8 = False
 if args.test:               # test trên GPU laptop 4G vram
-    args.bf16 = True        # luôn dùng bf16 vì ko chạy đc int8
     args.steps = 100        # thử nhỏ cho vui
-    args.funloss = "fused"  # bf16 + fused loss tiết kiệm vram
     args.bs = 1
-elif args.bf16:  # Khởi động nhanh để dò số tokens / step hơn lý
-    args.funloss = "fused"  # fused loss lúc compile sẽ báo warning
-else: # int8, need for speed mode!
-    INT8 = True             # giúp 1.5x speedup
-    # args.compile = True   # compile cho tốc độ tối đa, tốn time lúc đầu
-    os.environ['INT8_MIXED_SR'] = args.int8rd
+else:
+    # args.C = True         # compile cho tốc độ tối đa, tốn time lúc đầu
     from optimus import convert_int8_mixed_precision
 
 rank = 0
@@ -92,14 +86,9 @@ else:        # (XS)mall ~ 100m
     )
 model = model.cuda()
 
-if INT8:
-    count = convert_int8_mixed_precision(model)
-    print0(f"INT8 Mixed Precision: {count} Linear converted.")
-
 #################
 ## Data loader ##
 #################
-
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = args.ctx + 2
 N    = len(data) - CTX
@@ -177,13 +166,13 @@ if   args.funloss == "simple": from wingpt import  simple_loss_fn as loss_fn
 elif args.funloss ==  "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
-if args.compile:
+if args.C:
     model = torch.compile(model);    print(">>> torch.compile(model) <<<")
     # loss_fn = torch.compile(loss_fn);  print(">>> torch.compile(loss_fn) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
-* is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
-* int8? {INT8}, loss_fn {args.funloss}, future_ratio {model.future_ratio}
+* is_dist {is_dist}, world_size {world_size}, compile? {args.C}
+* loss_fn {args.funloss}, future_ratio {model.future_ratio}
 * device_bs {args.bs}, seq_len {args.ctx}, {(args.bs*args.ctx)//1024}k tokens/step
 """)
 model.train()
