@@ -316,7 +316,7 @@ class WinGPT(nn.Module):
 
         cu_seqlens = torch.cat([
             torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
-            torch.where(mask.flatten())[0].to(torch.int32)
+            torch.where(mask.flatten())[0].to(torch.int32) + 1,
         ])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         # print(cu_seqlens, max_seqlen) # DEBUG
