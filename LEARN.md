@@ -1,3 +1,16 @@
+# Learning Objectives
+
+- Contrastrive
+- GAN
+- Mask
+- Generative
+- GLM
+- T5
+
+## GLM
+https://arxiv.org/pdf/2103.10360
+
+
 # Flash Attn in Triton
 - [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
 - https://www.youtube.com/watch?v=zEuwuCTEf_0

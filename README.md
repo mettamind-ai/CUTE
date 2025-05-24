@@ -49,10 +49,12 @@
 - [x] tinh gọn `optimus.py`
 - [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
 - [x] bench các sdpa engines
+- [x] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
+  - [x] khi dùng flash_attn trực tiếp ko int8 hoá q,k,v để ko tăng vram
+
 🌸__DOING__🌸
-- [ ] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
-  - [ ] Làm lại tknz để tok_id 0 là <|end-of-text|>
-  - [ ] tại sao flash_attn + compile lại đội VRAM lên? => Thử Torch 2.5?
+- [ ] Làm lại tknz để tok_id 0 là <|end-of-text|>
+- [ ] apply GLM learning objs
 - [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
 
 ## Super Token
