@@ -364,10 +364,14 @@ class WinGPT(nn.Module):
 ## Loss function ##
 ###################
 
+mm_seqlen = 0
 def _loss_fn(_loss_method, model, input_seq, target, future):
     layer_outputs, te, ve, tl, vl, c, m = model(input_seq)
     target = target.flatten()
     loss = 0
+
+    global mm_seqlen
+    if mm_seqlen < m: mm_seqlen = m; print(f">>> max_seqlen {m}")
 
     for i, head in enumerate(model.lm_heads):
         layer_id = model.exit_ids[i]
