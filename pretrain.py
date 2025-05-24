@@ -22,7 +22,6 @@ parser.add_argument("--ctx", type=int, default=1024*8)
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
-parser.add_argument("--exits", type=int, default=1, choices=[1,2,3])
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
 parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
@@ -65,36 +64,33 @@ torch.manual_seed(1981 + rank) # đảm bảo random giống nhau
 from wingpt import WinGPT
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(
+        future_percent=args.future,
         ve=args.ve, dim=2048, n_layers=27,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future_percent=args.future, exits=args.exits,
     )
 elif args.M: # (M)edium ~ 666m
     model = WinGPT(
-        ve=args.ve, dim=1664, n_layers=26, # dim=1024 1280 1536 1792 2048
+        future_percent=args.future,
+        ve=args.ve, dim=1664, n_layers=26,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future_percent=args.future, exits=args.exits,
     )
 elif args.S: # (S)mall ~ 333m
     model = WinGPT(
+        future_percent=args.future,
         ve=args.ve, dim=1280, n_layers=22,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future_percent=args.future, exits=args.exits,
     )
 else:        # (XS)mall ~ 100m
     model = WinGPT(
+        future_percent=args.future,
         ve=args.ve, dim=768, n_layers=16,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=args.ctx,
-        future_percent=args.future, exits=args.exits,
     )
-
 model = model.cuda()
-# print0(f"1st_LAYER {model.blocks[0]}")
-# print0(f'ATTN_IMPL sdpa')
 
 if INT8:
     count = convert_int8_mixed_precision(model)
@@ -189,7 +185,6 @@ print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
 * int8? {INT8}, loss_fn {args.funloss}, future_ratio {model.future_ratio}
 * device_bs {args.bs}, seq_len {args.ctx}, {(args.bs*args.ctx)//1024}k tokens/step
-* layers {len(model.blocks)}, exits {model.exit_ids}, scales {model.exit_scales}
 """)
 model.train()
 step = 0

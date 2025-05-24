@@ -252,7 +252,7 @@ class WinGPT(nn.Module):
         return self.future_ratio > 0.009
 
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, exits=2, future_percent=0):
+            dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0):
         super().__init__()
 
         self.n_layers = n_layers
@@ -291,24 +291,8 @@ class WinGPT(nn.Module):
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
 
-        ## Future and tied head(s)
-        # Vì head dùng để phóng chiếu embedding ra token nên có thể dùng chung cho mọi
-        # loại tác vụ predict token bao gồm các điểm exits và next of next token prediction   
-        tied_head = nn.Linear(dim, vocab_size, bias=False).float()
-        with torch.no_grad(): tied_head.weight.zero_()
-        # tied_head = ReLuSquareMLP(dim, 2*dim, vocab)
-        self.lm_heads = nn.ModuleList([ tied_head for i in range(exits) ])
-
-        # Điểm predict next token và hệ số cho từng điểm
-        assert exits in [1, 2, 3]
-        if exits == 1: self.exit_ids = [n_layers-1 ]
-        if exits == 2: self.exit_ids = [n_layers-1, n_layers//2 ]
-        if exits == 3: self.exit_ids = [n_layers-1, n_layers - n_layers//3, n_layers//3 ]
-        assert self.exit_ids[0] == n_layers-1, "điểm thoát đầu tiên phải là layer cuối"
-        if exits == 1: self.exit_scales = [1. ]
-        if exits == 2: self.exit_scales = [0.8, 0.2]
-        if exits == 3: self.exit_scales = [0.7, 0.2, 0.1]
-        assert sum(self.exit_scales) >= 0.999999999999999
+        self.lm_head = nn.Linear(dim, vocab_size, bias=False).float()
+        with torch.no_grad(): self.lm_head.weight.zero_()
 
 
     def forward(self, input_seq:Tensor):
@@ -358,38 +342,28 @@ class WinGPT(nn.Module):
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
-        return layer_outputs, t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
+        return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 
 ###################
 ## Loss function ##
 ###################
 
-mm_seqlen = 0
+maximum_seqlen = 0
 def _loss_fn(_loss_method, model, input_seq, target, future):
-    layer_outputs, te, ve, tl, vl, c, m = model(input_seq)
-    target = target.flatten()
-    loss = 0
+    hidden, te, ve, tl, vl, c, m = model(input_seq) # hidden đã norm
+    loss, _ = _loss_method(hidden, target.flatten(), model.lm_head)
 
-    global mm_seqlen
-    if mm_seqlen < m: mm_seqlen = m; print(f">>> max_seqlen {m}")
-
-    for i, head in enumerate(model.lm_heads):
-        layer_id = model.exit_ids[i]
-        hidden = norm(layer_outputs[layer_id])
-        #########################################
-        x, _ = _loss_method(hidden, target, head)
-        #########################################
-        loss += model.exit_scales[i] * x
+    global maximum_seqlen # log lại seqlen lớn nhất
+    if maximum_seqlen < m: maximum_seqlen = m; print(f">>> maximum_seqlen {m}")
 
     if not model.has_future(): return loss
     if torch.rand(1).item() > model.future_ratio: return loss
 
     assert len(layer_outputs) + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
-        model.blocks[-1](layer_outputs[-1], te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m),
-        future.flatten(),  # lm_head của main task nằm đầu
-        model.lm_heads[0], # tied embed với main task head 
+        model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m), # đã norm
+        future.flatten(), model.lm_head, # tied với main task head 
     )
     # import gc; del layer_outputs, t, v, l, s; gc.collect(); torch.cuda.empty_cache() # no use
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio

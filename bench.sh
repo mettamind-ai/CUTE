@@ -1,5 +1,5 @@
  ./pretrain.py --compile --ctx 2048 --bs 32
- ./pretrain.py --compile --ctx 2048 --bs 32 --future 15
+ ./pretrain.py --compile --ctx 2048 --bs 32 --future 20
  ./pretrain.py --compile --ctx 2048 --bs 32 --ve 20
  
 # ./pretrain.py --S --bs 16 --exits 1                 # minimal
