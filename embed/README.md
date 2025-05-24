@@ -115,3 +115,10 @@ And one last small thing I didn't like: the papers don't cite the `INFOnce loss`
 - https://github.com/facebookresearch/perception_models
 - https://arxiv.org/abs/2504.13181
 - https://arxiv.org/abs/2504.13180
+
+---
+
+# `MNTP` Masked Next Token Prediction (GPT-BERT 2 trong 1)
+- https://github.com/ltgoslo/gpt-bert
+- https://arxiv.org/html/2410.24159v1
+
