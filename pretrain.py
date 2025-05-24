@@ -37,11 +37,11 @@ args = parser.parse_args()
 
 os.environ['INT8_MIXED_SR'] = args.int8rd
 ## Tinh chỉnh cho test, khởi động nhanh và int8 speedup
-if args.test:               # test trên GPU laptop 4G vram
-    args.steps = 100        # thử nhỏ cho vui
+if args.T:            # test trên GPU laptop 4G vram
+    args.steps = 100  # thử nhỏ cho vui
     args.bs = 1
 else:
-    # args.C = True         # compile cho tốc độ tối đa, tốn time lúc đầu
+    # args.C = True   # compile cho tốc độ tối đa, tốn time lúc đầu
     from optimus import convert_int8_mixed_precision
 
 rank = 0
@@ -180,7 +180,7 @@ step = 0
 log_interval = 10
 lossf = 9999 # cần cho args.minloss
 
-if args.test:log_interval = 2
+if args.T: log_interval = 2
 else: logger = wandb.init(dir="/tmp", config=args,)
 
 #############################
@@ -206,7 +206,7 @@ while step < args.steps and lossf > args.minloss:
         muon_lr = muon_optim.param_groups[0]["lr"]
         log_dict = dict(loss=lossf, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
 
-        if not args.test: logger.log(log_dict, step=step)
+        if not args.T: logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossf, lr=muon_lr) # tối thiểu chiều rộng
 
     muon_optim.step(); muon_optim.zero_grad()
@@ -220,7 +220,7 @@ while step < args.steps and lossf > args.minloss:
     pbar.update()
 
     step += 1
-    if step % log_interval == 0 and not args.test:
+    if step % log_interval == 0 and not args.T:
         tokens_per_batch = args.bs * args.ctx
         log_dict = dict(
             max_memory_allocated=torch.cuda.max_memory_allocated(),
@@ -230,4 +230,4 @@ while step < args.steps and lossf > args.minloss:
         time0 = time.time()
         logger.log(log_dict, step=step)
     # END of Training Loop
-if not args.test: logger.finish()
+if not args.T: logger.finish()
