@@ -60,7 +60,8 @@ torch.manual_seed(1981 + rank) # đảm bảo random giống nhau
 #############################
 ## Init model for pretraining
 #############################
-from wingpt import WinGPT
+from wingpt import WinGPT, get_cu_max_seqlens_from
+
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(
         future_percent=args.future,
@@ -172,13 +173,13 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 ## LOSS FUNCTION & PREPARE ##
 #############################
-if   args.funloss ==  "simple": from wingpt import  simple_loss_fn as loss_fn
-elif args.funloss ==   "fused": from wingpt import   fused_loss_fn as loss_fn
+if   args.funloss == "simple": from wingpt import  simple_loss_fn as loss_fn
+elif args.funloss ==  "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
 if args.compile:
-    # model = torch.compile(model);    print(">> torch.compile(model)")
-    loss_fn = torch.compile(loss_fn);  print(">> torch.compile(loss_fn)")
+    model = torch.compile(model);    print(">> torch.compile(model)")
+    # loss_fn = torch.compile(loss_fn);  print(">> torch.compile(loss_fn)")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}
@@ -199,7 +200,9 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 while step < args.steps and lossf > args.minloss:
     # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
     tokens, targets, future = batch[:, :-2], batch[:, 1:-1], batch[:, 2:]
-    loss  = loss_fn(model, tokens, targets, future)
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens)
+
+    loss  = loss_fn(model, tokens, targets, future, cu_seqlens, max_seqlen)
     batch = get_batch()  # async prefetch next batch
     loss.backward()
 

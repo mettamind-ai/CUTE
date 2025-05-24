@@ -295,17 +295,7 @@ class WinGPT(nn.Module):
         with torch.no_grad(): self.lm_head.weight.zero_()
 
 
-    def forward(self, input_seq:Tensor):
-        mask = (input_seq == 6399)
-        mask[:, -1] = True
-
-        cu_seqlens = torch.cat([
-            torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
-            torch.where(mask.flatten())[0].to(torch.int32) + 1,
-        ])
-        max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
-        # print(cu_seqlens, max_seqlen) # DEBUG
-
+    def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         x = x0 = norm(self.tok_emb0(input_seq))
 
@@ -350,8 +340,8 @@ class WinGPT(nn.Module):
 ###################
 
 maximum_seqlen = 0
-def _loss_fn(_loss_method, model, input_seq, target, future):
-    x, te, ve, tl, vl, c, m = model(input_seq) # x đã norm
+def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
+    x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
     global maximum_seqlen # log lại seqlen lớn nhất
@@ -369,23 +359,35 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
-def simple_loss_fn(model, input_seq, target, future):
+def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
         logits = head(hidden.float())
         logits = logits.view(-1, logits.size(-1))
         # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
-    return _loss_fn(_loss_method, model, input_seq, target, future)
+    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
 try: # pip install liger_kernel
     from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
-    def fused_loss_fn(model, input_seq, target, future):
+    def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
         def _loss_method(hidden, target, head):
             hidden = hidden.view(-1, hidden.size(-1)).float()
             return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
-        return _loss_fn(_loss_method, model, input_seq, target, future)
+        return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 except: None
+
+
+def get_cu_max_seqlens_from(input_seq, eot=6399):
+        mask = (input_seq == eot)
+        mask[:, -1] = True
+        cu_seqlens = torch.cat([
+            torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
+            torch.where(mask.flatten())[0].to(torch.int32) + 1,
+        ])
+        max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
+        # print(cu_seqlens, max_seqlen) # DEBUG
+        return cu_seqlens, max_seqlen
 
 ## TEST MODEL
 if __name__ == "__main__":
@@ -395,7 +397,7 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     loss_fn = simple_loss_fn
-    loss_fn = fused_loss_fn
+    # loss_fn = fused_loss_fn
     vocab_size = 1981
 
     # Clear cache and reset peak memory stats
@@ -427,7 +429,8 @@ if __name__ == "__main__":
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
     for step in range(10):
-        loss = loss_fn(model, input_seq, target, future)
+        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+        loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
         loss.backward()
         optim.step(); optim.zero_grad()
         aptim.step(); aptim.zero_grad()
