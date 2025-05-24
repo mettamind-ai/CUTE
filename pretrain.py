@@ -40,9 +40,6 @@ os.environ['INT8_MIXED_SR'] = args.int8rd
 if args.T:            # test trên GPU laptop 4G vram
     args.steps = 100  # thử nhỏ cho vui
     args.bs = 1
-else:
-    # args.C = True   # compile cho tốc độ tối đa, tốn time lúc đầu
-    from optimus import convert_int8_mixed_precision
 
 rank = 0
 is_dist = False
