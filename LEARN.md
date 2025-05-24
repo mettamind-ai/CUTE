@@ -8,8 +8,14 @@
 - T5
 
 ## GLM
-https://arxiv.org/pdf/2103.10360
-
+- https://www.alphaxiv.org/abs/2103.10360
+- https://github.com/THUDM/GLM/blob/main/model/modeling_glm.py#L40
+![](/.save/learn-obj-00.png)
+- `GLM410M` (1.25×BERTLarge) đạt hiệu suất tốt hơn các mô hình standalone.
+- `Loại bỏ span shuffling` "leads to a severe performance drop on SuperGLUE"
+- `GLM khắc phục điểm yếu của BERT`: "BERT fails to capture the interdependencies of masked tokens due to the independence assumption of MLM" bằng cách "randomly permute the order of the spans" để "fully capture the interdependencies between different spans."
+- `Trade-off khi cùng số tham số`: "With the same amount of parameters, GLMDoc performs worse than GPTLarge. This is expected since GLMDoc also optimizes the blank infilling objective" - vì GLM phải tối ưu cho nhiều mục tiêu khác nhau thay vì chỉ tập trung vào language modeling như GPT.
+- `Tăng tham số`: "Increasing the model's parameters to 410M (1.25× of GPTLarge) leads to a performance close to GPTLarge" và "GLM515M (1.5× of GPTLarge) can further outperform GPTLarge"
 
 # Flash Attn in Triton
 - [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
