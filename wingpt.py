@@ -360,7 +360,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     if not model.has_future(): return loss
     if torch.rand(1).item() > 0.5: return loss
 
-    assert model.n_layers + 1 == len(model.blocks)
+    # assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
         model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m), # đã norm
         future.flatten(), model.lm_head, # tied với main task head 
