@@ -217,7 +217,7 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.mlp = torch.compile(ReLuSquareMLP(dim))
+        self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
             head_dim=head_dim, nope=layer_id % 4 == 3, layer_id=layer_id) # 2, 5, 8, 11 ...
 
