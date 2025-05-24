@@ -83,12 +83,35 @@ InternViT-300M-448px-Distill is a distilled variant of the teacher model, Intern
 ![](https://arxiv.org/html/2412.05271v4/x4.png)
 ![](internvl-01-crunch.png)
 
-### InternLM3 (có liên quan tới InternVL?)
-https://huggingface.co/internlm/internlm3-8b-instruct/blob/main/modeling_internlm3.py
+- **https://huggingface.co/OpenGVLab/InternViT-300M-448px-V2_5**
+- https://github.com/OpenGVLab/InternVL/blob/main/internvl_g/internvl/model/internvl_stage2_retrieval/modeling_intern_vit.py
+
+## Sage: T5 Spelling Correction
+https://huggingface.co/ai-forever/sage-fredt5-large
 
 ---
 
-## mGPT: Stand-alone Autoregressive Image Modeling
-https://github.com/Alpha-VLLM/Lumina-mGPT-2.0
-![](https://github.com/Alpha-VLLM/Lumina-mGPT-2.0/raw/main/assets/architecture.png)
+# Perception Encoder
+- https://x.com/gabriberton/status/1922542732993544657
+![](https://pbs.twimg.com/media/Gq47dIlXYAAJXsw?format=png&name=900x900)
+![](https://pbs.twimg.com/media/Gq47giPWUAAAxw4?format=png&name=900x900)
 
+**CLIP Style: Contrastive Language-Image Pre-training**
+Model học cách liên kết hình ảnh với mô tả văn bản tương ứng trong cùng một không gian biểu diễn để dự đoán văn bản nào đi với hình ảnh nào trong một tập hợp các cặp hình ảnh-văn bản. Giúp mô hình hiểu mối quan hệ giữa nội dung trực quan và ngôn ngữ.
+
+The CLIP-like models are an engineering feat, trained with standard CLIP-style image-text alignment with known best practices: progressively increasing resolution, LAMB optimizer, strong augmentation, and lots of data. 
+
+Unlike previous work (CLIP, SigLIP, AIMv2), they add a second training step with videos-text alignment: for each video, they sample 8 frames, pass them through the ViT, average the 8 embeddings and align them with the text. 
+
+**The ViT encoder (called Perception Encoder, or PE) is SOTA on many tasks**: not only the usual tasks where CLIP models excel ...(like classification, retrieval, text-image retrieval), but also on tasks where SSL models (usually DINOv2) are best (and usually widely outperform CLIP-like models), like `depth estimation`, `segmentation` and `tracking`. Yes, **it seems to be good at everything.**
+
+An interesting finding is that often in ViTs **the output of the last layer is not the best**: this is true for multiple ViTs like DINOv2 and AIMv2. Another interesting thing is that they don't use the sigmoid loss like SigLIP, but they use the more classic CLIP-style training. I don't really understand why, considering that SigLIP works great and (usually paired with a Qwen LLM) is the de facto standard for modern VLMs.
+
+This ViT is then used in the VLM from the second paper, called **PerceptionLM**. The impressive thing is that PerceptionLM has comparable results with Qwen2.5VL despite using a weaker LLM (Llama3 vs Qwen2.5), which IMHO is a testament to how good the vision encoder is.
+
+And one last small thing I didn't like: the papers don't cite the `INFOnce loss` paper and refer purely to the "CLIP loss", despite it being a pillar for both models [11/11]
+
+## Papers, Repo
+- https://github.com/facebookresearch/perception_models
+- https://arxiv.org/abs/2504.13181
+- https://arxiv.org/abs/2504.13180
