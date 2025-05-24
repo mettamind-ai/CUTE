@@ -23,7 +23,7 @@ parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
-parser.add_argument("--funloss", type=str, default="simple", choices="simple fused".split())
+parser.add_argument("--funloss", type=str, default="fused", choices="simple fused".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
@@ -178,8 +178,8 @@ elif args.funloss ==  "fused": from wingpt import   fused_loss_fn as loss_fn
 else: assert False, f"Not support {args.funloss}"
 
 if args.compile:
-    model = torch.compile(model);    print(">> torch.compile(model)")
-    # loss_fn = torch.compile(loss_fn);  print(">> torch.compile(loss_fn)")
+    model = torch.compile(model);    print(">>> torch.compile(model) <<<")
+    # loss_fn = torch.compile(loss_fn);  print(">>> torch.compile(loss_fn) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * is_dist {is_dist}, world_size {world_size}, compile? {args.compile}

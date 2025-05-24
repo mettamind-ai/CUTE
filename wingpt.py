@@ -291,17 +291,17 @@ class WinGPT(nn.Module):
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
 
-        self.lm_head = nn.Linear(dim, vocab_size, bias=False).float()
+        self.lm_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.lm_head.weight.zero_()
 
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        x = x0 = norm(self.tok_emb0(input_seq))
+        x = x0 = norm(self.tok_emb0(input_seq)).bfloat16()
 
         if self.te > 1:
                 t_embs = self.tok_embs(input_seq)
-                t_embs = self.tok_proj(t_embs)
+                t_embs = self.tok_proj(t_embs).bfloat16()
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
@@ -361,7 +361,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        logits = head(hidden.float())
+        logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
         # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
@@ -372,7 +372,7 @@ try: # pip install liger_kernel
     from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
     def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
         def _loss_method(hidden, target, head):
-            hidden = hidden.view(-1, hidden.size(-1)).float()
+            hidden = hidden.view(-1, hidden.size(-1))
             return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
         return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 except: None
@@ -396,14 +396,11 @@ if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
 
-    loss_fn = simple_loss_fn
-    # loss_fn = fused_loss_fn
-    vocab_size = 1981
-
     # Clear cache and reset peak memory stats
     torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
     
     # Use a medium-sized model to show memory benefits
+    vocab_size = 1981
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}")
@@ -430,10 +427,11 @@ if __name__ == "__main__":
 
     for step in range(10):
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+        loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
         loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
         loss.backward()
         optim.step(); optim.zero_grad()
         aptim.step(); aptim.zero_grad()
 
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB")
+        print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")

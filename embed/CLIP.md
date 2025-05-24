@@ -55,3 +55,6 @@ And one last small thing I didn't like: the papers don't cite the `INFOnce loss`
 - https://arxiv.org/html/2405.17247v1
 
 ![](https://arxiv.org/html/2405.17247v1/x1.png)
+
+Contrastive-based training is often better explained through an Energy-Based Models in which a model Eθ, parameterized by θ, is trained to `assign low energy to observed variables` and `high energy to unobserved ones`. **Data from a target distribution should have low energy** while any other data points should have higher energy.
+
