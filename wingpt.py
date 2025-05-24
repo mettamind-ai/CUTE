@@ -17,31 +17,7 @@ if USE_FLASH_ATTN:
         from flash_attn import flash_attn_func, flash_attn_varlen_func
         print("!!! Use Flash Attn 2 Directly !!!")
     except: USE_FLASH_ATTN = False
-'''####################################################################
-USAGE https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_attn_interface.py
-flash_attn_varlen_func(q, k, v,
-    cu_seqlens_q, cu_seqlens_k,
-    max_seqlen_q, max_seqlen_k,
-    dropout_p=0.0, softmax_scale=None,
-    causal=False, window_size=(-1, -1), # -1 means infinite context window
-)
-If causal=True, the causal mask is:
-seqlen_q=3 & seqlen_k=4 | seqlen_q=3 & seqlen_k=2
-       1 1 0 0                   0 0
-       1 1 1 0                   1 0
-       1 1 1 1                   1 1
-
-If window_size != (-1, -1), implements sliding window local attention.
-Query at position i will only attend to keys between
-[ i + seqlen_k - seqlen_q - window_size[0], 
-  i + seqlen_k - seqlen_q + window_size[1] ] inclusive.
-
-cu_seqlens_q: (bs + 1,), int32. The cumulative sequence lengths
-cu_seqlens_k: (bs + 1,), int32. ... used to index into kv.
-max_seqlen_q: int. Maximum query sequence length in the batch.
-max_seqlen_k: int. Maximum key sequence length in the batch.
-
-'''####################################################################
+#######################################################################
 if not USE_FLASH_ATTN:
     # SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
     torch.backends.cuda.enable_flash_sdp(            True)   # 50kt/sec
@@ -177,7 +153,7 @@ class CausalSelfAttention(nn.Module):
         return (x + y).view(B, T, C)
     # """
 
-    def forward(self, x, v_emb, ve_lambdas):
+    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen):
         q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # B, T, C
         # k, v = self.causal_moving_avg(k), self.causal_moving_avg(v)
@@ -215,14 +191,18 @@ class CausalSelfAttention(nn.Module):
             y = y.transpose(1, 2).contiguous()
         else:
             # Make tensors contiguous and transpose for attention
-            q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD      
-            k = torch.repeat_interleave(k, repeats=self.num_kv_groups, dim=2)
-            v = torch.repeat_interleave(v, repeats=self.num_kv_groups, dim=2)        
-            y = flash_attn_func( # https://github.com/Dao-AILab/flash-attention#how-to-use-flashattention
-                q=q, k=k, v=v, causal=True,
+            q, k, v = q.contiguous(), k.contiguous(), v.contiguous() # BTHD        
+            # y = flash_attn_func( q, k, v, causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0)) # out: (batch_size, seqlen, nheads, headdim) => BTHD
+            y = flash_attn_varlen_func(
+                q.reshape(B*T, H, D),
+                k.reshape(B*T, Hkv, D), 
+                v.reshape(B*T, Hkv, D),
+                cu_seqlens, cu_seqlens,
+                max_seqlen, max_seqlen,
+                causal=True, dropout_p=0.0,
                 softmax_scale=self.attn_scale,
                 window_size=(self.window, 0),
-            ) # out: (batch_size, seqlen, nheads, headdim) => BTHD
+            )
             y = y.contiguous()
         y = y.reshape(B, T, H * D)
         y = self.o_proj(y) # y có shape (B, T, dim)
@@ -241,13 +221,13 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
             head_dim=head_dim, nope=layer_id % 4 == 3, layer_id=layer_id) # 2, 5, 8, 11 ...
 
-    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas):
+    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
         if te is not None: x += te_lambdas[2] * te # trộn với layer tok emb
 
-        x = x + self.attn(x, ve, ve_lambdas) # residual connect
-        x = x + self.mlp(norm(x))            # residual connect
+        x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen)
+        x = x + self.mlp(norm(x))
         return x
 
 
@@ -259,11 +239,11 @@ class Future(nn.Module):
         self.proj = nn.Linear(2*dim, dim, bias=False)
         with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
-    def forward(self, x, x0, te, ve, l, s):
+    def forward(self, x, x0, te, ve, l, s, cu_seqlens, max_seqlen):
         # trộn feat của last layer với token embed gốc (x0)
         x = torch.cat((norm(x), x0), dim=2)
         x = self.proj(x) # mlp mixer
-        x = self.block(x, None, te, ve, l, s)
+        x = self.block(x, None, te, ve, l, s, cu_seqlens, max_seqlen)
         return norm(x)
 
 
@@ -331,7 +311,16 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq:Tensor):
-        # Vì embeddings lưu ở float32 nên sẽ cần convert sang bf16
+        mask = (input_seq == 6399)
+        mask[:, -1] = True
+
+        cu_seqlens = torch.cat([
+            torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
+            torch.where(mask.flatten())[0].to(torch.int32)
+        ])
+        max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
+        # print(cu_seqlens, max_seqlen) # DEBUG
+
         n_blks = len(self.blocks)
         x = x0 = norm(self.tok_emb0(input_seq))
 
@@ -363,12 +352,12 @@ class WinGPT(nn.Module):
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, x0, te, ve, tl, vl): return lambda x: blk(x, x0, te, ve, tl, vl)
-            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i])
+            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m)
+            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
 
-        return layer_outputs, t_embs, v_embs, te_lambdas, ve_lambdas
+        return layer_outputs, t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 
 ###################
@@ -376,7 +365,7 @@ class WinGPT(nn.Module):
 ###################
 
 def _loss_fn(_loss_method, model, input_seq, target, future):
-    layer_outputs, te, ve, tl, vl = model(input_seq)
+    layer_outputs, te, ve, tl, vl, c, m = model(input_seq)
     target = target.flatten()
     loss = 0
 
@@ -392,7 +381,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future):
     assert len(layer_outputs) + 1 == len(model.blocks)
 
     future_loss, _ = _loss_method(
-        model.blocks[-1](layer_outputs[-1], te[0], te[-1], ve[-1], tl[-1], vl[-1]),
+        model.blocks[-1](layer_outputs[-1], te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m),
         future.flatten(),  # lm_head của main task nằm đầu
         model.lm_heads[0], # tied embed với main task head 
     )
