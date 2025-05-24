@@ -410,7 +410,7 @@ if __name__ == "__main__":
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
                         ve=3, te=3, future_percent=20).cuda()
 
-    if os.environ.get('int8', '0') == '1':
+    if os.environ.get('int8', '1') == '1':
         print(convert_int8_mixed_precision(model), "linear converted to int8") # lỗi trên 3050
 
     ## Generate sequences with batch dimension
