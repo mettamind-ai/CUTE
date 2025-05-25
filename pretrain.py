@@ -13,34 +13,6 @@ import numpy as np
 from tqdm import tqdm
 from torch import Tensor, nn
 
-class LRSchedule:
-    def __init__(self, lr, n_steps, decay_type="linear",
-        warmup: float = 0.05, # 05% warmup đi từ 0 -> init_lr
-        decay:  float = 0.15, # 80% stable @ init_lr, 15% decay to 0
-    ):
-        self.lr = lr
-        self.t1 = int(n_steps * warmup)
-        self.t2 = int(n_steps * (1 - decay))
-        self.t3 = n_steps
-        self.decay_type = decay_type
-        assert self.t1 <= self.t2
-        assert decay_type in ("linear", "cosine")
-
-    def get_lr(self, step: int) -> float:
-        if step < 0 or step > self.t3: return 0.0
-        if step < self.t1: return self.lr * step / self.t1
-        if step < self.t2: return self.lr
-
-        progress = (step - self.t2) / (self.t3 - self.t2)
-        if self.decay_type == "linear": return self.lr * (1 - progress)
-        return 0.5 * self.lr * (1 + math.cos(progress * math.pi)) # cosine
-
-    def set_lr(self, step: int, optim: torch.optim.Optimizer):
-        for param_group in optim.param_groups:
-            if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
-            else: param_group["lr"] = self.get_lr(step)
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
@@ -124,6 +96,34 @@ def get_batch():
     c = c.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
     return x, c, m
 batch, cu_seqlens, max_seqlen = get_batch()
+
+
+class LRSchedule:
+    def __init__(self, lr, n_steps, decay_type="linear",
+        warmup: float = 0.05, # 05% warmup đi từ 0 -> init_lr
+        decay:  float = 0.15, # 80% stable @ init_lr, 15% decay to 0
+    ):
+        self.lr = lr
+        self.t1 = int(n_steps * warmup)
+        self.t2 = int(n_steps * (1 - decay))
+        self.t3 = n_steps
+        self.decay_type = decay_type
+        assert self.t1 <= self.t2
+        assert decay_type in ("linear", "cosine")
+
+    def get_lr(self, step: int) -> float:
+        if step < 0 or step > self.t3: return 0.0
+        if step < self.t1: return self.lr * step / self.t1
+        if step < self.t2: return self.lr
+
+        progress = (step - self.t2) / (self.t3 - self.t2)
+        if self.decay_type == "linear": return self.lr * (1 - progress)
+        return 0.5 * self.lr * (1 + math.cos(progress * math.pi)) # cosine
+
+    def set_lr(self, step: int, optim: torch.optim.Optimizer):
+        for param_group in optim.param_groups:
+            if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
+            else: param_group["lr"] = self.get_lr(step)
 
 #############################
 ## Init Optimizer(s)
