@@ -89,13 +89,10 @@ WIN  = torch.arange(CTX)
 def get_batch():
     idx = torch.randint(0, N, (1,)) + WIN  # shape = (CTX)
     idx = idx.numpy() # idx.numpy() là view, không copy
-    x = torch.from_numpy(data[idx]) 
-    c, m = get_cu_max_seqlens_from(x[:-2], eot=6399)
+    x = torch.from_numpy(data[idx])
     # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
-    x = x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
-    c = c.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
-    return x, c, m
-batch, cu_seqlens, max_seqlen = get_batch()
+    return x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
+batch = get_batch()
 
 
 class LRSchedule:
@@ -211,10 +208,11 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 #############################
 started_at = time.time()
 while step < args.steps and lossv > args.minloss:
-    # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=6399)
+
     loss = lossf(model, tokens, targets, future, cu_seqlens, max_seqlen)
-    batch, cu_seqlens, max_seqlen = get_batch() # async prefetch next batch
+    batch = get_batch() # async prefetch next batch
     loss.backward()
 
     adam_lr_schedule.set_lr(step, adam_optim)
