@@ -232,10 +232,10 @@ while step < args.steps and lossf > args.minloss:
     adam_optim.step(); adam_optim.zero_grad()
  
     if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
-        print0(f">>> torch.compile and optimization time: {time.time() - started_at}")
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
         pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
     elif step == 1:
+        print0(f">>> torch.compile: {int(time.time() - started_at)} seconds <<<")
         time0 -= time.time() - time0 # điều chỉnh lại time0
     pbar.update()
 
