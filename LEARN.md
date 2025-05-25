@@ -1,11 +1,8 @@
 # Learning Objectives
-
-- Contrastrive
-- GAN
-- Mask
-- Generative
+Contrastrive / GAN / Mask / Generative
 - GLM
 - T5
+- UL2
 
 ## GLM
 - https://www.alphaxiv.org/abs/2103.10360
@@ -20,6 +17,11 @@
 - The models are trained on 64 V100 GPUs for `200K steps` with `batch size of 1024` and `maximum sequence length of 512`.
 - GLMRoBERTa chỉ cần "250,000 steps, which are half of RoBERTa and BART's training steps and close to T5 in the number of trained tokens" nhưng vẫn đạt hiệu suất tương đương hoặc tốt hơn.
 - Trade-off batch size: "For trade-off of training speed and fair comparison with BERT (batch size 256 and 1,000,000 training steps), we use batch size of 1024 and 200,000 training steps for GLMLarge" - GLM tăng batch size để giảm steps, tối ưu tốc độ.
+
+## UL2
+- https://huggingface.co/google/flan-ul2
+![](https://raw.githubusercontent.com/google-research/google-research/master/ul2/figs/ul2.png)
+![](https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjoRWMTOf1JUl345eb5BqKEPTRRxPvzPdzvspKtqlwNHqo4BVq98MJYkvEVPZAPdYmLaFMLQKAolOdzKD3uzbYTdYM8S9Z-y5BXgy6kotdukG8w9VCkrZt3Vb0H-BEDp8XC5bGIsA_OEQPWWll1vNRZbSBwJWowTCTf9cnW-7fDOXT8MmyH5s8KzieCQg/s16000/image3.gif)
 
 # Flash Attn in Triton
 - [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
