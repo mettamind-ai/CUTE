@@ -290,13 +290,9 @@ class WinGPT(nn.Module):
 ## Loss function ##
 ###################
 
-max_sample_len = 0
 def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
     x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
-
-    global max_sample_len
-    if max_sample_len < m: max_sample_len = m; print(f">>> max_sample_len {m}")
 
     if not model.has_future(): return loss
     if torch.rand(1).item() > 0.5: return loss
