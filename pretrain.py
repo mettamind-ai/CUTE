@@ -192,8 +192,10 @@ if args.C:
     else:          lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
-* GPU(s) {world_size}, compile? {args.C}
-* loss_fn {lossf.__name__}, future_ratio {model.future_ratio}
+* GPU(s) {world_size}
+* compile? {args.C}
+* future? {model.future_ratio}
+* loss_fn {lossf.__name__}
 * seq_len {tokens_per_batch//1024}k tokens/step
 """)
 model.train()
