@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """ https://github.com/thu-ml/SageAttention/blob/main/sageattention/triton/attn_qk_int8_per_block_causal_varlen.py
+SageAttention: Accurate 8-bit Inference Attention https://arxiv.org/html/2410.02367v6
+     N_CTX     pytorch   flash_attn  flash_attn_varlen  sageattn_varlen
+0     1024  101.688067   118.003940         109.207398        53.948444
+1     2048  140.851681   262.960917         142.428452       110.656421
+2     4096  155.690084   536.076564         157.530936       172.889696
+3     8192  162.372505  1090.679558         164.438866       232.255332
+4    16384  164.710178  2193.152006         168.112195       264.587893
 """
 
 import torch, math
