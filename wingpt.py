@@ -117,7 +117,7 @@ class CausalSelfAttention(nn.Module):
         else:
             self.rotary = None  # Rotary(head_dim, seq_len)
             self.window = 1024  # short
-        print(f"Layer {layer_id} => {'Nope' self.rotary is None else 'RoPE'}, win {self.window}")
+        print(f"Layer {layer_id} => {'Nope' if self.rotary is None else 'RoPE'}, win {self.window}")
 
         self.attn_scale = 0.12
 
