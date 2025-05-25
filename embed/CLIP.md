@@ -25,6 +25,13 @@ InternViT-300M-448px-Distill is a distilled variant of the teacher model, Intern
 - https://github.com/OpenGVLab/InternVL/blob/main/internvl_g/internvl/model/internvl_stage2_retrieval/modeling_intern_vit.py
 
 ---
+# Intro to VLM
+- https://www.alphaxiv.org/abs/2405.17247
+- https://arxiv.org/html/2405.17247v1
+
+![](https://arxiv.org/html/2405.17247v1/x1.png)
+
+Contrastive-based training is often better explained through an Energy-Based Models in which a model Eθ, parameterized by θ, is trained to `assign low energy to observed variables` and `high energy to unobserved ones`. **Data from a target distribution should have low energy** while any other data points should have higher energy.
 
 # Perception Encoder
 - https://x.com/gabriberton/status/1922542732993544657
@@ -49,12 +56,4 @@ And one last small thing I didn't like: the papers don't cite the `INFOnce loss`
 - https://github.com/facebookresearch/perception_models
 - https://arxiv.org/abs/2504.13181
 - https://arxiv.org/abs/2504.13180
-
-# Intro to VLM
-- https://www.alphaxiv.org/abs/2405.17247
-- https://arxiv.org/html/2405.17247v1
-
-![](https://arxiv.org/html/2405.17247v1/x1.png)
-
-Contrastive-based training is often better explained through an Energy-Based Models in which a model Eθ, parameterized by θ, is trained to `assign low energy to observed variables` and `high energy to unobserved ones`. **Data from a target distribution should have low energy** while any other data points should have higher energy.
 

@@ -234,7 +234,7 @@ while step < args.steps and lossv > args.minloss:
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
         pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
     elif step == 1:
-        print0(f">>> torch.compile: {int(time.time() - started_at)} seconds <<<")
+        print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time0 -= time.time() - time0 # điều chỉnh lại time0
     pbar.update()
 

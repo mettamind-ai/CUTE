@@ -1,8 +1,5 @@
 # Learning Objectives
-Contrastrive / GAN / Mask / Generative
-- GLM
-- T5
-- UL2
+Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
 ## GLM
 - https://www.alphaxiv.org/abs/2103.10360
