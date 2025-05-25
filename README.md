@@ -73,6 +73,8 @@ nhưng khi vào model mình có thể **map con chữ thành concept vector** ..
 ## [DONE](.save/DONE.md)
 
 🌸__DOING__🌸
-- [ ] save params + HF's transformers wrapper cho wingpt để tiện inference
+- [ ] save params + inference
+  - https://github.com/pytorch-labs/gpt-fast
+  - https://pytorch.org/blog/accelerating-generative-ai-2
 - [ ] VLM đọc `screenshots (Anh + Việt)`
 - [ ] tìm hiểu mọi thứ về embedding / representation

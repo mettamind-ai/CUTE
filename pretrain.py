@@ -211,7 +211,7 @@ while step < args.steps and lossv > args.minloss:
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
     cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=6399)
 
-    loss = lossf(model, tokens, targets, future, cu_seqlens, max_seqlen)
+    loss = lossf(model, tokens, targets, future, cu_seqlens, 1024)
     batch = get_batch() # async prefetch next batch
     loss.backward()
 
