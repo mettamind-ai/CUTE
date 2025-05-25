@@ -208,6 +208,7 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 #############################
 ## Training loop
 #############################
+started_at = time.time()
 while step < args.steps and lossf > args.minloss:
     # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
@@ -230,7 +231,8 @@ while step < args.steps and lossf > args.minloss:
     muon_optim.step(); muon_optim.zero_grad()
     adam_optim.step(); adam_optim.zero_grad()
  
-    if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ... 
+    if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
+        print0(f">>> torch.compile and optimization time: {time.time() - started_at}")
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
         pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
     elif step == 1:
