@@ -101,3 +101,7 @@
 
 - [x] fused params: val_embs, tok_embs và qk
   https://github.com/KellerJordan/modded-nanogpt/blob/master/records/120424_ValueEmbed/train_gpt2.py#L268
+- [x] tinh gọn `optimus.py`
+- [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
+- [x] bench các sdpa engines
+- [x] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)

@@ -45,17 +45,7 @@
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
 - Scion https://github.com/LIONS-EPFL/scion
-## [DONE](.save/DONE.md)
-- [x] tinh gọn `optimus.py`
-- [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
-- [x] bench các sdpa engines
-- [x] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
-  - [x] khi dùng flash_attn trực tiếp ko int8 hoá q,k,v để ko tăng vram
-
-🌸__DOING__🌸
-- [ ] Làm lại tknz để tok_id 0 là <|end-of-text|>
-- [ ] apply GLM learning objs
-- [ ] save params +  HF's transformers wrapper cho wingpt để tiện inference
+- GLM / UL2 learning objs
 
 ## Super Token
 1 visual token có rất nhiều thông tin (diễn đạt bằng nhiều text token)
@@ -72,13 +62,17 @@ biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ)
 để đảm bảo tính cross entropy loss như bình thường, 
 nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
 
-- [ ] tìm hiểu mọi thứ về embedding / representation
-
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
 - Bài toán bộ gõ thông minh:
   - `auto-complete` + 
   - `sửa lỗi chính tả` + 
   - `convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
-- VLM đọc nội dung `screenshots (Anh + Việt)`
 - TTS cần 1 bộ tokenization khác thiên về phát âm
+
+## [DONE](.save/DONE.md)
+
+🌸__DOING__🌸
+- [ ] save params + HF's transformers wrapper cho wingpt để tiện inference
+- [ ] VLM đọc `screenshots (Anh + Việt)`
+- [ ] tìm hiểu mọi thứ về embedding / representation

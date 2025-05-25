@@ -11,10 +11,10 @@ torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
 torch.set_default_dtype(torch.bfloat16)
 
-##############################################################
-from flash_attn import flash_attn_func, flash_attn_varlen_func
-print("!!! Muse Use Flash Attn 2 for Sample Packing !!!")
-##############################################################
+####################################################
+from flash_attn import flash_attn_varlen_func
+print("*** Use Flash Attn 2 for Sample Packing ***")
+####################################################
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -90,7 +90,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, nope=False, layer_id=None):
+            seq_len:int, head_dim=128, long=False, layer_id=None):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
@@ -110,19 +110,18 @@ class CausalSelfAttention(nn.Module):
             self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self. o_proj.weight.zero_() # zero init
 
-        if nope: 
-            self.rotary = None
+        if long:
+            self.rope   = False
             self.window = 1024*4 # long
-            print(f"Layer {layer_id} => NoPE, win {self.window}")
         else:
-            self.rotary = Rotary(head_dim, seq_len)
+            self.rope   = True
             self.window = 1024  # short
-            print(f"Layer {layer_id} => RoPE, win {self.window}")
+        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen):
+    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
 
@@ -138,7 +137,7 @@ class CausalSelfAttention(nn.Module):
         v = v.contiguous().view(T, Hkv, D)
 
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
-        if self.rotary: q, k = self.rotary(q), self.rotary(k)
+        if self.rope: q, k = rotary(q), rotary(k)
 
         y = flash_attn_varlen_func(
             q, k, v,
@@ -164,14 +163,14 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
-            head_dim=head_dim, nope=layer_id % 4 == 3, layer_id=layer_id) # 2, 5, 8, 11 ...
+            head_dim=head_dim, long=layer_id % 4 == 3, layer_id=layer_id) # 2, 5, 8, 11 ...
 
-    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen):
+    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
         if te is not None: x += te_lambdas[2] * te # trộn với layer tok emb
 
-        x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen)
+        x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
         return x
 
@@ -181,18 +180,18 @@ class Future(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
         super().__init__()
         self.mlp = ReLuSquareMLP(dim, 2*dim) # nhẹ 2/3 MLP bình thường
-        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim, nope=True)
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim, long=True)
 
         self.proj = nn.Linear(2*dim, dim, bias=False)
         with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
-    def forward(self, x, x0, te, ve, tl, vl, cu_seqlens, max_seqlen):
+    def forward(self, x, x0, te, ve, tl, vl, cu_seqlens, max_seqlen, rotary):
         # trộn feat của last layer với token embed gốc (x0)
         x = torch.cat((x, x0), dim=-1)
         x = self.proj(x) # mlp mixer
         x = norm(x)
         if te is not None: x += tl[2] * te # trộn với layer tok emb
-        x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen)
+        x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
         return norm(x)
 
@@ -204,6 +203,8 @@ class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
             dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0):
         super().__init__()
+
+        self.rotary = Rotary(head_dim, max_seq_len)
 
         self.n_layers = n_layers
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
@@ -277,7 +278,7 @@ class WinGPT(nn.Module):
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m)
+            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
@@ -302,7 +303,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
     assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
-        model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m), # đã norm
+        model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m, model.rotary), # đã norm
         future.flatten(), model.lm_head, # tied với main task head 
     )
     # import gc; del layer_outputs, t, v, l, s; gc.collect(); torch.cuda.empty_cache() # no use
