@@ -31,11 +31,11 @@ cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedu
     (128, 256, 128, 3, 8), (256, 128, 128, 3, 8), (256,  64, 128, 4, 4), ( 64, 256, 128, 4, 4),
     (128, 128, 128, 4, 4), (128,  64,  64, 4, 4), ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4),
     # https://github.com/pytorch/pytorch/blob/7868b65c4d4f34133607b0166f08e9fbf3b257c4/torch/_inductor/kernel/mm_common.py#L172
-    # ( 64,  64,  32, 2, 4), ( 64, 128,  32, 3, 4), (128,  64,  32, 3, 4),
-    # ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), ( 64,  32,  32, 5, 8),
-    # ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
+    ( 64,  64,  32, 2, 4), ( 64, 128,  32, 3, 4), (128,  64,  32, 3, 4),
+    ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), ( 64,  32,  32, 5, 8),
+    ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
     # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
-    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
+    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
 ]
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
