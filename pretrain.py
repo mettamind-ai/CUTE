@@ -26,7 +26,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "T C XS S L M fusedloss".split():
+for x in "T C XS S L M fused".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -185,22 +185,21 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ## LOSS FUNCTION & PREPARE ##
 #############################
 from wingpt import simple_loss_fn, fused_loss_fn
-loss_fn = fused_loss_fn if args.fusedloss else simple_loss_fn
+lossf = fused_loss_fn if args.fused else simple_loss_fn
 
 if args.C:
-    model = torch.compile(model); print(">>> torch.compile(model) <<<")
-    if not args.fusedloss:
-        loss_fn = torch.compile(loss_fn); print(">>> torch.compile(loss_fn) <<<")
+    if args.fused: lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
+    else:          model = torch.compile(model); print(">>> torch.compile(model) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
-* world_size {world_size}, compile? {args.C}
-* loss_fn {loss_fn.__name__}, future_ratio {model.future_ratio}
+* GPU(s) {world_size}, compile? {args.C}
+* loss_fn {lossf.__name__}, future_ratio {model.future_ratio}
 * seq_len {tokens_per_batch//1024}k tokens/step
 """)
 model.train()
 step = 0
 log_interval = 10
-lossf = 9999 # cần cho args.minloss
+lossv = 9999 # cần cho args.minloss
 
 if args.T: log_interval = 2
 else: logger = wandb.init(dir="/tmp", config=args,)
@@ -209,10 +208,10 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 ## Training loop
 #############################
 started_at = time.time()
-while step < args.steps and lossf > args.minloss:
+while step < args.steps and lossv > args.minloss:
     # https://github.com/karpathy/nanoGPT/blob/master/train.py#L292C9-L292C20
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
-    loss = loss_fn(model, tokens, targets, future, cu_seqlens, max_seqlen)
+    loss = lossf(model, tokens, targets, future, cu_seqlens, max_seqlen)
     batch, cu_seqlens, max_seqlen = get_batch() # async prefetch next batch
     loss.backward()
 
@@ -220,13 +219,13 @@ while step < args.steps and lossf > args.minloss:
     muon_lr_schedule.set_lr(step, muon_optim)
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
-        lossf = loss.item()
+        lossv = loss.item()
         adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossf, muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossv, muon_lr=muon_lr, adam_lr=adam_lr)
 
         if not args.T: logger.log(log_dict, step=step)
-        pbar.set_postfix(loss=lossf, lr=muon_lr) # tối thiểu chiều rộng
+        pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
     muon_optim.step(); muon_optim.zero_grad()
     adam_optim.step(); adam_optim.zero_grad()
