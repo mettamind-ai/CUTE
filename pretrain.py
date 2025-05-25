@@ -188,8 +188,8 @@ from wingpt import simple_loss_fn, fused_loss_fn
 lossf = fused_loss_fn if args.fused else simple_loss_fn
 
 if args.C:
-    if args.fused: lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
-    else:          model = torch.compile(model); print(">>> torch.compile(model) <<<")
+    if args.fused: model = torch.compile(model); print(">>> torch.compile(model) <<<")
+    else:          lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
 
 print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * GPU(s) {world_size}, compile? {args.C}
