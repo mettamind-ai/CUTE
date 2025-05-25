@@ -195,8 +195,8 @@ print0(f"""CHUẨN BỊ HUẤN LUYỆN
 * GPU(s) {world_size}
 * compile? {args.C}
 * future? {model.future_ratio}
-* loss_fn {lossf.__name__}
-* seq_len {tokens_per_batch//1024}k tokens/step
+* {lossf.__name__}
+* {tokens_per_batch//1024}k seq/step
 """)
 model.train()
 step = 0
