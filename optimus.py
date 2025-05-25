@@ -378,7 +378,10 @@ import torch, math
 import torch.distributed as dist
 from torch import Tensor
 
-def newtonschulz(G: Tensor, steps: int, fast=False) -> Tensor:
+FAST_NEWTON_SCHULZ = os.getenv('flash_muon', '0') == '1'
+print(f"FAST_NEWTON_SCHULZ => {FAST_NEWTON_SCHULZ}")
+
+def newtonschulz(G: Tensor, steps: int, fast=True) -> Tensor:
     # G: The gradient or momentum matrix to be orthogonalized.
     # steps: Number of Newton-Schulz iterations.
     assert G.ndim >= 2
@@ -389,12 +392,7 @@ def newtonschulz(G: Tensor, steps: int, fast=False) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
 
-    if not fast or G.ndim > 2:
-        for _ in range(steps):
-            A = X @ X.mT
-            B = b * A + c * A @ A
-            X = a * X + B @ X
-    else:
+    if FAST_NEWTON_SCHULZ and fast and G.ndim == 2:
         buf1 = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
         buf2 = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
         for _ in range(steps):
@@ -403,6 +401,12 @@ def newtonschulz(G: Tensor, steps: int, fast=False) -> Tensor:
             B = b * buf1 + c * buf2
             X = a * X + B @ X
             # X = a * X + _dynamic_int8_mm(B, X, sr=False) # int8_mm make them slow ?!?
+    else:
+        for _ in range(steps):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+
     if G.size(-2) > G.size(-1): X = X.mT
     return X
 

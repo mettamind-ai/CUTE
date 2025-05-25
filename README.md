@@ -78,3 +78,7 @@ nhưng khi vào model mình có thể **map con chữ thành concept vector** ..
   - https://pytorch.org/blog/accelerating-generative-ai-2
 - [ ] VLM đọc `screenshots (Anh + Việt)`
 - [ ] tìm hiểu mọi thứ về embedding / representation
+- [ ] Học cách thu nhỏ model và NAS
+  - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
+  - NAS https://arxiv.org/abs/2411.19146
+  - Llama-Nemotron https://arxiv.org/abs/2505.00949
