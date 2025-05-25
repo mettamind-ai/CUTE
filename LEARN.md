@@ -60,3 +60,12 @@ SageBwd có tốc độ hội tụ chậm hơn BF16 trong pretraining vì **quan
 - gemma3 & https://ai.google.dev/gemma/docs/gemma-3n
   
 - weighted loss https://x.com/kalomaze/status/1880923963880300941
+
+---
+
+Marin test various optimizers (muon seem the best)
+- https://github.com/marin-community/marin/issues/1290
+- https://github.com/marin-community/marin/blob/main/docs/reports/marin-8b-retro.md#training-phases
+- WSD Cycle https://github.com/marin-community/marin/blob/main/docs/reports/marin-8b-retro.md#wsd-cycle-change
+![](https://github.com/marin-community/marin/raw/main/docs/images/tootsie-8b-retro-wsd-interval.png)
+- https://github.com/marin-community/marin/blob/main/docs/reports/index.md

@@ -36,10 +36,7 @@
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
-- Áp dụng được packed dataset để tránh cross attention giữa các samples thì tốt. Nếu không dùng mẹo sau:
-- Phối data cùng 1 domain theo tỉ lệ **chính-phụ** `40:20:20:10:10` 
-  - cái nào core sẽ đưa vào group 40
-  - cái nào phụ sẽ giảm dần theo tỉ lệ phía sau
+
 ## PLANING
 - Tìm hiểu `exits > 1` + `torch.compile` khiến vram bị đội lên
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
@@ -73,10 +70,10 @@ nhưng khi vào model mình có thể **map con chữ thành concept vector** ..
 ## [DONE](.save/DONE.md)
 
 🌸__DOING__🌸
+- [ ] `tinymonster01` VLM đọc `screenshots (Anh + Việt)`
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
-- [ ] VLM đọc `screenshots (Anh + Việt)`
 - [ ] tìm hiểu mọi thứ về embedding / representation
 - [ ] Học cách thu nhỏ model và NAS
   - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
