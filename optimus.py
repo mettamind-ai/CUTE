@@ -118,7 +118,6 @@ def scaled_mm(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) ->
     return lib_ops.scaled_mm(A, B, row_scale_A, col_scale_B)
 
 
-
 @torch.library.impl(lib, "scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
@@ -155,9 +154,9 @@ import torch, os
 import torch.nn.functional as F
 import torch.utils._pytree as pytree
 from torch import Tensor, nn
-
 aten = torch.ops.aten
-INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', '0')
+
+INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', 'hack')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
 ABIT = INT8_MIXED_SR == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
@@ -170,13 +169,16 @@ BWD_INPUT_SR = INT8_MIXED_SR in ["half", "full", "hack", "abit"]
 @torch.no_grad()
 def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
-    scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
-    # print(tensor.size(), scale.size()); input()   # [65536, 1024], [65536, 1]
+    scale = tensor.abs().amax(dim, keepdim=True) / 127  # [N, 1]
     inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
-    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
-    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
-    else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
-    return ( tensor.clip(-128, 127).to(torch.int8), scale )
+    # tensor = tensor.float() * inv_scale.view(-1, 1) # tensor/scale.clip(eps)
+    tensor = tensor.to(dtype=torch.float, copy=False).mul_(inv_scale.view(-1, 1))
+    # if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
+    if sr:   tensor.add_(torch.rand_like(tensor)).floor_() # hiệu quả hơn
+    else:    tensor.round_() # ^^^stochastic rounding^^^^
+    # tensor = tensor.clip(-128, 127).to(torch.int8)
+    tensor = tensor.clamp_(-128, 127).to(torch.int8, copy=False)
+    return ( tensor, scale )
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
