@@ -45,7 +45,7 @@
   - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
   - NAS https://arxiv.org/abs/2411.19146
   - Llama-Nemotron https://arxiv.org/abs/2505.00949
-
+- Cross-Layer Attention (CLA) -  sharing key and value heads between adjacent layers - https://arxiv.org/abs/2405.12981
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
 - Bài toán bộ gõ thông minh:
@@ -62,3 +62,9 @@
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
+- [ ] thử nghiệm ý tưởng chỉ update gradients với tokens của 10 batches.
+  - [LigerKernel Embedding](/liger_kernel.py#L70) => cách họ tối ưu IO / embedding lookup ...
+  - [ ] Tìm cách khuếch tán gradients ra các tokens không được load vào head
+    - Mỗi lần update gradients load ngẫu nhiên 1 số tokens vào head chẳng hạn ...
+    - Đo lường sự giống và khác nhau giữa việc load full head và load part of head ...
+    - => tìm ra quy luật + rút ra kinh nghiệm
