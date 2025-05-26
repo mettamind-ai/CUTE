@@ -229,7 +229,7 @@ class WinGPT(nn.Module):
 
         lte = te - 1 # layer token embeddings
         if lte > 1:
-            dd = dim // 4 # giảm 1/2 dim nếu không phải tok emb gốc
+            dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
             self.tok_embs = LigerEmbedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
@@ -276,17 +276,35 @@ class WinGPT(nn.Module):
         skip_weights = self.scalars[ :n_blks]
         te_lambdas   = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
         ve_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
+        
+        # WinGPT.skip_from {14: 2, 12: 4, 10: 6}
+        # Hiện tại skip connection đang ở dạng số chẵn nên ta có thể tính 2 blocks mới checkpoint 1 lần
+        layer_outputs = { v: None for v in self.skip_from.values() }
+        i = 0
 
-        layer_outputs = []
-        for i in range(self.n_layers):
+        while i < self.n_layers:
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
+            def double_fwd(i):
+                # dùng function scope để lưu lại các biến cục bộ layer_ids checkpoint
+                is_last_layer = ( i == self.n_layers - 1 )
+                if is_last_layer: layer_ids = [i]
+                else:             layer_ids = [i, i + 1]
+                # print(layer_ids) # DEBUG
+                def fwd_fwd(x):
+                    for idx in layer_ids:
+                        x = self.blocks[idx](x, t_embs[0], t_embs[i], v_embs[i], \
+                            te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen, self.rotary)
+                    return x
+                return fwd_fwd
+ 
+            f = double_fwd(i)
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
-            layer_outputs.append(x)
+ 
+            layer_outputs[i] = x
+            i += 2
 
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
