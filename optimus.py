@@ -156,11 +156,13 @@ import torch.utils._pytree as pytree
 from torch import Tensor, nn
 aten = torch.ops.aten
 
-INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', 'hack')
+INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', 'abit')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
+HACK = os.getenv('INT8_SR_HACK', '1') == 1 # HACK = True sẽ giảm số sr đi 1/2
+print(f"INT8_SR_HACK => {HACK}")
+
 ABIT = INT8_MIXED_SR == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
-HACK = INT8_MIXED_SR == "hack" # 4 phép stochastic rounding ( 1@grad.input + 1@grad.weight + 2@fwd )
 HALF = INT8_MIXED_SR == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )  
 FULL = INT8_MIXED_SR == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
 FWD_SR       = INT8_MIXED_SR in ["half", "full", "hack"]
@@ -182,7 +184,7 @@ def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
-    if HACK: # luôn sr ở ma trận nhỏ
+    if sr and HACK: # bật HACK => chỉ sr ma trận nhỏ
         Asr = A.numel() < B.numel()
         Bsr = not Asr
     else: Asr = Bsr = sr
