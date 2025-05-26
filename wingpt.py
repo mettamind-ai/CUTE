@@ -283,9 +283,9 @@ class WinGPT(nn.Module):
         i = 0
 
         while i < self.n_layers:
-            if i in self.skip_from:
-                k = self.skip_from[i]
-                x += skip_weights[k] * layer_outputs[k]
+            # if i in self.skip_from:
+            #     k = self.skip_from[i]
+            #     x += skip_weights[k] * layer_outputs[k]
             
             def double_blk_fwd(i):
                 # dùng function scope để lưu lại các biến cục bộ layer_ids
@@ -301,7 +301,7 @@ class WinGPT(nn.Module):
                 return _fwd
  
             x = torch.utils.checkpoint.checkpoint(double_blk_fwd(i), x, use_reentrant=False)
-            layer_outputs[i] = x
+            # layer_outputs[i] = x
             i += 2
 
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen

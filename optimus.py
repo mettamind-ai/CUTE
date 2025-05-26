@@ -276,7 +276,8 @@ class MixedPrecisionLinearWeight(Tensor):
         else: return out # new unwrapped object
 
 import re
-def convert_int8_mixed_precision(module:nn.Module, ignore=re.compile(r'head|kv_proj|q_proj')):
+def convert_int8_mixed_precision(module:nn.Module, ignore=r'head|kv_proj|q_proj'):
+    ignore= re.compile(ignore)
     count = 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
