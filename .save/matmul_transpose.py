@@ -1,8 +1,8 @@
+# Modded from github.com/nil0x9/flash-muon
+
 import torch, triton
 import triton.language as tl
 from torch import Tensor
-
-from matmul_int8_dynamic import quantize_int8
 
 ###############################
 ##  matmul_transpose_triton  ##
@@ -161,6 +161,17 @@ def int8_matmul_transpose_kernel(
         tl.store(ct_ptrs, tl.permute(c, (1,0)), mask=ct_mask)
 
 
+@torch.no_grad()
+def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
+    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
+    scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
+    inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
+    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
+    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
+    else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
+    return ( tensor.clip(-128, 127).to(torch.int8), scale )
+
+
 def int8_matmul_transpose_assign(x, output):
     assert x.is_cuda and output.is_cuda
     assert x.device == output.device
@@ -181,6 +192,36 @@ def int8_matmul_transpose_assign(x, output):
         x_int8.stride(0), x_int8.stride(1),
         output.stride(0), output.stride(1)
     )
+
+
+def _newtonschulz(G: Tensor, steps: int, fast=False) -> Tensor:
+    # G: The gradient or momentum matrix to be orthogonalized.
+    # steps: Number of Newton-Schulz iterations.
+    assert G.ndim >= 2
+    a, b, c = (3.4445, -4.7750,  2.0315)
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1): X = X.mT
+
+    # Ensure spectral norm is at most 1
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+
+    if fast and G.ndim == 2:
+        A   = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
+        AxA = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
+
+        for _ in range(steps):        
+            matmul_transpose_assign(X, A)
+            matmul_transpose_assign(A, AxA)
+            B = b * A + c * AxA
+            X = a * X + B @ X
+    else:
+        for _ in range(steps):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+
+    if G.size(-2) > G.size(-1): X = X.mT
+    return X
 
 
 #######################################
