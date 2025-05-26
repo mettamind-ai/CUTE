@@ -35,7 +35,7 @@
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
-
+- [Dùng GPU để xử lý nhanh](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
 ## PLANING
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416

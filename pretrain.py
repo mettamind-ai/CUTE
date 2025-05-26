@@ -86,9 +86,9 @@ total_names = sum(1 for p in model.parameters())
 names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
 
-print0(f"""\nPHÂN CHIA PARAMS SỬ DỤNG INT8:
-* {count} _int8_ {percent:.1f}% {params:,}
-* {total_names - count} others {100-percent:.1f}% {total_params - params:,}
+print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
+* {count} INT8 Mixed Weights {percent:.1f}% {params:,}
+* {total_names - count} BF16/ FP32 Weights {100-percent:.1f}% {total_params - params:,}
 INT8: {names}""")
 
 #################
@@ -194,7 +194,7 @@ if args.C:
     if args.fused: model = torch.compile(model); print(">>> torch.compile(model) <<<")
     else:          lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
 
-print0(f"""CHUẨN BỊ HUẤN LUYỆN
+print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
 * compile? {args.C}
 * future? {model.future_ratio}
