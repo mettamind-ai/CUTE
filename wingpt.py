@@ -270,7 +270,7 @@ class WinGPT(nn.Module):
         te_lambdas   = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
         ve_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
         
-        layer_outputs = { }
+        layer_outputs = []
         for i in range(self.n_layers):
             if i in self.skip_from:
                 k = self.skip_from[i]
@@ -280,7 +280,7 @@ class WinGPT(nn.Module):
             f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
 
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
-            if i in self.skip_from.values(): layer_outputs[i] = x
+            layer_outputs.append(x)
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 
