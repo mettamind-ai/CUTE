@@ -270,27 +270,17 @@ class WinGPT(nn.Module):
         te_lambdas   = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
         ve_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
         
-        # WinGPT.skip_from {14: 2, 12: 4, 10: 6}
-        # Hiện tại skip connection đang ở dạng số chẵn nên ta có thể tính 2 blocks mới checkpoint 1 lần
-        layer_outputs = { v: None for v in self.skip_from.values() }
-
-        ii = 1; assert ii in [1, 2]
-        for i in range(self.n_layers, ii):
+        layer_outputs = { }
+        for i in range(self.n_layers):
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
-            def blk_fwd(idx):
-                # dùng function scope để lưu lại các biến cục bộ blocks
-                # lấy ii blocks từ idx nhưng ko được quá n_layers
-                blocks = self.block[:self.n_layers][idx:idx+ii]
-                def _fwd(xx):
-                    for j, blk in enumerate(blocks): 
-                        xx = blk(xx, t_embs[0], t_embs[idx+j], v_embs[idx+j], te_lambdas[idx+j], 
-                            ve_lambdas[i+j], cu_seqlens, max_seqlen, self.rotary)
-                    return xx
-                return _fwd
-            x = torch.utils.checkpoint.checkpoint(blk_fwd(i), x, use_reentrant=False)
-            if i in layer_outputs: layer_outputs[i] = x
+            
+            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
+            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
+
+            x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
+            if i in self.skip_from.values(): layer_outputs[i] = x
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 
