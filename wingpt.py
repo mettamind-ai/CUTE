@@ -274,18 +274,18 @@ class WinGPT(nn.Module):
         # Hiện tại skip connection đang ở dạng số chẵn nên ta có thể tính 2 blocks mới checkpoint 1 lần
         layer_outputs = { v: None for v in self.skip_from.values() }
 
-        ii = 2; assert ii in [1, 2]
+        ii = 1; assert ii in [1, 2]
         for i in range(self.n_layers, ii):
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
-            def blk_fwd(i):
+            def blk_fwd(idx):
                 # dùng function scope để lưu lại các biến cục bộ blocks
-                # lấy ii blocks từ i nhưng ko được quá n_layers
-                blocks = self.block[:self.n_layers][i:i+ii]
+                # lấy ii blocks từ idx nhưng ko được quá n_layers
+                blocks = self.block[:self.n_layers][idx:idx+ii]
                 def _fwd(xx):
                     for j, blk in enumerate(blocks): 
-                        xx = blk(xx, t_embs[0], t_embs[i+j], v_embs[i+j], te_lambdas[i+j], 
+                        xx = blk(xx, t_embs[0], t_embs[idx+j], v_embs[idx+j], te_lambdas[idx+j], 
                             ve_lambdas[i+j], cu_seqlens, max_seqlen, self.rotary)
                     return xx
                 return _fwd
