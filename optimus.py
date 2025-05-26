@@ -159,7 +159,7 @@ aten = torch.ops.aten
 INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', 'abit')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
-HACK = os.getenv('INT8_SR_HACK', '1') == 1 # HACK = True sẽ giảm số sr đi 1/2
+HACK = os.getenv('INT8_SR_HACK', '1') == 1 # bật HACK sẽ giảm số sr đi << 1/2 do chỉ sr ma trận nhỏ
 print(f"INT8_SR_HACK => {HACK}")
 
 ABIT = INT8_MIXED_SR == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
