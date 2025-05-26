@@ -254,7 +254,7 @@ class WinGPT(nn.Module):
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        v_embs = self.val_embs(input_seq)
+        v_embs = self.val_embs(input_seq).bfloat16()
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
