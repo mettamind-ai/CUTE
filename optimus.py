@@ -281,7 +281,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore=r'head|kv_proj|q_proj'
     count = 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
-            print(f">>> int8? {n}")
+            # print(f">>> int8? {n}") # DEBUG
             count += 1
             m.weight = nn.Parameter(
                 MixedPrecisionLinearWeight(m.weight.detach()),

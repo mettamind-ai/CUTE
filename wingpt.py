@@ -283,11 +283,11 @@ class WinGPT(nn.Module):
                 # dùng function scope để lưu lại các biến cục bộ blocks
                 # lấy ii blocks từ i nhưng ko được quá n_layers
                 blocks = self.block[:self.n_layers][i:i+ii]
-                def _fwd(x):
+                def _fwd(xx):
                     for j, blk in enumerate(blocks): 
-                        x = blk(x, t_embs[0], t_embs[i+j], v_embs[i+j], te_lambdas[i+j], 
+                        xx = blk(xx, t_embs[0], t_embs[i+j], v_embs[i+j], te_lambdas[i+j], 
                             ve_lambdas[i+j], cu_seqlens, max_seqlen, self.rotary)
-                    return x
+                    return xx
                 return _fwd
             x = torch.utils.checkpoint.checkpoint(blk_fwd(i), x, use_reentrant=False)
             if i in layer_outputs: layer_outputs[i] = x
