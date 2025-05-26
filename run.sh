@@ -17,4 +17,4 @@ if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
     xz -d data6400.bin.xz
 fi
-./pretrain.py --T
+./pretrain.py --T --int8rd hack

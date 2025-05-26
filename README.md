@@ -32,13 +32,11 @@
 
 ---
 
-# 🌸 TODO 🌸
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
 
 ## PLANING
-- Tìm hiểu `exits > 1` + `torch.compile` khiến vram bị đội lên
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
 - Scion https://github.com/LIONS-EPFL/scion

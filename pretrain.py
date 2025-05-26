@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, types
+import os, sys, types, re
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse, json, time
@@ -74,9 +74,22 @@ else:        # (XS)mall ~ 100m
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 model = model.cuda()
-count = convert_int8_mixed_precision(model, ignore=r'head|kv_proj')
-print0(f"INT8 Mixed Precision: {count} Linear converted.")
+names, params = convert_int8_mixed_precision(model, ignore=r'head|kv_proj|q_proj')
 
+def find_key(s):
+    m = re.search(r'(blocks\.\d+\.)?(.*)', s)
+    return "*" + m.group(2) if m.group(1) else m.group(2)
+
+count = len(names)
+total_params = sum(p.numel() for p in model.parameters())
+total_names = sum(1 for p in model.parameters())
+names = sorted(set(find_key(x) for x in names))
+percent = (params/total_params)*100
+
+print0(f"""\nPHÂN CHIA PARAMS SỬ DỤNG INT8:
+* {count} _int8_ {percent:.1f}% {params:,}
+* {total_names - count} others {100-percent:.1f}% {total_params - params:,}
+INT8: {names}""")
 
 #################
 ## Data loader ##
@@ -145,7 +158,6 @@ extra {classified_names - all_names}"""
 adam_params = list(adam_n_params.values())
 muon_params = list(muon_n_params.values())
 
-
 adam_params_count = sum(p.numel() for p in adam_params)
 muon_params_count = sum(p.numel() for p in muon_params)
 total_params = sum(p.numel() for p in model.parameters())
@@ -157,11 +169,6 @@ print0(f"""\nPHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Adam: {adam_ratio*100:.1f}% {adam_params_count:,}
 * Muon: {muon_ratio*100:.1f}% {muon_params_count:,}
  TOTAL: {           100:.1f}% {total_params:,}""")
-
-import re
-def find_key(s):
-    m = re.search(r'(blocks\.\d+\.)?(.*)', s)
-    return m.group(2)
 
 adam_keys = sorted(set(find_key(x) for x in adam_n_params.keys()))
 muon_keys = sorted(set(find_key(x) for x in muon_n_params.keys()))

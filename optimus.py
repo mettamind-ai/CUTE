@@ -146,28 +146,6 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     return C
 
 
-@torch.no_grad()
-def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
-    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
-    scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
-    inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
-    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
-    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
-    else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
-    return ( tensor.clip(-128, 127).to(torch.int8), scale )
-
-
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
-    A_i8, row_scale = quantize_int8(A, dim=1, sr=sr)
-    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=sr)
-    return scaled_mm(
-        A_i8.contiguous(),
-        B_t_i8.contiguous().T,
-        row_scale.contiguous(),
-        col_scale.T.contiguous(),
-    )
-
-
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
@@ -182,11 +160,38 @@ aten = torch.ops.aten
 INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', '0')
 print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
 
-ABIT = INT8_MIXED_SR == "abit" # 1 phép round 8bit
-HACK = INT8_MIXED_SR == "hack" # 2 phép round 8bit + 1 phép bf16
-FULL = INT8_MIXED_SR == "full" # 3 phép round 8bit
+ABIT = INT8_MIXED_SR == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
+HACK = INT8_MIXED_SR == "hack" # 4 phép stochastic rounding ( 1@grad.input + 1@grad.weight + 2@fwd )
+HALF = INT8_MIXED_SR == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )  
+FULL = INT8_MIXED_SR == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
 FWD_SR       = INT8_MIXED_SR in ["half", "full", "hack"]
 BWD_INPUT_SR = INT8_MIXED_SR in ["half", "full", "hack", "abit"]
+
+@torch.no_grad()
+def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
+    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
+    scale = tensor.abs().amax(dim, keepdim=True) / 127 # same dtype
+    # print(tensor.size(), scale.size()); input()   # [65536, 1024], [65536, 1]
+    inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
+    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor / scale.clip(eps)
+    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
+    else:  tensor = tensor.round()# ^^^stochastic rounding^^^^
+    return ( tensor.clip(-128, 127).to(torch.int8), scale )
+
+
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
+    if HACK: # bỏ qua chỉ dẫn sr và luôn sr ở ma trận nhỏ
+        Asr = A.numel() < B.numel()
+        Bsr = not Asr
+    else: Asr = Bsr = sr
+    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
+    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
+    return scaled_mm(
+        A_i8.contiguous(),
+        B_t_i8.contiguous().T,
+        row_scale.contiguous(),
+        col_scale.T.contiguous(),
+    )
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
@@ -221,11 +226,10 @@ class Int8MixedLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            if   HACK:  # chậm nhưng, giúp tránh oom khi rounding cả grad_weight 
-                grad_weight = grad_output.T @ input
-            elif FULL:  # sr=True rất dễ oom nên chỉ dùng ở full mode
+            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn '''
+            if FULL:  # sr=True rất dễ oom nên chỉ dùng ở full mode
                 grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=True).T
-            else:       # Tăng tốc và giảm vram hết cỡ
+            else:     # Tăng tốc và giảm vram hết cỡ
                 grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=False).T
 
         if ctx.needs_input_grad[2] and ctx.bias:
@@ -278,16 +282,16 @@ class MixedPrecisionLinearWeight(Tensor):
 import re
 def convert_int8_mixed_precision(module:nn.Module, ignore=r'head|kv_proj|q_proj'):
     ignore= re.compile(ignore)
-    count = 0
+    names, params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
-            # print(f">>> int8? {n}") # DEBUG
-            count += 1
+            names.append(n)            
+            params += m.weight.numel()
             m.weight = nn.Parameter(
                 MixedPrecisionLinearWeight(m.weight.detach()),
                 requires_grad=m.weight.requires_grad,
             )
-    return count
+    return names, params
 
 
 #################################################################
