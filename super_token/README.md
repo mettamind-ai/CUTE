@@ -13,6 +13,7 @@ biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ)
 để đảm bảo tính cross entropy loss như bình thường, 
 nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
 
+## Masked Next Token Prediction (GPT-BERT / LLM2VEC)
 <table>
   <tr>
     <td width="40%"><img src="https://arxiv.org/html/2410.24159v2/x1.png"/></td>
