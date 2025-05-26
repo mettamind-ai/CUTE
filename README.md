@@ -43,6 +43,10 @@
 - Gluon https://www.alphaxiv.org/abs/2505.13416
 - Scion https://github.com/LIONS-EPFL/scion
 - GLM / UL2 learning objs
+- Học cách thu nhỏ model và NAS
+  - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
+  - NAS https://arxiv.org/abs/2411.19146
+  - Llama-Nemotron https://arxiv.org/abs/2505.00949
 
 ## Super Token
 1 visual token có rất nhiều thông tin (diễn đạt bằng nhiều text token)
@@ -77,12 +81,7 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
 ## [DONE](.save/DONE.md)
 
 🌸__DOING__🌸
-- [ ] `tinymonster01` VLM đọc `screenshots (Anh + Việt)`
+- [ ] seq packing without flash-attn
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
-- [ ] tìm hiểu mọi thứ về embedding / representation
-- [ ] Học cách thu nhỏ model và NAS
-  - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
-  - NAS https://arxiv.org/abs/2411.19146
-  - Llama-Nemotron https://arxiv.org/abs/2505.00949
