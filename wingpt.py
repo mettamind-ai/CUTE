@@ -223,13 +223,13 @@ class WinGPT(nn.Module):
         lte = te - 1 # layer token embeddings
         if lte > 1:
             dd = dim // 4 # giảm 1/2 dim nếu không phải tok emb gốc
-            self.tok_embs = nn.LigerEmbedding(vocab_size, dd*lte)
+            self.tok_embs = LigerEmbedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
                 self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = nn.LigerEmbedding(vocab_size, kv_dim*ve) 
+        self.val_embs = LigerEmbedding(vocab_size, kv_dim*ve) 
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
