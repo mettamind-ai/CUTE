@@ -48,21 +48,6 @@
   - NAS https://arxiv.org/abs/2411.19146
   - Llama-Nemotron https://arxiv.org/abs/2505.00949
 
-## Super Token
-1 visual token có rất nhiều thông tin (diễn đạt bằng nhiều text token)
-Liệu có thể làm tương tự như visual encoder nhưng mà cho text? => **SUPER TEXT TOKEN**
-1 cụm n text tokens giờ đc biểu diễn = 1 embedding vector thay vì n như trước =>
-đó là biên giới hạn của ngôn ngữ con người.
-
-Máy có thể khai thác cái này để thông minh hơn ví dụ: Con lai của hổ và sư tử miêu tả là 
-`"1 con gì đó giống con hổ và con sư tử"` => từ mới `hổ sư` thay vì biểu diễn bằng 1 câu 
-sẽ có 1 miền trong token embeddings biểu diễn cái này
-miền đó nằm giữa trung điểm của vector hổ và vector sư tử
-
-biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ) 
-để đảm bảo tính cross entropy loss như bình thường, 
-nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
-
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
 - Bài toán bộ gõ thông minh:
@@ -72,9 +57,10 @@ nhưng khi vào model mình có thể **map con chữ thành concept vector** ..
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
+- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín (đợi thêm)
+- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
 
 🌸__DOING__🌸
-- [ ] seq packing without flash-attn
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
