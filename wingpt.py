@@ -238,7 +238,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
-        # print("WinGPT.skip_from", self.skip_from)
+        print("WinGPT.skip_from", self.skip_from)
 
         self.lm_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.lm_head.weight.zero_()
