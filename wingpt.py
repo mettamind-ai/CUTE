@@ -4,6 +4,7 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 from optimus import Int8MixedLinear
+from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -23,6 +24,8 @@ mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
 math_? {torch.backends.cuda.math_sdp_enabled()}
 cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
 ###################################################################
+from flash_attn import flash_attn_varlen_func
+
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -228,7 +231,7 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
         self.ve, self.te = ve, te
 
-        self.tok_emb0 = nn.Embedding(vocab_size, dim) # tok emb gốc
+        self.tok_emb0 = LigerEmbedding(vocab_size, dim) # tok emb gốc
 
         lte = te - 1 # layer token embeddings
         if lte > 1:
@@ -323,7 +326,6 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
-from liger_kernel import LigerFusedLinearCrossEntropyFunction
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
         hidden = hidden.view(-1, hidden.size(-1))
