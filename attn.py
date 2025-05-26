@@ -9,8 +9,7 @@ SageAttention: Accurate 8-bit Inference Attention https://arxiv.org/html/2410.02
 4    16384  164.710178  2193.152006         168.112195       264.587893
 """
 
-import torch, math
-import triton
+import torch, triton, math
 import triton.language as tl
 
 @triton.jit
