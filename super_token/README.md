@@ -12,3 +12,7 @@ miền đó nằm giữa trung điểm của vector hổ và vector sư tử
 biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ) 
 để đảm bảo tính cross entropy loss như bình thường, 
 nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
+
+
+|![](https://arxiv.org/html/2410.24159v2/x1.png)|![](https://arxiv.org/html/2404.05961v2/x2.png)|
+|-|-|
