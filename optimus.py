@@ -503,13 +503,12 @@ def newtonschulz(G: Tensor, steps: int, fast=True) -> Tensor:
         A   = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
         AxA = torch.empty(X.size(0), X.size(0), dtype=X.dtype, device=X.device)
 
-        too_small = ( G.numel() < 1024*1024 )
         for _ in range(steps):        
             int8_matmul_transpose_assign(X, A)
             int8_matmul_transpose_assign(A, AxA)
             B = b * A + c * AxA
-            if too_small: X = a * X + B @ X # nhỏ quá dùng int8_mm sẽ bị NaN
-            else:         X = a * X + _dynamic_int8_mm(B, X, sr=False) # int8_mm slow ?!?
+            X = a * X + B @ X # nhỏ quá dùng int8_mm sẽ bị NaN
+            # X = a * X + _dynamic_int8_mm(B, X, sr=False) # int8_mm slow ?!?
     else:
         for _ in range(steps):
             A = X @ X.mT
