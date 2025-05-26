@@ -119,8 +119,8 @@ class CausalSelfAttention(nn.Module):
         # print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
         self.attn_scale = 0.12
-        self.k_conv1d = ShortConvolution(kv_inner_dim, 3)
-        self.v_conv1d = ShortConvolution(kv_inner_dim, 3)
+        # self.k_conv1d = ShortConvolution(kv_inner_dim, 3)
+        # self.v_conv1d = ShortConvolution(kv_inner_dim, 3)
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
@@ -133,8 +133,8 @@ class CausalSelfAttention(nn.Module):
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         T, C = k.shape; assert C == Hkv * D
 
-        k = self.k_conv1d(k, cu_seqlens=cu_seqlens)
-        v = self.v_conv1d(k, cu_seqlens=cu_seqlens)
+        # k = self.k_conv1d(k, cu_seqlens=cu_seqlens)
+        # v = self.v_conv1d(k, cu_seqlens=cu_seqlens)
 
         ## Chuyển q, k, v thành x_THD
         q = q.contiguous().view(T, H,   D)
