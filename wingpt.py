@@ -245,7 +245,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
-        print("WinGPT.skip_from", self.skip_from)
+        # print("WinGPT.skip_from", self.skip_from)
 
         self.lm_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.lm_head.weight.zero_()
@@ -288,21 +288,19 @@ class WinGPT(nn.Module):
                 x += skip_weights[k] * layer_outputs[k]
             
             def double_fwd(i):
-                # dùng function scope để lưu lại các biến cục bộ layer_ids checkpoint
-                is_last_layer = ( i == self.n_layers - 1 )
-                if is_last_layer: layer_ids = [i]
-                else:             layer_ids = [i, i + 1]
+                # dùng function scope để lưu lại các biến cục bộ layer_ids
+                last_layer = ( i == self.n_layers - 1 )
+                if last_layer: layer_ids = [i]
+                else:          layer_ids = [i, i + 1]
                 # print(layer_ids) # DEBUG
-                def fwd_fwd(x):
+                def _fwd(x):
                     for idx in layer_ids:
-                        x = self.blocks[idx](x, t_embs[0], t_embs[i], v_embs[i], \
-                            te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen, self.rotary)
+                        x = self.blocks[idx](x, t_embs[0], t_embs[idx], v_embs[idx], \
+                            te_lambdas[idx], ve_lambdas[idx], cu_seqlens, max_seqlen, self.rotary)
                     return x
-                return fwd_fwd
+                return _fwd
  
-            f = double_fwd(i)
-            x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
- 
+            x = torch.utils.checkpoint.checkpoint(double_fwd(i), x, use_reentrant=False)
             layer_outputs[i] = x
             i += 2
 

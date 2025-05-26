@@ -74,7 +74,7 @@ else:        # (XS)mall ~ 100m
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
     )
 model = model.cuda()
-count = convert_int8_mixed_precision(model, ignore=r'head|kv_proj')
+count = convert_int8_mixed_precision(model)#, ignore=r'head|kv_proj')
 print0(f"INT8 Mixed Precision: {count} Linear converted.")
 
 
