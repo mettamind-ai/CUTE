@@ -12,3 +12,9 @@ pip install numpy wandb einops
 MAX_JOBS=6 pip install flash-attn causal-conv1d --no-build-isolation --no-cache-dir
 ######################################################################
 # MAX_JOBS=6 pip install mamba-ssm --no-build-isolation --no-cache-dir
+
+if [ ! -f data6400.bin ]; then
+    wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
+    xz -d data6400.bin.xz
+fi
+./pretrain.py --T
