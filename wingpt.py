@@ -7,8 +7,6 @@ import torch.nn.functional as F
 from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
-from fla import ShortConvolution
-from einops import rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -116,11 +114,9 @@ class CausalSelfAttention(nn.Module):
         else:
             self.rope   = True
             self.window = 1024  # short
-        # print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
+        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
-        # self.k_conv1d = ShortConvolution(kv_inner_dim, 3)
-        # self.v_conv1d = ShortConvolution(kv_inner_dim, 3)
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
@@ -132,9 +128,6 @@ class CausalSelfAttention(nn.Module):
 
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         T, C = k.shape; assert C == Hkv * D
-
-        # k = self.k_conv1d(k, cu_seqlens=cu_seqlens)
-        # v = self.v_conv1d(k, cu_seqlens=cu_seqlens)
 
         ## Chuyển q, k, v thành x_THD
         q = q.contiguous().view(T, H,   D)
@@ -280,33 +273,24 @@ class WinGPT(nn.Module):
         # WinGPT.skip_from {14: 2, 12: 4, 10: 6}
         # Hiện tại skip connection đang ở dạng số chẵn nên ta có thể tính 2 blocks mới checkpoint 1 lần
         layer_outputs = { v: None for v in self.skip_from.values() }
-        i = 0
 
-        while i < self.n_layers:
+        ii = 2; assert ii in [1, 2]
+        for i in range(self.n_layers, ii):
             if i in self.skip_from:
                 k = self.skip_from[i]
                 x += skip_weights[k] * layer_outputs[k]
-            '''
             def blk_fwd(i):
-                # dùng function scope để lưu lại các biến cục bộ layer_ids
-                layer_ids = [i]
-                # if i < self.n_layers - 1: layer_ids += [i + 1]
-                # print(layer_ids) # DEBUG
+                # dùng function scope để lưu lại các biến cục bộ blocks
+                # lấy ii blocks từ i nhưng ko được quá n_layers
+                blocks = self.block[:self.n_layers][i:i+ii]
                 def _fwd(x):
-                    for idx in layer_ids:
-                        x = self.blocks[idx](x, t_embs[0], t_embs[idx], v_embs[idx], \
-                            te_lambdas[idx], ve_lambdas[idx], cu_seqlens, max_seqlen, self.rotary)
+                    for j, blk in enumerate(blocks): 
+                        x = blk(x, t_embs[0], t_embs[i+j], v_embs[i+j], te_lambdas[i+j], 
+                            ve_lambdas[i+j], cu_seqlens, max_seqlen, self.rotary)
                     return x
                 return _fwd
             x = torch.utils.checkpoint.checkpoint(blk_fwd(i), x, use_reentrant=False)
-            # '''
-            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
-            x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
-
-            if i in layer_outputs: layer_outputs[i] = x            
-            i += 1
-
+            if i in layer_outputs: layer_outputs[i] = x
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 
