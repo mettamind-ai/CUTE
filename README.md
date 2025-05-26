@@ -57,9 +57,10 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
+- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín (đợi thêm)
+- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
 
 🌸__DOING__🌸
-- [ ] seq packing without flash-attn
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
