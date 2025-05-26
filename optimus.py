@@ -21,6 +21,8 @@ import torch, triton
 import triton.language as tl
 from torch import Tensor
 
+lib = torch.library.Library("qtrain", "DEF")
+lib_ops = torch.ops.qtrain
 scaled_mm_cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup autotune ??
     # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
     (128, 256,  64, 3, 8), ( 64, 256,  32, 4, 4), (128, 128,  32, 4, 4), (128,  64, 32, 4, 4),
@@ -95,7 +97,7 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor row_scale_A, Tensor col_scale_B) -> Tensor")
 def scaled_mm(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> Tensor:
     """Matmul for tile-wise quantized A and B. `A` and `B` are both INT8 to utilize
     INT8 tensor cores. `row_scale_A` and `col_scale_B` are quantization scales for A and B. E.g.
@@ -113,6 +115,17 @@ def scaled_mm(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) ->
 
     assert row_scale_A.is_contiguous()
     assert col_scale_B.is_contiguous()
+    return lib_ops.scaled_mm(A, B, row_scale_A, col_scale_B)
+
+
+
+@torch.library.impl(lib, "scaled_mm", "Meta")
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
+
+_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+@torch.library.impl(lib, "scaled_mm", "CUDA")
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 
     M, K = A.shape
     _, N = B.shape
