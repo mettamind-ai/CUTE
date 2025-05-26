@@ -3,7 +3,9 @@
 import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
+
 from optimus import Int8MixedLinear
+from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -11,21 +13,6 @@ torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
 torch.set_default_dtype(torch.bfloat16)
-
-###################################################################
-# SDPA IMPL https://medium.com/data-science/fefa6f87b1d6 THROUGHPUT
-torch.backends.cuda.enable_flash_sdp(           False)   # 50kt/sec
-torch.backends.cuda.enable_mem_efficient_sdp(   False)   # 35kt/sec
-torch.backends.cuda.enable_math_sdp(            False)   # 14kt/sec
-torch.backends.cuda.enable_cudnn_sdp(            True)   # 49kt/sec
-print(f""">> scaled_dot_product_attention engine
-flash? {torch.backends.cuda.flash_sdp_enabled()}
-mem__? {torch.backends.cuda.mem_efficient_sdp_enabled()}
-math_? {torch.backends.cuda.math_sdp_enabled()}
-cudnn? {torch.backends.cuda.cudnn_sdp_enabled()}""")
-###################################################################
-from flash_attn import flash_attn_varlen_func
-
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -236,13 +223,13 @@ class WinGPT(nn.Module):
         lte = te - 1 # layer token embeddings
         if lte > 1:
             dd = dim // 4 # giảm 1/2 dim nếu không phải tok emb gốc
-            self.tok_embs = nn.Embedding(vocab_size, dd*lte)
+            self.tok_embs = nn.LigerEmbedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
                 self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = nn.Embedding(vocab_size, kv_dim*ve) 
+        self.val_embs = nn.LigerEmbedding(vocab_size, kv_dim*ve) 
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
