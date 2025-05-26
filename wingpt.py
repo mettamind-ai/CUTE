@@ -116,7 +116,7 @@ class CausalSelfAttention(nn.Module):
         else:
             self.rope   = True
             self.window = 1024  # short
-        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
+        # print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
         self.attn_scale = 0.12
         self.k_conv1d = ShortConvolution(kv_inner_dim, 3)
