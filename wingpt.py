@@ -249,8 +249,8 @@ class WinGPT(nn.Module):
         x = x0 = norm(self.tok_emb0(input_seq)).bfloat16()
 
         if self.te > 1:
-                t_embs = self.tok_embs(input_seq)
-                t_embs = self.tok_proj(t_embs).bfloat16()
+                t_embs = self.tok_embs(input_seq).bfloat16()
+                t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
