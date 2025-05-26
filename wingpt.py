@@ -315,14 +315,12 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
-try: # pip install liger_kernel
-    from liger_kernel.ops.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyFunction
-    def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
-        def _loss_method(hidden, target, head):
-            hidden = hidden.view(-1, hidden.size(-1))
-            return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
-        return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
-except: None
+from liger_kernel import LigerFusedLinearCrossEntropyFunction
+def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
+    def _loss_method(hidden, target, head):
+        hidden = hidden.view(-1, hidden.size(-1))
+        return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
+    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
