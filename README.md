@@ -19,7 +19,7 @@
 - [x] **Muon** 2-3x
 - [x] **int8** 1.5x
 - [x] **Arch** 1.5x @ 6k ctxlen (chưa đo lường)
-- **Token**    1.5x (và **representation** nói chung)
+- [ ] **Super Token** 1.5x (better & denser representations in the hidden space)
 
 🌸__!!! TARGET 10x SPEEPUP !!!__🌸
 
