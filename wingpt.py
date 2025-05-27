@@ -357,7 +357,7 @@ if __name__ == "__main__":
     torch.cuda.reset_peak_memory_stats()
     
     seq_len = 256
-    vocab_size = 1981
+    vocab_size = 300
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
@@ -369,27 +369,41 @@ if __name__ == "__main__":
     # convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!
 
-    ## Generate sequences with batch dimension
-    input_seq = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
-    target    = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
-    future    = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
-    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+    apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
+    opara = [p for n, p in model.named_parameters() if "fc" in n or "proj" in n]
 
-    aptim = torch.optim.Adam([p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n])
-    optim = Muon([p for n, p in model.named_parameters() if "fc" in n or "proj" in n])
+    print("\nAdam:", apara.keys())
+
+    aptim = torch.optim.Adam(apara.values())
+    optim = Muon(opara)
 
     # Memory after model initialization
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
+    tok_emb_before = model.tok_emb0.weight.data.clone()
     for step in range(10):
+        ## Generate sequences with batch dimension
+        input_seq = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        target    = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        future    = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
         loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
         loss.backward()
+
         optim.step()
         aptim.step()
+
         model.update_embeddings()
+
         optim.zero_grad()
         aptim.zero_grad()
+
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+
+    tok_emb_after = model.tok_emb0.weight.data
+    diff = (tok_emb_before != tok_emb_after).sum().item()
+    assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"

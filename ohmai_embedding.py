@@ -74,6 +74,7 @@ def embedding_backward_kernel(
     # https://github.com/triton-lang/triton/commit/236f6b54ce337db009ea573915022dafdbf61b82
     # hiện tại atomic_add mới chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
 
+
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     @ensure_contiguous
@@ -101,6 +102,7 @@ class OhMaiEmbFunction(torch.autograd.Function):
 
         embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, blsz)
         return grad_weight, None
+
 
 # NOTE: Disable compile graph để có thể sửa đổi weight về sau https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
@@ -152,7 +154,10 @@ class OhMaiEmbedding(nn.Module):
 
 
     def update_embeddings(self):
-        self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
+        v  = self.active_weight.cpu()[:len(self.active_tokens)]
+        a0 = self.weight[self.active_tokens[0]]
+        assert (v[0] != a0).sum().item() > 0, "active token weight không đổi"
+        self.weight[self.active_tokens] = v
         self.active_tokens = None # clear inactive data
 
 
