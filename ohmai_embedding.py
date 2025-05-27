@@ -21,10 +21,10 @@ def ensure_contiguous(fn):
 
 @triton.jit
 def embedding_forward_kernel(
-    embeddings_ptr, tokens_ptr, # trỏ tới token_ids cần lấy embedding values
+    embeds_ptr, tokens_ptr,     # trỏ tới token_ids cần lấy embedding values
     output_ptr,                 # x0, hay embeddings của batch hiện tại
     vocab, hidim : tl.constexpr,# vocab size x hidden dim = kích thước embedding matrix
-    BLOCK_SIZE_M : tl.constexpr, BLOCK_SIZE_N : tl.constexpr, # kích thước khối
+    BLOCK_SIZE_M : tl.constexpr, BLOCK_SIZE_N : tl.constexpr, # kích thước khối đang xử lý
 ):
     tok_offsets  = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     feat_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
@@ -38,8 +38,8 @@ def embedding_forward_kernel(
     emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
     out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    emb = embeddings_ptr + emb_offsets   # emb_ là sparse
-    out = output_ptr + out_offsets       # out_ là continuous
+    emb = embeds_ptr + emb_offsets   # emb_ là sparse
+    out = output_ptr + out_offsets   # out_ là continuous
 
     v = tl.load(emb, mask=emb_mask)
     tl.store(out, v, mask=emb_mask)

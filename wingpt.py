@@ -7,7 +7,11 @@ import torch.nn.functional as F
 from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
-from ohmai_embedding import OhMaiEmbedding
+
+OH_MAI = os.getenv('ohmai', '1') == '1'
+if not OH_MAI: Embedding = nn.Embedding
+else: from ohmai_embedding import OhMaiEmbedding as Embedding
+print(f"OH_MAI? {OH_MAI}; using {Embedding.__name__} for embeddings")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -219,18 +223,18 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
         self.ve, self.te = ve, te
 
-        self.tok_emb0 = OhMaiEmbedding(vocab_size, dim) # tok emb gốc
+        self.tok_emb0 = Embedding(vocab_size, dim) # tok emb gốc
 
         lte = te - 1 # layer token embeddings
         if lte > 1:
             dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
-            self.tok_embs = OhMaiEmbedding(vocab_size, dd*lte)
+            self.tok_embs = Embedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
                 self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = OhMaiEmbedding(vocab_size, kv_dim*ve) 
+        self.val_embs = Embedding(vocab_size, kv_dim*ve) 
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
