@@ -135,7 +135,7 @@ class OhMaiEmbedding(nn.Module):
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
-        assert n <= self.active_vocab
+        assert n <= self.active_vocab, f"OhMai found {n} > active_vocab"
 
         with torch.no_grad():
             self.active_weight[:n,] = self.weight[self.active_tokens]
