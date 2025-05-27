@@ -117,11 +117,11 @@ class OhMaiEmbedding(nn.Module):
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
         if active_vocab:
-            self.self.active_vocab = active_vocab
-            w = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
-            self.active_weight = nn.Parameter(w)
-            self.active_weight.requires_grad_(True)
-        else: self.active_vocab = 0
+                w = torch.empty(active_vocab, self.hidim, device="cuda")
+                self.active_weight = nn.Parameter(w)
+                self.active_weight.requires_grad_(True)
+                self.active_vocab = active_vocab
+        else:   self.active_vocab = 0
 
 
     def reinit(self, n):
@@ -131,7 +131,7 @@ class OhMaiEmbedding(nn.Module):
         assert n <= self.active_vocab
         print(f">>> OhMaiEmbedding.active_vocab {self.active_vocab}, hidden {self.hidim}",)
 
-        w = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+        w = torch.empty(self.active_vocab, self.hidim, device="cuda")
         self.active_weight = nn.Parameter(w)
         self.active_weight.requires_grad_(True)
 

@@ -203,10 +203,10 @@ class WinGPT(nn.Module):
     def has_future(self):
         return self.future_ratio > 0.009
 
-    def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int,
-            dim:int, max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0):
-        super().__init__()
+    def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int,
+        max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0, active_vocab=None):
 
+        super().__init__()
         self.rotary = Rotary(head_dim, max_seq_len)
 
         self.n_layers = n_layers
@@ -223,18 +223,18 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
         self.ve, self.te = ve, te
 
-        self.tok_emb0 = Embedding(vocab_size, dim) # tok emb gốc
+        self.tok_emb0 = Embedding(vocab_size, dim, active_vocab) # tok emb gốc
 
         lte = te - 1 # layer token embeddings
         if te > 1:
             dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
-            self.tok_embs = Embedding(vocab_size, dd*lte)
+            self.tok_embs = Embedding(vocab_size, dd*lte, active_vocab)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
                 self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = Embedding(vocab_size, kv_dim*ve) 
+        self.val_embs = Embedding(vocab_size, kv_dim*ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers

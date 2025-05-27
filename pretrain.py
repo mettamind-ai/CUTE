@@ -50,6 +50,7 @@ if  args.L: # (L)arge ~ 999m
         ve=args.ve, dim=2048, n_layers=27,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
+        active_vocab=2048,
     )
 elif args.M: # (M)edium ~ 666m
     model = WinGPT(
@@ -57,6 +58,7 @@ elif args.M: # (M)edium ~ 666m
         ve=args.ve, dim=1664, n_layers=26,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
+        active_vocab=2048,
     )
 elif args.S: # (S)mall ~ 333m
     model = WinGPT(
@@ -64,6 +66,7 @@ elif args.S: # (S)mall ~ 333m
         ve=args.ve, dim=1280, n_layers=22,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
+        active_vocab=2048,
     )
 else:        # (XS)mall ~ 100m
     model = WinGPT(
@@ -71,6 +74,7 @@ else:        # (XS)mall ~ 100m
         ve=args.ve, dim=768, n_layers=16,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
+        active_vocab=2048,
     )
 model = model.cuda()
 names, params = convert_int8_mixed_precision(model, ignore=r'head|kv_proj|q_proj')
