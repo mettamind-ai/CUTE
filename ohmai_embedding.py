@@ -118,8 +118,8 @@ class OhMaiEmbedding(nn.Module):
 
         if active_vocab:
             self.self.active_vocab = active_vocab
-            self.active_weight = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
-            self.active_weight = nn.Parameter(self.active_weight)
+            w = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+            self.active_weight = nn.Parameter(w)
             self.active_weight.requires_grad_(True)
         else: self.active_vocab = 0
 
@@ -127,8 +127,8 @@ class OhMaiEmbedding(nn.Module):
         if self.active_vocab > n: return
         while self.active_vocab <= n: self.active_vocab += 128
         print(">>> OhMaiEmbedding.active_vocab ", self.active_vocab)
-        self.active_weight = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
-        self.active_weight = nn.Parameter(self.active_weight)
+        w = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+        self.active_weight = nn.Parameter(w)
         self.active_weight.requires_grad_(True)
 
 
