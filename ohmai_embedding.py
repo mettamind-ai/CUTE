@@ -112,29 +112,41 @@ class OhMaiEmbedding(nn.Module):
         self.weight = torch.randn(vocab, hidim, device="cpu").bfloat16()
         self.weight.requires_grad_(False)
 
-        self.active_vocab = 1024
-        self.active_weight = torch.zeros(self.active_vocab, hidim).bfloat16()
-        self.active_weight = nn.Parameter(self.active_weight).cuda()
-        self.active_weight.requires_grad_(True)
+        self.active_vocab = 0 # khởi tạo khi có dữ liệu lần đầu tiên
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
+    
+    def init_active_vocab_weight(self, n):
+        if self.active_vocab > 0: return # khởi tạo 1 lần duy nhất
+        self.active_vocab = 128
+        while self.active_vocab < n: self.active_vocab += 128
+        print("self.active_vocab", self.active_vocab)
+        self.active_weight = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+        self.active_weight = nn.Parameter(self.active_weight)
+        self.active_weight.requires_grad_(True)
 
-    def activate(self, indices):
+    def activate(self, indices, active=None, inverse=None):
         assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
-        active_tokens, inverse_indices = torch.unique(indices, return_inverse=True, sorted=True)
-        active_tokens = active_tokens.cpu().to(torch.long)
-        assert len(active_tokens) <= self.active_vocab
-        with torch.no_grad():
-            self.active_weight[:len(active_tokens),] = self.weight[active_tokens]
-        self.active_tokens = active_tokens
-        return inverse_indices
+        if active is None:
+                self.active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
+                self.active_tokens = self.active_tokens.cpu().to(torch.long)
+        else:   self.active_tokens = active
+
+        n = len(self.active_tokens)
+        self.init_active_vocab_weight(n)
+        assert n <= self.active_vocab
+
+        with torch.no_grad(): self.active_weight[:n,] = self.weight[self.active_tokens]
+
+        return inverse
 
     def update_embeddings(self):
         self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
         self.active_tokens = None # clear inactive data
 
-    def forward(self, indices):
+    def forward(self, indices, active=None, inverse=None):
         assert indices.dtype == torch.int16
-        return OhMaiEmbFunction.apply(self.active_weight, self.activate(indices))
+        inv = self.activate(indices, active, inverse)
+        return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
 
 
 if __name__ == "__main__":
@@ -142,6 +154,8 @@ if __name__ == "__main__":
     e = OhMaiEmbedding(vocab, dim)
     x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
 
-    y = e(x)
-    print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
-    e.update_embeddings()
+    active = inverse = None
+    for i in range(3):
+        y, active, inverse = e(x, active, inverse)
+        # print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+        e.update_embeddings()

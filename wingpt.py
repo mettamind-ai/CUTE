@@ -257,15 +257,16 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        x = x0 = norm(self.tok_emb0(input_seq))#.bfloat16()
+        x0, active, inverse = self.tok_emb0(input_seq)
+        x = x0 = norm(x0)
 
         if self.te > 1:
-                t_embs = self.tok_embs(input_seq)#.bfloat16()
+                t_embs = self.tok_embs(input_seq, active, inverse)[0]
                 t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        v_embs = self.val_embs(input_seq)#.bfloat16()
+        v_embs = self.val_embs(input_seq, active, inverse)[0]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
@@ -357,7 +358,7 @@ if __name__ == "__main__":
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
     
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3, te=3, future_percent=20).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3, te=2, future_percent=20).cuda()
     for n, p in model.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
     print("All model params are in bfloat16.")
 
