@@ -177,7 +177,7 @@ if __name__ == "__main__":
 
         # Tạo loss giả để có gradient
         target = torch.randn_like(y)
-        loss = torch.nn.functional.mse_loss(y, target)        
+        loss = torch.nn.functional.mse_loss(y, target)
         loss.backward()  # Tính gradient
 
         # Kiểm tra gradient
