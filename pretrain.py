@@ -210,12 +210,10 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 ## Training loop
 #############################
 started_at = time.time()
-max_sample_len = 0
-
 while step < args.steps and lossv > args.minloss:
+
     tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
-    c, m = get_cu_max_seqlens_from(tokens, eot=6399)
-    if max_sample_len < m: max_sample_len = m; print(f">>> max_sample_len {m}")
+    c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
 
     loss = lossf(model, tokens, targets, future, c, m)
     batch = get_batch() # async prefetch next batch

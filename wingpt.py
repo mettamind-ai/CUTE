@@ -250,23 +250,27 @@ class WinGPT(nn.Module):
 
 
     def update_embeddings(self):
-        self.tok_emb0.update_embeddings()
-        self.val_embs.update_embeddings()
-        if self.te > 1: self.tok_embs.update_embeddings()
+        if OH_MAI:
+            self.tok_emb0.update_embeddings()
+            self.val_embs.update_embeddings()
+            if self.te > 1: self.tok_embs.update_embeddings()
 
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        x0, active, inverse = self.tok_emb0(input_seq)
+        if not OH_MAI: x0 = self.tok_emb0(input_seq.long())
+        else: x0, act, inv = self.tok_emb0(input_seq)
         x = x0 = norm(x0)
 
         if self.te > 1:
-                t_embs = self.tok_embs(input_seq, active, inverse)[0]
+                if OH_MAI:  t_embs = self.tok_embs(input_seq, act, inv)[0]
+                else:       t_embs = self.tok_embs(input_seq.long())
                 t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        v_embs = self.val_embs(input_seq, active, inverse)[0]
+        if OH_MAI:  v_embs = self.val_embs(input_seq, act, inv)[0]
+        else:       v_embs = self.val_embs(input_seq.long())
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
