@@ -199,7 +199,7 @@ from ohmai_embedding import OhMaiEmbedding
 from liger_kernel import LigerEmbedding
 
 @torch.compiler.disable
-def do_embedding(emb, x, act=None, inv=None):
+def do_embedding(emb, input_seq, act=None, inv=None):
     if isinstance(emb, OhMaiEmbedding):
             x0, act, inv = emb(input_seq, act, inv)
     else:   x0 = emb(input_seq.long())
