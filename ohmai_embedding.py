@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ Modded from github.com/linkedin/liger-Kernel/blob/main/src/liger_kernel/ops/experimental/embedding.py
 Với n batches of data thì không cần phải load hết toàn bộ embedding matrix vào vram
 - Giữ toàn bộ embedding matrix ở CPU
@@ -106,12 +107,39 @@ class OhMaiEmbedding(nn.Module):
     def __init__(self, vocab, hidim):
         super().__init__()
         self.vocab = vocab
-        self.weight = nn.Parameter(torch.randn(vocab, hidim).bfloat16())
-        # Cần kích hoạt active_vocab và init_active weight mỗi lần forward
-        self.active_vocab = 0
-        self.active_weight = None
-    
-    # def prepare_active_weight():
+        self.hidim = hidim
+
+        self.weight = torch.randn(vocab, hidim, device="cpu").bfloat16()
+        self.weight.requires_grad_(False)
+
+        self.active_vocab = 1024 * 2
+        self.active_weight = torch.zeros(self.active_vocab, hidim).bfloat16()
+        self.active_weight = nn.Parameter(self.active_weight).cuda()
+        self.active_weight.requires_grad_(True)
+        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
+
+    def activate(self, indices):
+        active_tokens, inverse_indices = torch.unique(indices, return_inverse=True, sorted=True)
+        active_tokens = active_tokens.cpu().to(torch.int)
+        with torch.no_grad():
+            self.active_weight[:len(active_tokens),] = self.weight[active_tokens]
+        self.active_tokens = active_tokens
+        return inverse_indices.to(indices.device)
+
+    def update_embeddings(self):
+        self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
+        self.active_vocab = self.active_tokens = self.active_weight = None # clear inactive data
 
     def forward(self, indices):
-        return OhMaiEmbFunction.apply(self.weight, indices)
+        assert indices.dtype == torch.int16
+        indices = self.activate(indices)
+        return OhMaiEmbFunction.apply(self.active_weight, indices)
+
+
+if __name__ == "__main__":
+    vocab, dim, ctx = 6400, 128, 32
+    e = OhMaiEmbedding(vocab, dim)
+    x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
+
+    y = e(x)
+    print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")

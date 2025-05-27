@@ -251,15 +251,15 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        x = x0 = norm(self.tok_emb0(input_seq)).bfloat16()
+        x = x0 = norm(self.tok_emb0(input_seq))#.bfloat16()
 
         if self.te > 1:
-                t_embs = self.tok_embs(input_seq).bfloat16()
+                t_embs = self.tok_embs(input_seq)#.bfloat16()
                 t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        v_embs = self.val_embs(input_seq).bfloat16()
+        v_embs = self.val_embs(input_seq)#.bfloat16()
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
@@ -333,12 +333,10 @@ def get_cu_max_seqlens_from(input_seq, eot=6399):
             torch.where(mask)[0].to(torch.int32) + 1,
         ])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
-        # print(mask, cu_seqlens, max_seqlen)
         return cu_seqlens, max_seqlen
 
 ## TEST MODEL
 if __name__ == "__main__":
-    import os
     import numpy as np
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
@@ -358,7 +356,7 @@ if __name__ == "__main__":
     for n, p in model.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
     print("All model params are in bfloat16.")
 
-    convert_int8_mixed_precision(model)
+    # convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!
 
     ## Generate sequences with batch dimension
