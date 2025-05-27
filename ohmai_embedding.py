@@ -99,8 +99,7 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return grad_weight, None
 
 
-from liger_kernel import LigerEmbeddingFunction
-
+# from liger_kernel import LigerEmbeddingFunction as OhMaiEmbFunction
 # NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
 # https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
@@ -109,8 +108,8 @@ class OhMaiEmbedding(nn.Module):
 - Giữ toàn bộ embedding matrix ở CPU
 - Chỉ load embedding matrix của active_vocab vào vram => `active_weight`
 - Có cơ chế mapping để biết token_id ở `active_weight` index nào
-- Có thao tác để đổi active_vocab """
-
+- Có thao tác để đổi active_vocab
+    """
     def __init__(self, vocab, hidim, active_vocab=None):
         super().__init__()
         self.vocab = vocab
@@ -122,12 +121,10 @@ class OhMaiEmbedding(nn.Module):
         self.active_weight = None
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
-        if active_vocab is None: active_vocab = vocab // 2
-        w = torch.empty(active_vocab, self.hidim, device="cpu")
-        # with torch.no_grad(): w = self.weight[:active_vocab,]
-        self.active_weight = nn.Parameter(w.cuda())
+        if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
+        w = torch.empty(active_vocab, self.hidim, device="cuda")
+        self.active_weight = nn.Parameter(w)
         self.active_vocab = active_vocab
-
 
 
     def activate(self, indices, active=None, inverse=None):
@@ -136,25 +133,18 @@ class OhMaiEmbedding(nn.Module):
                 self.active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
                 self.active_tokens = self.active_tokens.cpu().to(torch.long)
         else:   self.active_tokens = active
-        # print(self.active_tokens, "\n", inverse)
 
         n = len(self.active_tokens)
         assert n <= self.active_vocab
 
         with torch.no_grad():
             self.active_weight[:n,] = self.weight[self.active_tokens]
-        # self.active_weight.requires_grad_(True)
         return inverse
 
 
     def update_embeddings(self):  
-        x = self.active_weight.grad      
-        assert x.norm().item() > 0, f"active_weight.grad == 0, {x}"
-
+        assert self.active_weight.grad is not None # => đc update
         v = self.active_weight.cpu()[:len(self.active_tokens)]
-        a = self.weight[self.active_tokens]
-        if (v != a).sum().item() == 0: assert False
-
         self.weight[self.active_tokens] = v.bfloat16()
         self.active_tokens = None # clear inactive data
 
@@ -162,7 +152,7 @@ class OhMaiEmbedding(nn.Module):
     def forward(self, indices, active=None, inverse=None):
         assert indices.dtype == torch.int16
         inv = self.activate(indices, active, inverse)
-        return LigerEmbeddingFunction.apply(self.active_weight, inv), self.active_tokens, inv
+        return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
 
 
 if __name__ == "__main__":

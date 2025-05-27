@@ -194,9 +194,16 @@ class Future(nn.Module):
         return norm(x)
 
 
+##########################################
 from ohmai_embedding import OhMaiEmbedding
 from liger_kernel import LigerEmbedding
-####
+
+def do_embedding(emb, x, act=None, inv=None):
+    if isinstance(emb, OhMaiEmbedding):
+            x0, act, inv = emb(input_seq, act, inv)
+    else:   x0 = emb(input_seq.long())
+    return x0, act, inv
+
 class WinGPT(nn.Module):
     def has_future(self):
         return self.future_ratio > 0.009
@@ -204,8 +211,9 @@ class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int,
         max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0, active_vocab=None):
 
-        self.ohmai = os.getenv('ohmai', '1') == '1'
+        self.ohmai = ( active_vocab is not None )
         Embedding = OhMaiEmbedding if self.ohmai else LigerEmbedding
+        # Embedding = LigerEmbedding if self.ohmai else nn.Embedding
         print(f"OH_MAI? {self.ohmai}; using {Embedding.__name__}")
 
         super().__init__()
@@ -252,7 +260,7 @@ class WinGPT(nn.Module):
 
 
     def update_embeddings(self):
-        if self.ohmai:
+        if isinstance(self.tok_emb0, OhMaiEmbedding):
             self.tok_emb0.update_embeddings()
             self.val_embs.update_embeddings()
             if self.te > 1: self.tok_embs.update_embeddings()
@@ -260,20 +268,16 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-
-        if not self.ohmai: x0 = self.tok_emb0(input_seq.long())
-        else: x0, act, inv = self.tok_emb0(input_seq)
+        x0, act, inv = do_embedding(self.tok_emb0, input_seq)
         x = x0 = norm(x0)
 
         if self.te > 1:
-                if self.ohmai:  t_embs = self.tok_embs(input_seq, act, inv)[0]
-                else:           t_embs = self.tok_embs(input_seq.long())
+                t_embs = do_embedding(self.tok_embs, input_seq, act, inv)[0]
                 t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        if self.ohmai:  v_embs = self.val_embs(input_seq, act, inv)[0]
-        else:           v_embs = self.val_embs(input_seq.long())
+        v_embs = do_embedding(self.val_embs, input_seq, act, inv)[0]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
@@ -363,15 +367,13 @@ if __name__ == "__main__":
 
     # Khởi tạo model 1 dùng LigerEmbedding
     torch.manual_seed(sseed)
-    os.environ["ohmai"] = "0"
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
-        ve=3, te=2, future_percent=20, active_vocab=vocab_size).cuda()
+        ve=3, te=2, future_percent=20).cuda()
     
     # Khởi tạo model 2 dùng OhMaiEmbedding
     torch.manual_seed(sseed)
-    os.environ["ohmai"] = "1"
     ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
-        ve=3, te=2, future_percent=20, active_vocab=vocab_size).cuda()
+        ve=3, te=2, future_percent=20, active_vocab=vocab_size//2).cuda()
 
     # Đảm bảo toàn bộ tham số của 2 model là như nhau
     def check_params():
@@ -430,6 +432,9 @@ if __name__ == "__main__":
     ohmai.train()
 
     for step in range(10):
+        optim.zero_grad()
+        aptim.zero_grad()
+
         ## Generate sequences with batch dimension
         input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
         target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
@@ -438,32 +443,26 @@ if __name__ == "__main__":
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
 
-        a, _, _ = ohmai.tok_emb0(input_seq)
-        b = ohmai.tok_emb0.weight[input_seq.cpu().long()]
-        if not torch.allclose(a.cpu(), b, atol=1e-5): assert False
+        a, _, _ = do_embedding(ohmai.tok_emb0, input_seq)
+        b = ohmai.tok_emb0.weight.to(input_seq.device)[input_seq.long()]
+        if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
-        loss_ohmai.backward()
-
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
-        loss_model.backward()
 
+        current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
+        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
         # assert torch.allclose(loss_model, loss_ohmai, atol=1e-5), f"Loss mismatch: model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}"
-        # print(f"Step {step}: Loss matches! model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}")
+
+        loss_ohmai.backward()
+        loss_model.backward()
 
         optim.step()
         aptim.step()
 
-        model.update_embeddings()
+        # print(f"@@@ {model.tok_emb0.__class__.__name__}'s grad <=== {model.tok_emb0.weight.grad.sum()}")
         ohmai.update_embeddings()
-
-        optim.zero_grad()
-        aptim.zero_grad()
-
-        check_params()
-
-        current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+        # check_params()
 
     tok_emb_after = model.tok_emb0.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()

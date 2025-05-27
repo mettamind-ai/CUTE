@@ -200,7 +200,6 @@ class LigerEmbeddingFunction(torch.autograd.Function):
         return grad_weight, None
 
 
-# from ohmai_embedding import OhMaiEmbFunction as LigerEmbeddingFunction
 class LigerEmbedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, args):
         super().__init__()
