@@ -126,7 +126,7 @@ class OhMaiEmbedding(nn.Module):
     def auto_init(self, n):
         if self.active_vocab > n: return
         while self.active_vocab <= n: self.active_vocab += 128
-        print(">>> OhMaiEmbedding.active_vocab ", self.active_vocab)
+        print(f">>> OhMaiEmbedding.active_vocab {self.active_vocab}, hidden {self.hidim}",)
         w = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
         self.active_weight = nn.Parameter(w)
         self.active_weight.requires_grad_(True)
@@ -159,7 +159,7 @@ class OhMaiEmbedding(nn.Module):
 
 if __name__ == "__main__":
     vocab, dim, ctx = 6400, 128, 32
-    e = OhMaiEmbedding(vocab, dim, active_vocab=vocab//2)
+    e = OhMaiEmbedding(vocab, dim)
     x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
 
     active = inverse = None
