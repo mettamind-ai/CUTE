@@ -31,73 +31,54 @@ def ensure_contiguous(fn):
 
 
 @triton.jit
-def element_mul_kernel(
-    X_ptr,
-    X_stride,
-    grad_output_ptr,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr,
-):
+def element_mul_kernel(X_ptr, X_stride, value_ptr, n_cols, BLOCK_SIZE: tl.constexpr,):
     """
-    This function multiplies each element of the tensor pointed by X_ptr with the value pointed by grad_output_ptr.
-    The multiplication is performed in-place on the tensor pointed by X_ptr.
-
-    Parameters:
-    X_ptr: Pointer to the input tensor.
-    X_stride (int): The stride of the input tensor.
-    grad_output_ptr: Pointer to the gradient output value.
-    n_cols (int): The number of columns in the input tensor.
-    BLOCK_SIZE (int): The block size for Triton operations.
+    grid = (num_rows,)  # Số lượng CUDA blocks = số hàng
+    element_mul_kernel[grid](X_ptr, X_stride, value_ptr, n_cols, BLOCK_SIZE)
+    => Đây là phép nhân giá trị với ma trận theo từng hàng
     """
+    row_i = tl.program_id(0).to(tl.int64)   # Convert program ID to int64 to avoid overflow
+    X_ptr += row_i * X_stride               # Locate the start index
+    value = tl.load(value_ptr)              # Load the gradient output value
+    col_offsets = tl.arange(0, BLOCK_SIZE)  # Nhân theo từng BLOCK_SIZE một (tối ưu IO)
 
-    # Get the program ID and convert it to int64 to avoid overflow
-    program_id = tl.program_id(0).to(tl.int64)
+    for _ in range(tl.cdiv(n_cols, BLOCK_SIZE)):
+        pointer, mask = X_ptr+col_offsets, col_offsets < n_cols
+        tl.store(pointer, tl.load(pointer, mask=mask)*value, mask=mask)
+        col_offsets += BLOCK_SIZE
 
-    # Locate the start index
-    X_ptr += program_id * X_stride
-
-    # Load the gradient output value
-    grad_output = tl.load(grad_output_ptr)
-
-    # Perform the element-wise multiplication
-    for i in range(0, n_cols, BLOCK_SIZE):
-        X_offsets = i + tl.arange(0, BLOCK_SIZE)
-        X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols)
-        tl.store(X_ptr + X_offsets, X_block * grad_output, mask=X_offsets < n_cols)
-
+def test_element_mul_kernel():
+    # Tạo dữ liệu test
+    n_rows, n_cols = 3, 5
+    X = torch.ones((n_rows, n_cols), device='cuda')
+    v = torch.tensor([2.0], device='cuda')  # Giá trị nhân
+    element_mul_kernel[(n_rows,)](X, X.stride(0), v, n_cols, BLOCK_SIZE=2)
+    expected = torch.ones_like(X) * v.item()
+    assert torch.allclose(X, expected), "test_element_mul_kernel failed: Results don't match expected output"
+    print("test_element_mul_kernel passed! All elements are correctly multiplied by 2.0")
 
 
 # https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/ops/experimental/embedding.py
 @triton.jit
 def embedding_forward_kernel(
-    embeddings_ptr,
-    indices_ptr,
-    output_ptr,
-    n_elements,
-    embedding_dim: tl.constexpr,
-    BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr,
+    embeddings_ptr, tokens_ptr, output_ptr, # token_ids cần lấy embedding values
+    vocab, hidim : tl.constexpr, # vocab size x hidden dim = kích thước embedding matrix
+    BLOCK_SIZE_M : tl.constexpr, # kích thước khối
+    BLOCK_SIZE_N : tl.constexpr, # kích thước khối
 ):
-    pid_m = tl.program_id(0)
-    pid_n = tl.program_id(1)
+    offsets_vocab = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offsets_embed = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
 
-    start_m = pid_m * BLOCK_SIZE_M
-    start_n = pid_n * BLOCK_SIZE_N
-    offsets_m = start_m + tl.arange(0, BLOCK_SIZE_M)
-    mask_m = offsets_m < n_elements
-    indices = tl.load(indices_ptr + offsets_m, mask=mask_m, other=0)
-    offsets_n = start_n + tl.arange(0, BLOCK_SIZE_N)
-    mask_n = offsets_n < embedding_dim
+    mask_vocab = offsets_vocab < vocab
+    mask_embed = offsets_embed < hidim
 
-    embedding_offsets = indices[:, None] * embedding_dim + offsets_n[None, :]
-    embeddings = tl.load(
-        embeddings_ptr + embedding_offsets,
-        mask=mask_m[:, None] & mask_n[None, :],
-        other=0.0,
-    )
+    tokens = tl.load(tokens_ptr + offsets_vocab, mask=mask_vocab, other=0)
+    mask = mask_vocab[:, None] & mask_embed[None, :]
+    offsets = tokens[:, None]*hidim + offsets_embed[None, :] # M x N
+    embeddings = tl.load(embeddings_ptr+offsets, mask=mask, other=0.0,)
 
-    output_offsets = offsets_m[:, None] * embedding_dim + offsets_n[None, :]
-    tl.store(output_ptr + output_offsets, embeddings, mask=mask_m[:, None] & mask_n[None, :])
+    output_offsets = offsets_vocab[:, None]*hidim + offsets_embed[None, :]
+    tl.store(output_ptr + output_offsets, embeddings, mask=mask)
 
 
 @triton.jit
@@ -105,8 +86,8 @@ def embedding_backward_kernel(
     grad_output_ptr,
     grad_weight_ptr,
     indices_ptr,
-    n_elements,
-    embedding_dim: tl.constexpr,
+    vocab,
+    hidim: tl.constexpr,
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
 ):
@@ -116,18 +97,18 @@ def embedding_backward_kernel(
     start_m = pid_m * BLOCK_SIZE_M
     start_n = pid_n * BLOCK_SIZE_N
     offsets_m = start_m + tl.arange(0, BLOCK_SIZE_M)
-    mask_m = offsets_m < n_elements
+    mask_m = offsets_m < vocab
     indices = tl.load(indices_ptr + offsets_m, mask=mask_m, other=0)
     offsets_n = start_n + tl.arange(0, BLOCK_SIZE_N)
-    mask_n = offsets_n < embedding_dim
+    mask_n = offsets_n < hidim
 
     grad_output = tl.load(
-        grad_output_ptr + offsets_m[:, None] * embedding_dim + offsets_n[None, :],
+        grad_output_ptr + offsets_m[:, None] * hidim + offsets_n[None, :],
         mask=mask_m[:, None] & mask_n[None, :],
         other=0.0,
     )
 
-    grad_weight_offsets = indices[:, None] * embedding_dim + offsets_n[None, :]
+    grad_weight_offsets = indices[:, None] * hidim + offsets_n[None, :]
 
     tl.atomic_add(
         grad_weight_ptr + grad_weight_offsets,
@@ -149,22 +130,22 @@ class LigerEmbeddingFunction(torch.autograd.Function):
             dtype=embeddings.dtype,
         )
 
-        n_elements = indices.numel()
-        embedding_dim = embeddings.shape[1]
+        vocab = indices.numel()
+        hidim = embeddings.shape[1]
 
-        BLOCK_SIZE_M = triton.next_power_of_2(min(128, embedding_dim))
-        BLOCK_SIZE_N = triton.next_power_of_2(min(128, embedding_dim))
+        BLOCK_SIZE_M = triton.next_power_of_2(min(128, hidim))
+        BLOCK_SIZE_N = triton.next_power_of_2(min(128, hidim))
         grid = (
-            triton.cdiv(n_elements, BLOCK_SIZE_M),
-            triton.cdiv(embedding_dim, BLOCK_SIZE_N),
+            triton.cdiv(vocab, BLOCK_SIZE_M),
+            triton.cdiv(hidim, BLOCK_SIZE_N),
         )
 
         embedding_forward_kernel[grid](
             embeddings,
             indices,
             output,
-            n_elements,
-            embedding_dim=embedding_dim,
+            vocab,
+            hidim=hidim,
             BLOCK_SIZE_M=BLOCK_SIZE_M,
             BLOCK_SIZE_N=BLOCK_SIZE_N,
         )
@@ -181,22 +162,22 @@ class LigerEmbeddingFunction(torch.autograd.Function):
 
         grad_weight = torch.zeros_like(embedding_table)
 
-        n_elements = indices.numel()
-        embedding_dim = embedding_table.shape[1]
+        vocab = indices.numel()
+        hidim = embedding_table.shape[1]
 
-        BLOCK_SIZE_M = triton.next_power_of_2(min(128, embedding_dim))
-        BLOCK_SIZE_N = triton.next_power_of_2(min(128, embedding_dim))
+        BLOCK_SIZE_M = triton.next_power_of_2(min(128, hidim))
+        BLOCK_SIZE_N = triton.next_power_of_2(min(128, hidim))
         grid = (
-            triton.cdiv(n_elements, BLOCK_SIZE_M),
-            triton.cdiv(embedding_dim, BLOCK_SIZE_N),
+            triton.cdiv(vocab, BLOCK_SIZE_M),
+            triton.cdiv(hidim, BLOCK_SIZE_N),
         )
 
         embedding_backward_kernel[grid](
             grad_output,
             grad_weight,
             indices,
-            n_elements,
-            embedding_dim=embedding_dim,
+            vocab,
+            hidim=hidim,
             BLOCK_SIZE_M=BLOCK_SIZE_M,
             BLOCK_SIZE_N=BLOCK_SIZE_N,
         )
@@ -205,12 +186,12 @@ class LigerEmbeddingFunction(torch.autograd.Function):
 
 
 class LigerEmbedding(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, padding_idx: int = None):
+    def __init__(self, num_embeddings, hidim, padding_idx: int = None):
         super().__init__()
         self.num_embeddings = num_embeddings
-        self.embedding_dim = embedding_dim
+        self.hidim = hidim
         self.padding_idx = padding_idx
-        self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim).float())
+        self.weight = nn.Parameter(torch.randn(num_embeddings, hidim).float())
 
         if padding_idx is not None:
             with torch.no_grad():
@@ -742,3 +723,11 @@ class LigerFusedLinearCrossEntropyFunction(torch.autograd.Function):
             None,
             None,
         )
+
+
+##############
+## TESTING  ##
+##############
+
+if __name__ == "__main__":
+    test_element_mul_kernel()
