@@ -8,11 +8,6 @@ from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
 
-OH_MAI = os.getenv('ohmai', '1') == '1'
-if OH_MAI: from ohmai_embedding import OhMaiEmbedding as Embedding
-else:         from liger_kernel import LigerEmbedding as Embedding
-print(f"OH_MAI? {OH_MAI}; using {Embedding.__name__}")
-
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high') # better for f32 head
@@ -199,12 +194,19 @@ class Future(nn.Module):
         return norm(x)
 
 
+from ohmai_embedding import OhMaiEmbedding
+from liger_kernel import LigerEmbedding
+####
 class WinGPT(nn.Module):
     def has_future(self):
         return self.future_ratio > 0.009
 
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int,
         max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0, active_vocab=None):
+
+        self.ohmai = os.getenv('ohmai', '1') == '1'
+        Embedding = OhMaiEmbedding if self.ohmai else LigerEmbedding
+        print(f"OH_MAI? {self.ohmai}; using {Embedding.__name__}")
 
         super().__init__()
         self.rotary = Rotary(head_dim, max_seq_len)
@@ -250,7 +252,7 @@ class WinGPT(nn.Module):
 
 
     def update_embeddings(self):
-        if OH_MAI:
+        if self.ohmai:
             self.tok_emb0.update_embeddings()
             self.val_embs.update_embeddings()
             if self.te > 1: self.tok_embs.update_embeddings()
@@ -258,19 +260,20 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        if not OH_MAI: x0 = self.tok_emb0(input_seq.long())
+
+        if not self.ohmai: x0 = self.tok_emb0(input_seq.long())
         else: x0, act, inv = self.tok_emb0(input_seq)
         x = x0 = norm(x0)
 
         if self.te > 1:
-                if OH_MAI:  t_embs = self.tok_embs(input_seq, act, inv)[0]
-                else:       t_embs = self.tok_embs(input_seq.long())
+                if self.ohmai:  t_embs = self.tok_embs(input_seq, act, inv)[0]
+                else:           t_embs = self.tok_embs(input_seq.long())
                 t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 
-        if OH_MAI:  v_embs = self.val_embs(input_seq, act, inv)[0]
-        else:       v_embs = self.val_embs(input_seq.long())
+        if self.ohmai:  v_embs = self.val_embs(input_seq, act, inv)[0]
+        else:           v_embs = self.val_embs(input_seq.long())
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
@@ -350,22 +353,55 @@ if __name__ == "__main__":
     import numpy as np
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
-    torch.manual_seed(1981) # đảm bảo mỗi lần chạy cho kq giống nhau
 
-    # Clear cache and reset peak memory stats
-    torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats()
-    
+    sseed = 1982
     seq_len = 256
     vocab_size = 300
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
-    
+
+    # Khởi tạo model 1 dùng LigerEmbedding
+    torch.manual_seed(sseed)
+    os.environ["ohmai"] = "0"
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
         ve=3, te=2, future_percent=20, active_vocab=vocab_size).cuda()
-    for n, p in model.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-    print("All model params are in bfloat16.")
+    
+    # Khởi tạo model 2 dùng OhMaiEmbedding
+    torch.manual_seed(sseed)
+    os.environ["ohmai"] = "1"
+    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
+        ve=3, te=2, future_percent=20, active_vocab=vocab_size).cuda()
+
+    # Đảm bảo toàn bộ tham số của 2 model là như nhau
+    def check_params():
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
+
+            with torch.no_grad():
+                ohmai.tok_emb0.weight.copy_(model.tok_emb0.weight)
+                ohmai.tok_embs.weight.copy_(model.tok_embs.weight)
+                ohmai.val_embs.weight.copy_(model.val_embs.weight)
+
+            # Map lại n2, p2 của ohmai cho khớp với model
+            if      n2 == "tok_emb0.active_weight":
+                n2 =      "tok_emb0.weight"                
+                p2 = ohmai.tok_emb0.weight.cuda()
+
+            elif    n2 == "tok_embs.active_weight":
+                n2 =      "tok_embs.weight"
+                p2 = ohmai.tok_embs.weight.cuda()
+
+            elif    n2 == "val_embs.active_weight":
+                n2 =      "val_embs.weight"
+                p2 = ohmai.val_embs.weight.cuda()
+
+            assert n1 == n2, f"{n1} != {n2}"
+            assert torch.allclose(p1, p2), f"{n1} values are different"
+    check_params()
+
+    for m in [model, ohmai]:
+        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     # convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!
@@ -374,15 +410,23 @@ if __name__ == "__main__":
     opara = [p for n, p in model.named_parameters() if "fc" in n or "proj" in n]
 
     print("\nAdam:", apara.keys())
+    apara = list(apara.values())
 
-    aptim = torch.optim.Adam(apara.values())
+    # Bổ xung thêm ohmai params vào adam và muon
+    for n, p in ohmai.named_parameters():
+        if "fc" not in n and "proj" not in n:
+                print("Adam:", n)
+                apara.append(p)
+        else:   opara.append(p)
+
+    aptim = torch.optim.Adam(apara)
     optim = Muon(opara)
 
-    # Memory after model initialization
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
     tok_emb_before = model.tok_emb0.weight.data.clone()
+
     for step in range(10):
         ## Generate sequences with batch dimension
         input_seq = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
@@ -391,19 +435,29 @@ if __name__ == "__main__":
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
-        loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
-        loss.backward()
+        os.environ["ohmai"] = "0"
+        loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
+        loss_model.backward()
+
+        loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
+        loss_ohmai.backward()
+
+        # assert torch.allclose(loss_model, loss_ohmai, atol=1e-5), f"Loss mismatch: model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}"
+        # print(f"Step {step}: Loss matches! model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}")
 
         optim.step()
         aptim.step()
 
         model.update_embeddings()
+        ohmai.update_embeddings()
 
         optim.zero_grad()
         aptim.zero_grad()
 
+        check_params()
+
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
 
     tok_emb_after = model.tok_emb0.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()

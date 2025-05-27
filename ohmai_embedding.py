@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 """ Modded from github.com/linkedin/liger-Kernel/blob/main/src/liger_kernel/ops/experimental/embedding.py
-Với n batches of data thì không cần phải load hết toàn bộ embedding matrix vào vram
-- Giữ toàn bộ embedding matrix ở CPU
-- Chỉ load embedding matrix của active_vocab vào vram => `active_embbedings`
-- Có cơ chế mapping để biết token_id ở `active_embbedings` index nào
-- Có thao tác để đổi active_vocab
 """
 import functools
 import torch, triton
@@ -104,9 +99,16 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return grad_weight, None
 
 
-# NOTE: Disable compile graph để có thể sửa đổi weight về sau https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
+# NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
+# https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
 class OhMaiEmbedding(nn.Module):
+    """ Chỉ load tokens có trong current batch vào vram
+- Giữ toàn bộ embedding matrix ở CPU
+- Chỉ load embedding matrix của active_vocab vào vram => `active_weight`
+- Có cơ chế mapping để biết token_id ở `active_weight` index nào
+- Có thao tác để đổi active_vocab """
+
     def __init__(self, vocab, hidim, active_vocab=None):
         super().__init__()
         self.vocab = vocab
@@ -124,7 +126,7 @@ class OhMaiEmbedding(nn.Module):
             self.active_vocab = active_vocab
         else:
             self.active_vocab = 0
-            self.active_weight = nn.Parameter(w)
+            self.active_weight = nn.Parameter()
 
 
     def reinit(self, n):
@@ -155,9 +157,9 @@ class OhMaiEmbedding(nn.Module):
 
 
     def update_embeddings(self):
-        v  = self.active_weight.cpu()[:len(self.active_tokens)]
-        a0 = self.weight[self.active_tokens][0]
-        assert (v[0] != a0).sum().item() > 0, "active token weight không đổi"
+        v = self.active_weight.cpu()[:len(self.active_tokens)]
+        a = self.weight[self.active_tokens]
+        assert (v != a).sum().item() > 0, "active token weight không đổi"
         self.weight[self.active_tokens] = v
         self.active_tokens = None # clear inactive data
 
