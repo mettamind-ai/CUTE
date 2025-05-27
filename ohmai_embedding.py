@@ -138,6 +138,7 @@ class OhMaiEmbedding(nn.Module):
         self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
         self.active_tokens = None # clear inactive data
 
+    @torch.compiler.disable
     def forward(self, indices, active=None, inverse=None):
         assert indices.dtype == torch.int16
         inv = self.activate(indices, active, inverse)
