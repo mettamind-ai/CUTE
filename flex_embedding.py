@@ -44,38 +44,26 @@ def embedding_forward_kernel(
 
 @triton.jit
 def embedding_backward_kernel(
-    grad_output_ptr,
-    grad_weight_ptr,
-    indices_ptr,
-    vocab,
-    hidim: tl.constexpr,
-    BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr,
+    grad_output_ptr, grad_weight_ptr, # grad_weight là embeddings_grad
+    tokens_ptr,
+    vocab, hidim : tl.constexpr,
+    BLOCK_SIZE_M : tl.constexpr,
+    BLOCK_SIZE_N : tl.constexpr,
 ):
-    pid_m = tl.program_id(0)
-    pid_n = tl.program_id(1)
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
 
-    start_m = pid_m * BLOCK_SIZE_M
-    start_n = pid_n * BLOCK_SIZE_N
-    offsets_m = start_m + tl.arange(0, BLOCK_SIZE_M)
-    mask_m = offsets_m < vocab
-    indices = tl.load(indices_ptr + offsets_m, mask=mask_m, other=0)
-    offsets_n = start_n + tl.arange(0, BLOCK_SIZE_N)
-    mask_n = offsets_n < hidim
+    # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
+    tok_mask  =  tok_offsets < vocab  # token < vocab size
+    feat_mask = feat_offsets < hidim  # feat  < hidden dim
+    emb_mask  = tok_mask[:, None] & feat_mask[None, :]
 
-    grad_output = tl.load(
-        grad_output_ptr + offsets_m[:, None] * hidim + offsets_n[None, :],
-        mask=mask_m[:, None] & mask_n[None, :],
-        other=0.0,
-    )
+    tok_indexes = tl.load(tokens_ptr + tok_offsets, mask=tok_mask)
+    emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
+    out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    grad_weight_offsets = indices[:, None] * hidim + offsets_n[None, :]
-
-    tl.atomic_add(
-        grad_weight_ptr + grad_weight_offsets,
-        grad_output,
-        mask=mask_m[:, None] & mask_n[None, :],
-    )
+    grad_output = tl.load(grad_output_ptr + out_offsets, mask=emb_mask)
+    tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
 
 
 class FlexEmbeddingFunction(torch.autograd.Function):
