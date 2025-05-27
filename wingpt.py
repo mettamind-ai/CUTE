@@ -338,6 +338,7 @@ if __name__ == "__main__":
     import numpy as np
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
+    torch.manual_seed(1981) # đảm bảo mỗi lần chạy cho kq giống nhau
 
     # Clear cache and reset peak memory stats
     torch.cuda.empty_cache()

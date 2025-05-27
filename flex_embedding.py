@@ -8,14 +8,14 @@ Với n batches of data thì không cần phải load hết toàn bộ embedding
 import functools
 import torch, triton
 import triton.language as tl
-from torch import nn
+from torch import nn, Tensor
 
-maybe_to_contiguous = lambda x: x.contiguous() if isinstance(x, torch.Tensor) else x
+_to_contiguous = lambda x: x if not isinstance(x, Tensor) else x.contiguous()
 def ensure_contiguous(fn):
     @functools.wraps(fn)
     def wrapper(ctx, *args, **kwargs):
-        args = [maybe_to_contiguous(arg) for arg in args]
-        kwargs = {k: maybe_to_contiguous(v) for k, v in kwargs.items()}
+        args = [_to_contiguous(arg) for arg in args]
+        kwarg= {k: _to_contiguous(v) for k, v in kwargs.items()}
         return fn(ctx, *args, **kwargs)
     return wrapper
 
@@ -26,20 +26,20 @@ def embedding_forward_kernel(
     vocab, hidim : tl.constexpr,# vocab size x hidden dim = kích thước embedding matrix
     BLOCK_SIZE_M : tl.constexpr, BLOCK_SIZE_N : tl.constexpr, # kích thước khối
 ):
-    offsets_vocab = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    offsets_embed = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    token_offsets = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    embed_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
 
-    mask_vocab = offsets_vocab < vocab
-    mask_embed = offsets_embed < hidim
+    token_mask = token_offsets < vocab
+    embed_mask = embed_offsets < hidim
 
-    tokens = tl.load(tokens_ptr + offsets_vocab, mask=mask_vocab, other=0)
-    mask = mask_vocab[:, None] & mask_embed[None, :]
+    tokens = tl.load(tokens_ptr + token_offsets, mask=token_mask)
+    mask = token_mask[:, None] & embed_mask[None, :]
 
-    offsets = tokens[:, None]*hidim + offsets_embed[None, :] # M x N
-    embeddings = tl.load(embeddings_ptr+offsets, mask=mask, other=0.0,)
+    offsets = tokens[:, None]*hidim + embed_offsets[None, :] # M x N
+    embeddings = tl.load(embeddings_ptr + offsets, mask=mask)
 
-    output_offsets = offsets_vocab[:, None]*hidim + offsets_embed[None, :]
-    tl.store(output_ptr + output_offsets, embeddings, mask=mask)
+    offsets = token_offsets[:, None]*hidim + embed_offsets[None, :]
+    tl.store(output_ptr + offsets, embeddings, mask=mask)
 
 
 @triton.jit
