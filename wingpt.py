@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
-from flex_embedding import FlexEmbedding
+from ohmai_embedding import OhMaiEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -219,18 +219,18 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
         self.ve, self.te = ve, te
 
-        self.tok_emb0 = FlexEmbedding(vocab_size, dim) # tok emb gốc
+        self.tok_emb0 = OhMaiEmbedding(vocab_size, dim) # tok emb gốc
 
         lte = te - 1 # layer token embeddings
         if lte > 1:
             dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
-            self.tok_embs = FlexEmbedding(vocab_size, dd*lte)
+            self.tok_embs = OhMaiEmbedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             with torch.no_grad():
                 self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = FlexEmbedding(vocab_size, kv_dim*ve) 
+        self.val_embs = OhMaiEmbedding(vocab_size, kv_dim*ve) 
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers

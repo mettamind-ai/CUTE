@@ -62,11 +62,14 @@ def embedding_backward_kernel(
     emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
     out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    grad_output = tl.load(grad_output_ptr + out_offsets, mask=emb_mask)
-    tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
+    v = tl.load(grad_output_ptr + out_offsets, mask=emb_mask)
+    v +=tl.load(grad_weight_ptr + emb_offsets, mask=emb_mask)
+    tl.store(grad_weight_ptr + emb_offsets, v, mask=emb_mask)
+    # tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
+    # https://github.com/triton-lang/triton/commit/236f6b54ce337db009ea573915022dafdbf61b82
+    # hiện tại atomic_add mới chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
 
-
-class FlexEmbeddingFunction(torch.autograd.Function):
+class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     @ensure_contiguous
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
@@ -83,22 +86,22 @@ class FlexEmbeddingFunction(torch.autograd.Function):
     @staticmethod
     @ensure_contiguous
     def backward(ctx, grad_output: torch.Tensor):
-        indices, embedding_table = ctx.saved_tensors
-        vocab, hidim = indices.numel(), embedding_table.shape[1]
+        indices, embeddings = ctx.saved_tensors
+        vocab, hidim = indices.numel(), embeddings.shape[1]
         grad_output = grad_output.contiguous()
-        grad_weight = torch.zeros_like(embedding_table) # tốn ở chỗ này
+        grad_weight = torch.zeros_like(embeddings) # tốn ở chỗ này
 
         _n = triton.next_power_of_2(min(128, hidim))
         grid = ( triton.cdiv(vocab, _n), triton.cdiv(hidim, _n), )
 
-        embedding_backward_kernel[grid]( grad_output, grad_weight, indices, vocab, hidim, _n, _n)
+        embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, _n, _n)
         return grad_weight, None
 
 
-class FlexEmbedding(nn.Module):
+class OhMaiEmbedding(nn.Module):
     def __init__(self, vocab, hidim):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(vocab, hidim).float())
+        self.weight = nn.Parameter(torch.randn(vocab, hidim).bfloat16())
 
     def forward(self, indices):
-        return FlexEmbeddingFunction.apply(self.weight, indices)
+        return OhMaiEmbFunction.apply(self.weight, indices)
