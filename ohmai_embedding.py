@@ -38,8 +38,11 @@ def embedding_forward_kernel(
     emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
     out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    embeddings = tl.load(embeddings_ptr + emb_offsets, mask=emb_mask) # emb_ là sparse
-    tl.store(output_ptr + out_offsets, embeddings, mask=emb_mask)     # out_ là continuous
+    emb = embeddings_ptr + emb_offsets   # emb_ là sparse
+    out = output_ptr + out_offsets       # out_ là continuous
+
+    v = tl.load(emb, mask=emb_mask)
+    tl.store(out, v, mask=emb_mask)
 
 
 @triton.jit
@@ -62,9 +65,12 @@ def embedding_backward_kernel(
     emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
     out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    v = tl.load(grad_output_ptr + out_offsets, mask=emb_mask)
-    v +=tl.load(grad_weight_ptr + emb_offsets, mask=emb_mask)
-    tl.store(grad_weight_ptr + emb_offsets, v, mask=emb_mask)
+    output = grad_output_ptr + out_offsets
+    weight = grad_weight_ptr + emb_offsets
+
+    v  = tl.load(output, mask=emb_mask)
+    v += tl.load(weight, mask=emb_mask)
+    tl.store(weight, v,  mask=emb_mask)
     # tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
     # https://github.com/triton-lang/triton/commit/236f6b54ce337db009ea573915022dafdbf61b82
     # hiện tại atomic_add mới chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
