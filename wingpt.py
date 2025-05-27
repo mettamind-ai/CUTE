@@ -355,6 +355,9 @@ if __name__ == "__main__":
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
     
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3, te=3, future_percent=20).cuda()
+    for n, p in model.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+    print("All model params are in bfloat16.")
+
     convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!
 
