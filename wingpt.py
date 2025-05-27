@@ -11,7 +11,7 @@ from liger_kernel import LigerFusedLinearCrossEntropyFunction
 OH_MAI = os.getenv('ohmai', '1') == '1'
 if not OH_MAI: Embedding = nn.Embedding
 else: from ohmai_embedding import OhMaiEmbedding as Embedding
-print(f"OH_MAI? {OH_MAI}; using {Embedding.__name__} for embeddings")
+print(f"OH_MAI? {OH_MAI}; using {Embedding.__name__}")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -359,9 +359,9 @@ if __name__ == "__main__":
     # model = torch.compile(model) # chậm !!!
 
     ## Generate sequences with batch dimension
-    input_seq = torch.randint(0, vocab_size, (seq_len,)).cuda()
-    target    = torch.randint(0, vocab_size, (seq_len,)).cuda()
-    future    = torch.randint(0, vocab_size, (seq_len,)).cuda()
+    input_seq = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
+    target    = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
+    future    = torch.randint(0, vocab_size, (seq_len,), dtype=torch.int16).cuda()
     cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
     aptim = torch.optim.Adam([p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n])

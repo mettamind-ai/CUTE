@@ -1,9 +1,9 @@
 """ Modded from github.com/linkedin/liger-Kernel/blob/main/src/liger_kernel/ops/experimental/embedding.py
 Với n batches of data thì không cần phải load hết toàn bộ embedding matrix vào vram
 - Giữ toàn bộ embedding matrix ở CPU
-- Chỉ load embedding matrix của curr_vocab vào vram => `curr_emb_matrix`
-- Có cơ chế mapping để biết token_id ở `curr_emb_matrix` index nào
-- Có thao tác để đổi curr_vocab
+- Chỉ load embedding matrix của active_vocab vào vram => `active_embbedings`
+- Có cơ chế mapping để biết token_id ở `active_embbedings` index nào
+- Có thao tác để đổi active_vocab
 """
 import functools
 import torch, triton
@@ -105,7 +105,13 @@ class OhMaiEmbFunction(torch.autograd.Function):
 class OhMaiEmbedding(nn.Module):
     def __init__(self, vocab, hidim):
         super().__init__()
+        self.vocab = vocab
         self.weight = nn.Parameter(torch.randn(vocab, hidim).bfloat16())
+        # Cần kích hoạt active_vocab và init_active weight mỗi lần forward
+        self.active_vocab = 0
+        self.active_weight = None
+    
+    # def prepare_active_weight():
 
     def forward(self, indices):
         return OhMaiEmbFunction.apply(self.weight, indices)

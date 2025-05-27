@@ -100,11 +100,9 @@ N    = len(data) - CTX
 WIN  = torch.arange(CTX)
 
 def get_batch():
-    idx = torch.randint(0, N, (1,)) + WIN  # shape = (CTX)
-    idx = idx.numpy() # idx.numpy() là view, không copy
-    x = torch.from_numpy(data[idx])
-    # Tensor → pin_memory → GPU. Đổi dtype sang int32 chỉ MỘT lần trên GPU.
-    return x.pin_memory().to("cuda", dtype=torch.int32, non_blocking=True)
+    idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
+    x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.
+    return x.pin_memory().to("cuda", dtype=torch.int16, non_blocking=True)
 batch = get_batch()
 
 
