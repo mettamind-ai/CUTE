@@ -26,20 +26,20 @@ def embedding_forward_kernel(
     vocab, hidim : tl.constexpr,# vocab size x hidden dim = kích thước embedding matrix
     BLOCK_SIZE_M : tl.constexpr, BLOCK_SIZE_N : tl.constexpr, # kích thước khối
 ):
-    token_offsets = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    embed_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
 
-    token_mask = token_offsets < vocab
-    embed_mask = embed_offsets < hidim
+    # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
+    tok_mask  =  tok_offsets < vocab  # token < vocab size
+    feat_mask = feat_offsets < hidim  # feat  < hidden dim
+    emb_mask  = tok_mask[:, None] & feat_mask[None, :]
 
-    tokens = tl.load(tokens_ptr + token_offsets, mask=token_mask)
-    mask = token_mask[:, None] & embed_mask[None, :]
+    tok_indexes = tl.load(tokens_ptr + tok_offsets, mask=tok_mask)
+    emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
+    out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
 
-    offsets = tokens[:, None]*hidim + embed_offsets[None, :] # M x N
-    embeddings = tl.load(embeddings_ptr + offsets, mask=mask)
-
-    offsets = token_offsets[:, None]*hidim + embed_offsets[None, :]
-    tl.store(output_ptr + offsets, embeddings, mask=mask)
+    embeddings = tl.load(embeddings_ptr + emb_offsets, mask=emb_mask) # emb_ là sparse
+    tl.store(output_ptr + out_offsets, embeddings, mask=emb_mask)     # out_ là continuous
 
 
 @triton.jit
