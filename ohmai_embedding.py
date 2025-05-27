@@ -116,10 +116,10 @@ class OhMaiEmbedding(nn.Module):
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
     
     def init_active_vocab_weight(self, n):
-        if self.active_vocab > 0: return # khởi tạo 1 lần duy nhất
-        self.active_vocab = 128
+        if self.active_vocab >= n: return # không cần khởi tạo lại
+        self.active_vocab = 512
         while self.active_vocab < n: self.active_vocab += 128
-        print("self.active_vocab", self.active_vocab)
+        print("OhMaiEmbedding.active_vocab", self.active_vocab)
         self.active_weight = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
         self.active_weight = nn.Parameter(self.active_weight)
         self.active_weight.requires_grad_(True)
