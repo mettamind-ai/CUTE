@@ -123,10 +123,14 @@ class OhMaiEmbedding(nn.Module):
             self.active_weight.requires_grad_(True)
         else: self.active_vocab = 0
 
-    def auto_init(self, n):
+
+    def reinit(self, n):
         if self.active_vocab > n: return
+
         while self.active_vocab <= n: self.active_vocab += 128
+        assert n <= self.active_vocab
         print(f">>> OhMaiEmbedding.active_vocab {self.active_vocab}, hidden {self.hidim}",)
+
         w = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
         self.active_weight = nn.Parameter(w)
         self.active_weight.requires_grad_(True)
@@ -140,16 +144,17 @@ class OhMaiEmbedding(nn.Module):
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
-        self.auto_init(n)
-        assert n <= self.active_vocab
+        self.reinit(n)
 
         with torch.no_grad():
             self.active_weight[:n,] = self.weight[self.active_tokens]
         return inverse
 
+
     def update_embeddings(self):
         self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
         self.active_tokens = None # clear inactive data
+
 
     def forward(self, indices, active=None, inverse=None):
         assert indices.dtype == torch.int16
@@ -165,5 +170,5 @@ if __name__ == "__main__":
     active = inverse = None
     for i in range(3):
         y, active, inverse = e(x, active, inverse)
-        # print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+        print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
         e.update_embeddings()
