@@ -226,7 +226,7 @@ class WinGPT(nn.Module):
         self.tok_emb0 = Embedding(vocab_size, dim) # tok emb gốc
 
         lte = te - 1 # layer token embeddings
-        if lte > 1:
+        if te > 1:
             dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
             self.tok_embs = Embedding(vocab_size, dd*lte)
             self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
@@ -247,6 +247,12 @@ class WinGPT(nn.Module):
 
         self.lm_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.lm_head.weight.zero_()
+
+
+    def update_embeddings(self):
+        self.tok_emb0.update_embeddings()
+        self.val_embs.update_embeddings()
+        if self.te > 1: self.tok_embs.update_embeddings()
 
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
@@ -287,7 +293,6 @@ class WinGPT(nn.Module):
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
-
 
 ###################
 ## Loss function ##
@@ -378,5 +383,6 @@ if __name__ == "__main__":
         loss.backward()
         optim.step(); optim.zero_grad()
         aptim.step(); aptim.zero_grad()
+        model.update_embeddings()
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")

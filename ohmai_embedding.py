@@ -112,23 +112,25 @@ class OhMaiEmbedding(nn.Module):
         self.weight = torch.randn(vocab, hidim, device="cpu").bfloat16()
         self.weight.requires_grad_(False)
 
-        self.active_vocab = 1024 * 2
+        self.active_vocab = 1024
         self.active_weight = torch.zeros(self.active_vocab, hidim).bfloat16()
         self.active_weight = nn.Parameter(self.active_weight).cuda()
         self.active_weight.requires_grad_(True)
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
     def activate(self, indices):
+        assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
         active_tokens, inverse_indices = torch.unique(indices, return_inverse=True, sorted=True)
-        active_tokens = active_tokens.cpu().to(torch.int)
+        active_tokens = active_tokens.cpu().to(torch.long)
+        assert len(active_tokens) <= self.active_vocab
         with torch.no_grad():
             self.active_weight[:len(active_tokens),] = self.weight[active_tokens]
         self.active_tokens = active_tokens
-        return inverse_indices.to(indices.device)
+        return inverse_indices
 
     def update_embeddings(self):
         self.weight.scatter_(0, self.active_tokens.unsqueeze(1), self.active_weight.cpu())
-        self.active_vocab = self.active_tokens = self.active_weight = None # clear inactive data
+        self.active_tokens = None # clear inactive data
 
     def forward(self, indices):
         assert indices.dtype == torch.int16
@@ -143,3 +145,4 @@ if __name__ == "__main__":
 
     y = e(x)
     print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+    e.update_embeddings()
