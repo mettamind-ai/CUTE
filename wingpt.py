@@ -382,8 +382,10 @@ if __name__ == "__main__":
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
         loss = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
         loss.backward()
-        optim.step(); optim.zero_grad()
-        aptim.step(); aptim.zero_grad()
+        optim.step()
+        aptim.step()
         model.update_embeddings()
+        optim.zero_grad()
+        aptim.zero_grad()
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")

@@ -233,9 +233,11 @@ while step < args.steps and lossv > args.minloss:
         if not args.T: logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
-    muon_optim.step(); muon_optim.zero_grad()
-    adam_optim.step(); adam_optim.zero_grad()
+    muon_optim.step()
+    adam_optim.step()
     model.update_embeddings()
+    muon_optim.zero_grad()
+    adam_optim.zero_grad()
  
     if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
