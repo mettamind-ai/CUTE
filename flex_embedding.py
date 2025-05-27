@@ -70,19 +70,13 @@ class FlexEmbeddingFunction(torch.autograd.Function):
     @staticmethod
     @ensure_contiguous
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
-        vocab = indices.numel()
-        hidim = embeddings.shape[1]
+        vocab, hidim = indices.numel(), embeddings.shape[1]
         output = torch.empty(vocab, hidim, device=indices.device, dtype=embeddings.dtype,)
 
-        _n = min(128, hidim)
-        _n = triton.next_power_of_2(_n)
+        _n = triton.next_power_of_2(min(128, hidim))
         grid = ( triton.cdiv(vocab, _n), triton.cdiv(hidim, _n), )
 
-        embedding_forward_kernel[grid](
-            embeddings, indices, output,
-            vocab, hidim, _n, _n,
-        )
-
+        embedding_forward_kernel[grid](embeddings, indices, output, vocab, hidim, _n, _n)
         ctx.save_for_backward(indices, embeddings)
         return output
 
@@ -90,48 +84,21 @@ class FlexEmbeddingFunction(torch.autograd.Function):
     @ensure_contiguous
     def backward(ctx, grad_output: torch.Tensor):
         indices, embedding_table = ctx.saved_tensors
-        grad_output = grad_output.contiguous().view(-1, embedding_table.shape[1])
+        vocab, hidim = indices.numel(), embedding_table.shape[1]
+        grad_output = grad_output.contiguous()
+        grad_weight = torch.zeros_like(embedding_table) # tốn ở chỗ này
 
-        grad_weight = torch.zeros_like(embedding_table)
+        _n = triton.next_power_of_2(min(128, hidim))
+        grid = ( triton.cdiv(vocab, _n), triton.cdiv(hidim, _n), )
 
-        vocab = indices.numel()
-        hidim = embedding_table.shape[1]
-
-        BLOCK_SIZE_M = triton.next_power_of_2(min(128, hidim))
-        BLOCK_SIZE_N = triton.next_power_of_2(min(128, hidim))
-        grid = (
-            triton.cdiv(vocab, BLOCK_SIZE_M),
-            triton.cdiv(hidim, BLOCK_SIZE_N),
-        )
-
-        embedding_backward_kernel[grid](
-            grad_output,
-            grad_weight,
-            indices,
-            vocab,
-            hidim=hidim,
-            BLOCK_SIZE_M=BLOCK_SIZE_M,
-            BLOCK_SIZE_N=BLOCK_SIZE_N,
-        )
-
+        embedding_backward_kernel[grid]( grad_output, grad_weight, indices, vocab, hidim, _n, _n)
         return grad_weight, None
 
 
 class FlexEmbedding(nn.Module):
-    def __init__(self, num_embeddings, hidim, padding_idx: int = None):
+    def __init__(self, vocab, hidim):
         super().__init__()
-        self.num_embeddings = num_embeddings
-        self.hidim = hidim
-        self.padding_idx = padding_idx
-        self.weight = nn.Parameter(torch.randn(num_embeddings, hidim).float())
-
-        if padding_idx is not None:
-            with torch.no_grad():
-                self.weight[padding_idx].fill_(0)
+        self.weight = nn.Parameter(torch.randn(vocab, hidim).float())
 
     def forward(self, indices):
-        embedded = FlexEmbeddingFunction.apply(self.weight, indices)
-        if self.padding_idx is not None:
-            embedded = embedded.clone()
-            embedded[indices == self.padding_idx] = 0
-        return embedded
+        return FlexEmbeddingFunction.apply(self.weight, indices)
