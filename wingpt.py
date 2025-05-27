@@ -426,21 +426,27 @@ if __name__ == "__main__":
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
     tok_emb_before = model.tok_emb0.weight.data.clone()
+    model.train()
+    ohmai.train()
 
     for step in range(10):
         ## Generate sequences with batch dimension
-        input_seq = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        target    = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        future    = torch.randint(0, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+        future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
-        os.environ["ohmai"] = "0"
-        loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
-        loss_model.backward()
+
+        a, _, _ = ohmai.tok_emb0(input_seq)
+        b = ohmai.tok_emb0.weight[input_seq.cpu().long()]
+        if not torch.allclose(a.cpu(), b, atol=1e-5): assert False
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_ohmai.backward()
+
+        loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
+        loss_model.backward()
 
         # assert torch.allclose(loss_model, loss_ohmai, atol=1e-5), f"Loss mismatch: model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}"
         # print(f"Step {step}: Loss matches! model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}")

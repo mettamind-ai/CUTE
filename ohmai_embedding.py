@@ -99,6 +99,8 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return grad_weight, None
 
 
+from liger_kernel import LigerEmbeddingFunction
+
 # NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
 # https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
@@ -120,63 +122,85 @@ class OhMaiEmbedding(nn.Module):
         self.active_weight = None
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
-        if active_vocab:
-            w = torch.empty(active_vocab, self.hidim, device="cuda")
-            self.active_weight = nn.Parameter(w)
-            self.active_vocab = active_vocab
-        else:
-            self.active_vocab = 0
-            self.active_weight = nn.Parameter()
+        if active_vocab is None: active_vocab = vocab // 2
+        w = torch.empty(active_vocab, self.hidim, device="cpu")
+        # with torch.no_grad(): w = self.weight[:active_vocab,]
+        self.active_weight = nn.Parameter(w.cuda())
+        self.active_vocab = active_vocab
 
-
-    def reinit(self, n):
-        if self.active_vocab > n: return
-
-        while self.active_vocab <= n: self.active_vocab += 128
-        assert n <= self.active_vocab
-        print(f">>> OhMaiEmbedding.active_vocab {self.active_vocab}, hidden {self.hidim}",)
-
-        w = torch.empty(self.active_vocab, self.hidim, device="cuda")
-        self.active_weight = nn.Parameter(w)
-        self.active_weight.requires_grad_(True)
 
 
     def activate(self, indices, active=None, inverse=None):
-        assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
+        # assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
         if active is None:
                 self.active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
                 self.active_tokens = self.active_tokens.cpu().to(torch.long)
         else:   self.active_tokens = active
+        # print(self.active_tokens, "\n", inverse)
 
         n = len(self.active_tokens)
-        self.reinit(n)
+        assert n <= self.active_vocab
 
         with torch.no_grad():
             self.active_weight[:n,] = self.weight[self.active_tokens]
+        # self.active_weight.requires_grad_(True)
         return inverse
 
 
-    def update_embeddings(self):
+    def update_embeddings(self):  
+        x = self.active_weight.grad      
+        assert x.norm().item() > 0, f"active_weight.grad == 0, {x}"
+
         v = self.active_weight.cpu()[:len(self.active_tokens)]
         a = self.weight[self.active_tokens]
-        assert (v != a).sum().item() > 0, "active token weight không đổi"
-        self.weight[self.active_tokens] = v
+        if (v != a).sum().item() == 0: assert False
+
+        self.weight[self.active_tokens] = v.bfloat16()
         self.active_tokens = None # clear inactive data
 
 
     def forward(self, indices, active=None, inverse=None):
         assert indices.dtype == torch.int16
         inv = self.activate(indices, active, inverse)
-        return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
+        return LigerEmbeddingFunction.apply(self.active_weight, inv), self.active_tokens, inv
 
 
 if __name__ == "__main__":
     vocab, dim, ctx = 6400, 128, 32
     e = OhMaiEmbedding(vocab, dim)
-    x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
+    e.train()
 
-    active = inverse = None
+    optimizer = torch.optim.AdamW(e.parameters(), lr=0.001)
+    # In ra thông tin các parameters
+    print("\nCác parameters trong optimizer:")
+    for i, param_group in enumerate(optimizer.param_groups):
+        print(f"Parameter group {i}:")
+        for j, param in enumerate(param_group['params']):
+            print(f"  - Parameter {j}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
+
     for i in range(3):
-        y, active, inverse = e(x, active, inverse)
-        print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+        optimizer.zero_grad()
+    
+        x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
+        y, active, inverse = e(x)
+        # print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+
+        # Tạo loss giả để có gradient
+        target = torch.randn_like(y)
+        loss = torch.nn.functional.mse_loss(y, target)        
+        loss.backward()  # Tính gradient
+
+        # Kiểm tra gradient
+        active_weight_clone = e.active_weight.clone()
+
+        if e.active_weight.grad is not None:
+            grad_norm = e.active_weight.grad.norm().item()
+            print(f"Gradient norm: {grad_norm}")
+            
+            # Apply gradients
+            optimizer.step()
+
+            assert not torch.allclose(active_weight_clone, e.active_weight), "active_weight không đổi"
+            print(f"Optimizer step {i} completed")
+
         e.update_embeddings()
