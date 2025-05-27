@@ -23,11 +23,11 @@ def ensure_contiguous(fn):
 def embedding_forward_kernel(
     embeds_ptr, tokens_ptr,     # trỏ tới token_ids cần lấy embedding values
     output_ptr,                 # x0, hay embeddings của batch hiện tại
-    vocab, hidim : tl.constexpr,# vocab size x hidden dim = kích thước embedding matrix
-    BLOCK_SIZE_M : tl.constexpr, BLOCK_SIZE_N : tl.constexpr, # kích thước khối đang xử lý
+    vocab, hidim,               # vocab size x hidden dim = kích thước embedding matrix
+    BLOCK_SIZE: tl.constexpr,   # kích thước khối đang xử lý
 ):
-    tok_offsets  = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    feat_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
     # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
     tok_mask  =  tok_offsets < vocab  # token < vocab size
@@ -48,13 +48,11 @@ def embedding_forward_kernel(
 @triton.jit
 def embedding_backward_kernel(
     grad_output_ptr, grad_weight_ptr, # grad_weight là embeddings_grad
-    tokens_ptr,
-    vocab, hidim : tl.constexpr,
-    BLOCK_SIZE_M : tl.constexpr,
-    BLOCK_SIZE_N : tl.constexpr,
+    tokens_ptr, vocab, hidim,
+    BLOCK_SIZE : tl.constexpr,
 ):
-    tok_offsets  = tl.program_id(0)*BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    feat_offsets = tl.program_id(1)*BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
     # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
     tok_mask  =  tok_offsets < vocab  # token < vocab size
@@ -82,10 +80,10 @@ class OhMaiEmbFunction(torch.autograd.Function):
         vocab, hidim = indices.numel(), embeddings.shape[1]
         output = torch.empty(vocab, hidim, device=indices.device, dtype=embeddings.dtype,)
 
-        _n = triton.next_power_of_2(min(128, hidim))
-        grid = ( triton.cdiv(vocab, _n), triton.cdiv(hidim, _n), )
+        blsz = triton.next_power_of_2(min(128, hidim))
+        grid = ( triton.cdiv(vocab, blsz), triton.cdiv(hidim, blsz), )
 
-        embedding_forward_kernel[grid](embeddings, indices, output, vocab, hidim, _n, _n)
+        embedding_forward_kernel[grid](embeddings, indices, output, vocab, hidim, blsz)
         ctx.save_for_backward(indices, embeddings)
         return output
 
@@ -97,10 +95,10 @@ class OhMaiEmbFunction(torch.autograd.Function):
         grad_output = grad_output.contiguous()
         grad_weight = torch.zeros_like(embeddings) # tốn ở chỗ này
 
-        _n = triton.next_power_of_2(min(128, hidim))
-        grid = ( triton.cdiv(vocab, _n), triton.cdiv(hidim, _n), )
+        blsz = triton.next_power_of_2(min(128, hidim))
+        grid = ( triton.cdiv(vocab, blsz), triton.cdiv(hidim, blsz), )
 
-        embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, _n, _n)
+        embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, blsz)
         return grad_weight, None
 
 
