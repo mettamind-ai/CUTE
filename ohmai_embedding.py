@@ -102,7 +102,7 @@ class OhMaiEmbFunction(torch.autograd.Function):
         embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, blsz)
         return grad_weight, None
 
-
+# NOTE: Disable compile graph để có thể sửa đổi weight về sau https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
 class OhMaiEmbedding(nn.Module):
     def __init__(self, vocab, hidim, active_vocab=None):
@@ -110,16 +110,27 @@ class OhMaiEmbedding(nn.Module):
         self.vocab = vocab
         self.hidim = hidim
 
-        if active_vocab is None: active_vocab = vocab // 2
-        self.active_vocab = active_vocab
-
         self.weight = torch.randn(vocab, hidim, device="cpu").bfloat16()
         self.weight.requires_grad_(False)
 
-        self.active_weight = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+        self.active_weight = None
+        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
+
+        if active_vocab:
+            self.self.active_vocab = active_vocab
+            self.active_weight = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+            self.active_weight = nn.Parameter(self.active_weight)
+            self.active_weight.requires_grad_(True)
+        else: self.active_vocab = 0
+
+    def auto_init(self, n):
+        if self.active_vocab > n: return
+        while self.active_vocab <= n: self.active_vocab += 128
+        print(">>> OhMaiEmbedding.active_vocab ", self.active_vocab)
+        self.active_weight = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
         self.active_weight = nn.Parameter(self.active_weight)
         self.active_weight.requires_grad_(True)
-        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
+
 
     def activate(self, indices, active=None, inverse=None):
         assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
@@ -129,6 +140,7 @@ class OhMaiEmbedding(nn.Module):
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
+        self.auto_init(n)
         assert n <= self.active_vocab
 
         with torch.no_grad():
