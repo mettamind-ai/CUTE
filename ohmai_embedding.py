@@ -134,8 +134,7 @@ class OhMaiEmbedding(nn.Module):
 
     def forward(self, indices):
         assert indices.dtype == torch.int16
-        indices = self.activate(indices)
-        return OhMaiEmbFunction.apply(self.active_weight, indices)
+        return OhMaiEmbFunction.apply(self.active_weight, self.activate(indices))
 
 
 if __name__ == "__main__":
