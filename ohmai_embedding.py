@@ -119,11 +119,12 @@ class OhMaiEmbedding(nn.Module):
         self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
         if active_vocab:
-                w = torch.empty(active_vocab, self.hidim, device="cuda")
-                self.active_weight = nn.Parameter(w)
-                self.active_weight.requires_grad_(True)
-                self.active_vocab = active_vocab
-        else:   self.active_vocab = 0
+            w = torch.empty(active_vocab, self.hidim, device="cuda")
+            self.active_weight = nn.Parameter(w)
+            self.active_vocab = active_vocab
+        else:
+            self.active_vocab = 0
+            self.active_weight = nn.Parameter(w)
 
 
     def reinit(self, n):
@@ -155,7 +156,7 @@ class OhMaiEmbedding(nn.Module):
 
     def update_embeddings(self):
         v  = self.active_weight.cpu()[:len(self.active_tokens)]
-        a0 = self.weight[self.active_tokens[0]]
+        a0 = self.weight[self.active_tokens][0]
         assert (v[0] != a0).sum().item() > 0, "active token weight không đổi"
         self.weight[self.active_tokens] = v
         self.active_tokens = None # clear inactive data

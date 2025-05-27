@@ -33,7 +33,9 @@ args = parser.parse_args()
 os.environ['INT8_MIXED_SR'] = args.int8rd
 from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
-if args.T: args.steps = 100 # thử nhỏ thôi
+if args.T:
+    args.steps = 100 # thử nhỏ thôi
+    if args.bs == 64: args.bs = 1
 rank, world_size, is_master = 0, 1, True # 1 GPU
 def print0(msg): is_master and print(msg)
 torch.manual_seed(1981 + rank)

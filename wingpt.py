@@ -6,11 +6,11 @@ import torch.nn.functional as F
 
 from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
-from liger_kernel import LigerFusedLinearCrossEntropyFunction
+from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
 
 OH_MAI = os.getenv('ohmai', '1') == '1'
-if not OH_MAI: Embedding = nn.Embedding
-else: from ohmai_embedding import OhMaiEmbedding as Embedding
+if OH_MAI: from ohmai_embedding import OhMaiEmbedding as Embedding
+else:         from liger_kernel import LigerEmbedding as Embedding
 print(f"OH_MAI? {OH_MAI}; using {Embedding.__name__}")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -362,7 +362,8 @@ if __name__ == "__main__":
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
     
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, ve=3, te=2, future_percent=20).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
+        ve=3, te=2, future_percent=20, active_vocab=vocab_size).cuda()
     for n, p in model.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
     print("All model params are in bfloat16.")
 
