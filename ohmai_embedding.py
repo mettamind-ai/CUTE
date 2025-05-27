@@ -104,27 +104,21 @@ class OhMaiEmbFunction(torch.autograd.Function):
 
 
 class OhMaiEmbedding(nn.Module):
-    def __init__(self, vocab, hidim):
+    def __init__(self, vocab, hidim, active_vocab=None):
         super().__init__()
         self.vocab = vocab
         self.hidim = hidim
 
+        if active_vocab is None: active_vocab = vocab // 2
+        self.active_vocab = active_vocab
+
         self.weight = torch.randn(vocab, hidim, device="cpu").bfloat16()
         self.weight.requires_grad_(False)
 
-        self.active_vocab = 0 # khởi tạo khi có dữ liệu lần đầu tiên
-        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
-        self.active_weight = None
-    
-    def init_active_vocab_weight(self, n):
-        # print("OhMaiEmbedding <=", n)
-        if self.active_vocab > 0: return # không cần khởi tạo lại
-        while self.active_vocab < n: self.active_vocab += 128
-        self.active_vocab += 512 # buffer
-        # print("OhMaiEmbedding.active_vocab", self.active_vocab)
-        self.active_weight = torch.empty(self.active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
+        self.active_weight = torch.empty(active_vocab, self.hidim, device="cuda", dtype=torch.bfloat16)
         self.active_weight = nn.Parameter(self.active_weight)
         self.active_weight.requires_grad_(True)
+        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
 
     def activate(self, indices, active=None, inverse=None):
         assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
@@ -134,11 +128,10 @@ class OhMaiEmbedding(nn.Module):
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
-        self.init_active_vocab_weight(n)
         assert n <= self.active_vocab
 
-        with torch.no_grad(): self.active_weight[:n,] = self.weight[self.active_tokens]
-
+        with torch.no_grad():
+            self.active_weight[:n,] = self.weight[self.active_tokens]
         return inverse
 
     def update_embeddings(self):
@@ -153,7 +146,7 @@ class OhMaiEmbedding(nn.Module):
 
 if __name__ == "__main__":
     vocab, dim, ctx = 6400, 128, 32
-    e = OhMaiEmbedding(vocab, dim)
+    e = OhMaiEmbedding(vocab, dim, active_vocab=vocab//2)
     x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
 
     active = inverse = None
