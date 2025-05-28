@@ -29,7 +29,7 @@ Quartet leverages:
 - https://arxiv.org/html/2502.05003v1
 - https://www.youtube.com/watch?v=e3ClKTyVrkI
 
-|![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg&name=large)|
+|![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg&name=medium)|
 |-|-|
 |![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg)|![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg)|![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg)|
