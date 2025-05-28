@@ -1,5 +1,5 @@
 
-**Có 4 thứ cần tìm hiểu về blackwell gamming gpus (rtx 50xx)**
+**Có ba thứ cần tìm hiểu về blackwell gamming gpus (rtx 50xx)**
 
 a) có thể train fp8 weights được không? => fp4 kernel (ĐƯỢC!) 
 
