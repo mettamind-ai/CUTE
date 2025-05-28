@@ -440,7 +440,7 @@ if __name__ == "__main__":
         ohmai.update_embeddings()
         # check_params()
 
-    ohmai.embeddings.update_stream.synchronize() # đảm bảo weigh đã được cập nhật
+    # ohmai.embeddings.update_stream.synchronize() # đảm bảo weigh đã được cập nhật
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
     assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"
