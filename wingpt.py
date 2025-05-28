@@ -230,20 +230,12 @@ class WinGPT(nn.Module):
 
         if ve > n_blks: ve = n_blks
         if te > n_blks: te = n_blks
+
         self.ve, self.te = ve, te
+        self.dim = dim
 
-        self.tok_emb0 = Embedding(vocab_size, dim, active_vocab) # tok emb gốc
-
-        lte = te - 1 # layer token embeddings
-        if te > 1:
-            self.tok_embs = Embedding(vocab_size, dim*lte, active_vocab)
-            # dd = dim // 8 # thu nhỏ dim nếu không phải tok emb gốc to save vram
-            # self.tok_embs = Embedding(vocab_size, dd*lte, active_vocab)
-            # self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
-            # with torch.no_grad(): self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
-
-        kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
-        self.val_embs = Embedding(vocab_size, kv_dim*ve, active_vocab)
+        self.kv_dim = num_kv_heads * head_dim # fused embeddings
+        self.embeddings = Embedding(vocab_size, dim*te + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
@@ -259,31 +251,30 @@ class WinGPT(nn.Module):
 
 
     def update_embeddings(self):
-        if isinstance(self.tok_emb0, OhMaiEmbedding):
-            self.tok_emb0.update_embeddings()
-            self.val_embs.update_embeddings()
-            if self.te > 1: self.tok_embs.update_embeddings()
+        if isinstance(self.embeddings, OhMaiEmbedding):
+            self.embeddings.update_embeddings()
 
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        x0, act, inv = do_embedding(self.tok_emb0, input_seq)
-        x = x0 = norm(x0)
+        embs, _, _ = do_embedding(self.embeddings, input_seq)
 
-        if self.te > 1:
-                t_embs = do_embedding(self.tok_embs, input_seq, act, inv)[0]
-                # t_embs = self.tok_proj(t_embs)
-                t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
-        else:   t_embs = [x0]
+        t_embs = embs[..., : self.dim*self.te ]
+        t_embs = list(t_embs.chunk(self.te, dim=-1))
 
-        v_embs = do_embedding(self.val_embs, input_seq, act, inv)[0]
+        x = x0 = norm(t_embs[0])
+        # assert t_embs[-1].size(-1) == self.dim
+
+        v_embs = embs[..., -self.kv_dim*self.ve : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        if len(v_embs) < self.n_layers - 3: # ve[0],1,2 ... ve[0],1,2 u-shape
+        ## ve[0],1,2 ... ve[0],1,2 u-shape
+        if len(v_embs) < self.n_layers - 3:
             skips = [None]*(self.n_layers - 3 - len(v_embs))
             v_embs += skips + v_embs[:3]
             assert len(v_embs) == self.n_layers
 
+        ## Độn None cho đầy v_embs, t_embs
         v_embs += [None]*(n_blks - len(v_embs))
         t_embs += [None]*(n_blks - len(t_embs))
         assert len(v_embs) == len(t_embs) == n_blks
@@ -382,23 +373,9 @@ if __name__ == "__main__":
     def check_params():
         for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
 
-            with torch.no_grad():
-                ohmai.tok_emb0.weight.copy_(model.tok_emb0.weight)
-                ohmai.tok_embs.weight.copy_(model.tok_embs.weight)
-                ohmai.val_embs.weight.copy_(model.val_embs.weight)
-
-            # Map lại n2, p2 của ohmai cho khớp với model
-            if      n2 == "tok_emb0.active_weight":
-                n2 =      "tok_emb0.weight"                
-                p2 = ohmai.tok_emb0.weight.cuda()
-
-            elif    n2 == "tok_embs.active_weight":
-                n2 =      "tok_embs.weight"
-                p2 = ohmai.tok_embs.weight.cuda()
-
-            elif    n2 == "val_embs.active_weight":
-                n2 =      "val_embs.weight"
-                p2 = ohmai.val_embs.weight.cuda()
+            if n2 == "embeddings.active_weight":
+                n2 = "embeddings.weight"
+                p2 = ohmai.embeddings.weight.cuda()
 
             assert n1 == n2, f"{n1} != {n2}"
             assert torch.allclose(p1, p2), f"{n1} values are different"
@@ -430,7 +407,7 @@ if __name__ == "__main__":
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
-    tok_emb_before = model.tok_emb0.weight.data.clone()
+    tok_emb_before = ohmai.embeddings.weight.data.clone()
     model.train()
     ohmai.train()
 
@@ -446,8 +423,8 @@ if __name__ == "__main__":
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
 
-        a, _, _ = do_embedding(ohmai.tok_emb0, input_seq)
-        b = ohmai.tok_emb0.weight.to(input_seq.device)[input_seq.long()]
+        a, _, _ = do_embedding(ohmai.embeddings, input_seq)
+        b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
         if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
@@ -467,6 +444,6 @@ if __name__ == "__main__":
         ohmai.update_embeddings()
         # check_params()
 
-    tok_emb_after = model.tok_emb0.weight.data
+    tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
     assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"
