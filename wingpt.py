@@ -227,9 +227,9 @@ class WinGPT(nn.Module):
         if te > n_blks: te = n_blks
 
         self.ve, self.te = ve, te
-        self.dim = dim
-
-        self.kv_dim = num_kv_heads * head_dim # fused embeddings
+        self.dim, self.kv_dim = dim, num_kv_heads*head_dim
+        
+        # fused embeddings
         self.embeddings = Embedding(vocab_size, dim*te + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
