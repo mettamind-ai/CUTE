@@ -1,15 +1,3 @@
-
-# Flash Attn (in Triton)
-- [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
-- https://www.youtube.com/watch?v=zEuwuCTEf_0
-- https://www.youtube.com/watch?v=4jQTb6sRGLg
-- https://www.youtube.com/watch?v=zy8ChVd_oTM
-
-Tốc độ các bản triton thua flash attn 2 với 16 bit, hoặc 3 với 8 bit.
-Trừ khi ép xuống 4 bit như 
-
----
-
 # Learning Objectives
 Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
