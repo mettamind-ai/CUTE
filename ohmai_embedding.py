@@ -10,8 +10,8 @@ _to_contiguous = lambda x: x if not isinstance(x, Tensor) else x.contiguous()
 def ensure_contiguous(fn):
     @functools.wraps(fn)
     def wrapper(ctx, *args, **kwargs):
-        args = [_to_contiguous(arg) for arg in args]
-        kwarg= {k: _to_contiguous(v) for k, v in kwargs.items()}
+        args    = [_to_contiguous(arg) for arg in args]
+        kwargs  = {k: _to_contiguous(v) for k, v in kwargs.items()}
         return fn(ctx, *args, **kwargs)
     return wrapper
 

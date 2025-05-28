@@ -35,12 +35,12 @@
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
-- [Dùng GPU để xử lý nhanh](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
+- [Dùng GPU xử lý data](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
 ## PLANING
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
 - Scion https://github.com/LIONS-EPFL/scion
-- GLM / UL2 learning objs
+- GLM / UL2 learning objectives và multi purpose models
 - Học cách thu nhỏ model và NAS
   - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
   - NAS https://arxiv.org/abs/2411.19146
@@ -55,16 +55,16 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
-- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín (đợi thêm)
-- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671)
+- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín  (cần đợi thêm)
+- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671) (chưa thấy hiệu quả)
+- [x] thử nghiệm ý tưởng chỉ update gradients với tokens của active batches  (rất tốt khi dùng nhiều embeddings)
+  - [x] thử nghiệm với `OhMaiEmbedding` hiệu quả
+  - [x] ~~Tìm cách khuếch tán gradients ra các tokens không được load vào head~~ PHỨC TẠP => LÀM SAU!
+    - Mỗi lần update gradients load ngẫu nhiên 1 số tokens vào head chẳng hạn ...
+    - Đo lường sự giống và khác nhau giữa việc load full head và load part of head ...
+    - => tìm ra quy luật + rút ra kinh nghiệm
 
 🌸__DOING__🌸
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
-- [ ] thử nghiệm ý tưởng chỉ update gradients với tokens của 10 batches.
-  - [LigerKernel Embedding](/liger_kernel.py#L70) => cách họ tối ưu IO / embedding lookup ...
-  - [ ] Tìm cách khuếch tán gradients ra các tokens không được load vào head
-    - Mỗi lần update gradients load ngẫu nhiên 1 số tokens vào head chẳng hạn ...
-    - Đo lường sự giống và khác nhau giữa việc load full head và load part of head ...
-    - => tìm ra quy luật + rút ra kinh nghiệm
