@@ -23,7 +23,7 @@ from torch import Tensor
 
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
-scaled_mm_cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps) => Prune to speedup autotune ??
+scaled_mm_cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
     (128, 256,  64, 3, 8), ( 64, 256,  32, 4, 4), (128, 128,  32, 4, 4), (128,  64, 32, 4, 4),
     ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4), ( 64,  32,  32, 5, 2), ( 32,  64, 32, 5, 2),
@@ -97,26 +97,30 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor row_scale_A, Tensor col_scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> Tensor:
-    """Matmul for tile-wise quantized A and B. `A` and `B` are both INT8 to utilize
-    INT8 tensor cores. `row_scale_A` and `col_scale_B` are quantization scales for A and B. E.g.
-    - if `A` is quantized with tile shape (128, 64), `row_scale_A`'s shape will be `(A.shape[0] / 128, A.shape[1] / 64)`.
-    - if `A` is row-wise quantized, `row_scale_A`'s shape will be `(A.shape[0], 1)`.
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
+    """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
+    - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
+    - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
     """
     assert A.dtype == B.dtype == torch.int8
-    assert row_scale_A.dtype == col_scale_B.dtype
-    assert A.ndim == B.ndim == row_scale_A.ndim == col_scale_B.ndim == 2
+    assert scale_A.dtype == scale_B.dtype
+    assert A.ndim == B.ndim == scale_A.ndim == scale_B.ndim == 2
     assert A.shape[1] == B.shape[0]
 
     # row-scale + col-scale or row-scale + tensor-scale
-    assert row_scale_A.shape == (A.shape[0], 1)
-    assert col_scale_B.shape in ((1, B.shape[1]), (1, 1))
+    is_row_scale_A     = scale_A.shape == ( A.shape[0], 1 )
+    is_col_scale_B     = scale_B.shape == ( 1, B.shape[1] )
+    is_tensor_scale_B  = scale_B.shape == ( 1,          1 )
 
-    assert row_scale_A.is_contiguous()
-    assert col_scale_B.is_contiguous()
-    return lib_ops.scaled_mm(A, B, row_scale_A, col_scale_B)
-
+    if is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B ):
+        assert scale_A.is_contiguous() and scale_B.is_contiguous()
+        return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+    ''' CÓ THỂ MỞ RỘNG RA TILE-WISED SCALE MM ...
+    else:  #   vvvvv generic tile-wise scale  vvvvv
+        assert scale_A.shape[1] == scale_B.shape[0]
+        return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
+    # '''
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
@@ -135,12 +139,9 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
     _scaled_mm_kernel[_grid](
         A, B, C,
-        row_scale_A,
-        col_scale_B,
+        row_scale_A, col_scale_B,
         M, N, K,
-        *A.stride(),
-        *B.stride(),
-        *C.stride(),
+        *A.stride(), *B.stride(), *C.stride(),
     )
     return C
 
