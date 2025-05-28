@@ -154,7 +154,10 @@ class OhMaiEmbedding(nn.Module):
         return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
 
 
-## TESTING
+########################
+##  TESTING  TESTING  ##
+########################
+
 if __name__ == "__main__":
     from liger_kernel import LigerEmbedding
 

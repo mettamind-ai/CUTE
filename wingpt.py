@@ -237,7 +237,7 @@ class WinGPT(nn.Module):
         lte = te - 1 # layer token embeddings
         if te > 1:
             self.tok_embs = Embedding(vocab_size, dim*lte, active_vocab)
-            # dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
+            # dd = dim // 8 # thu nhỏ dim nếu không phải tok emb gốc to save vram
             # self.tok_embs = Embedding(vocab_size, dd*lte, active_vocab)
             # self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
             # with torch.no_grad(): self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
@@ -351,7 +351,11 @@ def get_cu_max_seqlens_from(input_seq, eot=6399):
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
 
-## TEST MODEL
+
+########################
+##  TESTING  TESTING  ##
+########################
+
 if __name__ == "__main__":
     import numpy as np
     from optimus import Muon1GPU as Muon
