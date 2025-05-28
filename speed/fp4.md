@@ -7,8 +7,8 @@ QUARTET FP4 TRAINING
 - https://x.com/DAlistarh/status/1927046856179081281
 - https://x.com/DAlistarh/status/1927046864219550073
 
-<table><tr><td width="60%"><img src="https://pbs.twimg.com/media/GsB8pYda8AAosOH?format=jpg"></td>
-<td width="40%"><img src="https://pbs.twimg.com/media/GsB-vd6bwAAKKeK?format=jpg"></td></tr></table>
+<table><tr><td width="40%"><img src="https://pbs.twimg.com/media/GsB8pYda8AAosOH?format=jpg"></td>
+<td width="60%"><img src="https://pbs.twimg.com/media/GsB-vd6bwAAKKeK?format=jpg"></td></tr></table>
 > Rất nhiều models như Llama, qwen, gemma có tỉ lệ params (N) và data (D) rơi vào vùng tối ưu của fp4 
 
 Quartet leverages:
