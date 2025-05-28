@@ -24,6 +24,7 @@ cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
     (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
 ], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 
 # https://github.com/pytorch/pytorch/blob/c2e2602ecdc2ec1f120e19198dfc18fc39f7bd09/torch/_inductor/kernel/mm.py
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])

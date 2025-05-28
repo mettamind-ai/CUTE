@@ -23,7 +23,8 @@ from torch import Tensor
 
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
-scaled_mm_cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
+
+cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
     (128, 256,  64, 3, 8), ( 64, 256,  32, 4, 4), (128, 128,  32, 4, 4), (128,  64, 32, 4, 4),
     ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4), ( 64,  32,  32, 5, 2), ( 32,  64, 32, 5, 2),
@@ -36,9 +37,10 @@ scaled_mm_cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
     # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
     (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
-]
-scaled_mm_cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in scaled_mm_cfgs]
-@triton.autotune(configs=scaled_mm_cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
+], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
+
+@triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr,
@@ -126,7 +128,6 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
 
-_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 
