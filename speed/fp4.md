@@ -29,13 +29,13 @@ Quartet leverages:
 - https://arxiv.org/html/2502.05003v1
 - https://www.youtube.com/watch?v=e3ClKTyVrkI
 
-|![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg)|
+|![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg&name=large)|
 |-|-|
 |![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg)|![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg)|![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCOkKhawAA9DVE?format=jpg)STE = Straight Through Estimation|![](https://pbs.twimg.com/media/GsCPbL2acAAZL1o?format=jpg)|
-|![]()|![]()|
-|![]()|![]()|
+|![](https://pbs.twimg.com/media/GsCQLMka4AAau2D?format=png)|![](https://pbs.twimg.com/media/GsCQVkWa8AAQ306?format=jpg)|
+|![](https://pbs.twimg.com/media/GsCQe3tbIAAN7Ev?format=png)|![](https://pbs.twimg.com/media/GsCQ72TbkAAWQyp?format=jpg)|
 |![]()|![]()|
 |![]()|![]()|
 |![]()|![]()|
