@@ -1,3 +1,13 @@
+# JetFire fully INT8 training for Transformers
+by using a novel `per-block quantization` scheme to **handle activation and gradient `outliers`**. By partitioning matrices into small blocks and scaling each block independently, JetFire preserved accuracy comparable to FP16 training while obtaining ∼40% end-to-end speedup and 1.49× reduction in memory usage. The JetFire approach is conceptually `similar to the FP8 DeepSeek training technique`, which used larger block sizes.
+
+# HALO
+improved upon JetFire in terms of the **accuracy-speedup trade-off** in INT8, specifically focusing on low-precision fine-tuning.
+
+![](https://github.com/IST-DASLab/HALO/raw/main/data/HALO-illustration.jpeg)
+
+---
+
 # INT8 mixed-precision training
 - https://github.com/pytorch/ao/pull/748
 - https://youtu.be/Br07GsnnvWc?t=1385

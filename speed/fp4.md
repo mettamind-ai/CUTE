@@ -45,3 +45,11 @@ Quartet leverages:
 |![]()|![]()|
 |![]()|![]()|
 |![]()|![]()|
+
+**2 tham số của scaling laws**
+- hiệu quả tham số `N^eff`: liên quan trực tiếp đến `lỗi nén thuận` của mỗi phương pháp huấn luyện
+- hiệu quả dữ liệu `D^eff`: liên quan đến `độ lệch trong bộ ước lượng gradient`, đo bằng chỉ số lệch hướng
+- Quartet (MXFP4) tối đa hoá cả N^eff và D^eff; đạt độ chính xác vượt trội trên 
+  nhiều ngân sách tính toán và kích thước mô hình
+- We will treat FP8 as the lossless baseline for the purposes of comparison.
+
