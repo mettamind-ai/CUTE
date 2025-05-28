@@ -8,7 +8,7 @@ QUARTET FP4 TRAINING
 - https://x.com/DAlistarh/status/1927046864219550073
 
 ![](https://pbs.twimg.com/media/GsB8pYda8AAosOH?format=jpg)
-![](https://pbs.twimg.com/media/Gr4-TfhX0AEa_WW?format=jpg)
+![](https://pbs.twimg.com/media/GsB-vd6bwAAKKeK?format=jpg)
 > Rất nhiều models như Llama, qwen, gemma có tỉ lệ params (N) và data (D) rơi vào vùng tối ưu của fp4 
 
 Quartet leverages:
@@ -18,3 +18,25 @@ Quartet leverages:
 - Unbiased `stochastic rounding` for **stable backward-pass propagation** 
 
 ![](https://pbs.twimg.com/media/Gr4-Y4MXoAA0m8y?format=jpg)
+
+## QuEST - Quantization-Aware (QAT) Stable Training of LLMs with 1-Bit Weights and Activations
+- https://www.youtube.com/watch?v=e3ClKTyVrkI
+- https://github.com/IST-DASLab/QuEST
+- https://www.alphaxiv.org/abs/2502.05003
+- https://arxiv.org/html/2502.05003v1
+
+![](https://arxiv.org/html/2502.05003v1/x1.png)
+> **Figure 1**: The scaling law induced by QuEST when training Llama-family models from 30 to 800M parameters on C4, with quantized weights and activations from 1 to 4 bits, in the 100 tokens/parameter regime (higher compression uses proportionally more data at fixed memory). QuEST allows for stable training at 1-bit weights and activations (W1A1), and the QuEST W4A4 model is Pareto-dominant relative to BF16, with lower loss at lower size.
+
+![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg&name=large)
+![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg&name=large)
+![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg&name=large)
+![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg&name=medium)
+![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg&name=medium)
+![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg&name=medium)
+![]()
+![]()
+![]()
+![]()
+![]()
+![]()
