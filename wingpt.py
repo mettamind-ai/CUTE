@@ -199,13 +199,6 @@ class Future(nn.Module):
 ##########################################
 from ohmai_embedding import OhMaiEmbedding
 
-@torch.compiler.disable
-def do_embedding(emb, input_seq, act=None, inv=None):
-    if isinstance(emb, OhMaiEmbedding):
-            x0, act, inv = emb(input_seq, act, inv)
-    else:   x0 = emb(input_seq.long())
-    return x0, act, inv
-
 class WinGPT(nn.Module):
     def has_future(self):
         return self.future_ratio > 0.009
@@ -259,7 +252,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
-        embs, _, _ = do_embedding(self.embeddings, input_seq)
+        embs = self.embeddings(input_seq.long())
 
         t_embs = embs[..., : self.dim*self.te ]
         t_embs = list(t_embs.chunk(self.te, dim=-1))
@@ -425,7 +418,7 @@ if __name__ == "__main__":
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
 
-        a, _, _ = do_embedding(ohmai.embeddings, input_seq)
+        a = ohmai.embeddings(input_seq)
         b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
         if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
 

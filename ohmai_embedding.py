@@ -67,7 +67,7 @@ def embedding_backward_kernel(
     tl.store(weight, v,  mask=emb_mask)
     # tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
     # https://github.com/triton-lang/triton/commit/236f6b54ce337db009ea573915022dafdbf61b82
-    # hiện tại atomic_add mới chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
+    # atomic_add chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
 
 
 class OhMaiEmbFunction(torch.autograd.Function):
@@ -118,7 +118,7 @@ class OhMaiEmbedding(nn.Module):
         self.weight.requires_grad_(False)
 
         self.active_weight = None
-        self.active_tokens = None # Cần kích hoạt mỗi n lần forward
+        self.active_tokens = None # Cần kích hoạt mỗi lần forward
 
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
         w = torch.empty(active_vocab, self.hidim, device="cuda")
@@ -129,8 +129,8 @@ class OhMaiEmbedding(nn.Module):
     def activate(self, indices, active=None, inverse=None):
         # assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
         if active is None:
-                active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
-                self.active_tokens = active_tokens.cpu().to(torch.long)
+                active, inverse = torch.unique(indices, return_inverse=True, sorted=True)
+                self.active_tokens = active.cpu().to(torch.long)
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
@@ -142,16 +142,15 @@ class OhMaiEmbedding(nn.Module):
 
 
     def update_embeddings(self):  
-        assert self.active_weight.grad is not None # => đc update
+        assert self.active_weight.grad is not None # => grad đã chảy tới
         v = self.active_weight.cpu()[:len(self.active_tokens)]
         self.weight[self.active_tokens] = v.bfloat16()
         self.active_tokens = None # clear inactive data
 
 
     def forward(self, indices, active=None, inverse=None):
-        assert indices.dtype == torch.int16
-        inv = self.activate(indices, active, inverse)
-        return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
+        inverse = self.activate(indices, active, inverse)
+        return OhMaiEmbFunction.apply(self.active_weight, inverse)
 
 
 ########################
@@ -186,8 +185,7 @@ if __name__ == "__main__":
         
         losses = []
         for e in [e0, e1, e2]:
-            if not isinstance(e, OhMaiEmbedding): y = e(x.long())
-            else: y, _, _ = e(x)
+            y = e(x.long())
             # Tạo loss giả để có gradient
             target = torch.randn_like(y)
             loss = torch.nn.functional.mse_loss(y, target)
@@ -206,3 +204,4 @@ if __name__ == "__main__":
         print(f"Optimizer step {i}, losses {', '.join(losses)}")
 
         e0.update_embeddings()
+    # END FOR
