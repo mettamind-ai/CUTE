@@ -45,10 +45,11 @@ class ReLuSquareMLP(nn.Module):
         self.fc.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
         self.proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
-    def forward(self, x:Tensor):
+    def forward(self, x:Tensor, te):
         y = self.fc(x)
         y = F.relu(y).square() 
         x = self.proj(y)
+        if te is not None: x = x*te
         return x
 
 
@@ -166,10 +167,11 @@ class Block(nn.Module):
     def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
-        if te is not None: x += te_lambdas[2] * te # trộn với layer tok emb
 
+        ## per layer token emb trộn sau block
+        # if te is not None: x += te_lambdas[2] * te  # trộn trước block
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = x + self.mlp(norm(x))
+        x = x + self.mlp(norm(x), te)
         return x
 
 
@@ -188,9 +190,9 @@ class Future(nn.Module):
         x = torch.cat((x, x0), dim=-1)
         x = self.proj(x) # mlp mixer
         x = norm(x)
-        if te is not None: x += tl[2] * te # trộn với layer tok emb
+        # if te is not None: x += tl[2] * te  #~~trộn per layer te trước block~~
         x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen, rotary)
-        x = x + self.mlp(norm(x))
+        x = x + self.mlp(norm(x), te)         #  trộn per layer te sau block
         return norm(x)
 
 
