@@ -14,3 +14,10 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
 - [ ] Trước mắt chỉ cần áp dụng phép nhân ma trận 8bit vào [lora.py](lora.py) là cũng đã save vram và speedup kha khá ...
 
 - [ ] Áp dụng NAS trong việc tìm 1 cấu hình finetune linh hoạt / phù hợp với computing budget ...
+  - https://github.com/IST-DASLab/DarwinLM Evolutionary Structured Pruning for Language 
+  
+- [ ] Tìm hiểu các kỹ thuật PEFT  khác nhau
+  - DORA của Nvidia
+  - ROSA
+    - github.com/IST-DASLab/PanzaMail#weight_lifting-step-2-local-fine-tuning-via-robust-adaptation-rosa
+    - https://github.com/IST-DASLab/RoSA combines low-rank (LoRA) and sparse finetuning.

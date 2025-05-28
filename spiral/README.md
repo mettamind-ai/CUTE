@@ -1,4 +1,4 @@
-# Truyền dẫn linh hoạt giữa các layer (dạng xoắn ốc)
+# Linh hoạt Truyền dẫn và Tính Toán Giữa các Layers (dạng xoắn ốc)
 
 **Hình dung làm sao làm được ma trận layer dạng xoắn ốc spiral**
 **Mỗi layer đều có thể output tới thẳng tầng out cuối**
@@ -15,7 +15,7 @@ Khi forward x qua mỗi layer, sẽ qua một cái gate subnet, calculate logits
 - phân bố low layers lên low perf devices, high layers lên GPUs
 - hạ tầng bị degrade performance do overload, thì mình cho nó exit sớm
 
-<img src=".save/spiral-crunch.png" width="40%"/>
+<img src="spiral-crunch.png" width="40%"/>
 
 **idea về xoắn ốc nữa đó là nó input ko phải chỉ từ layer trước theo một chiều, mà là đa chiều.**
 **có thể pass data vào layer siblings**
