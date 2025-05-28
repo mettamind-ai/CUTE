@@ -1,8 +1,6 @@
 QUARTET FP4 TRAINING
 --------------------
 - https://github.com/IST-DASLab/Quartet
-- https://arxiv.org/html/2505.14669v1
-- https://www.alphaxiv.org/abs/2505.14669
 - https://x.com/DAlistarh/status/1927046856179081281
 - https://x.com/DAlistarh/status/1927046864219550073
 
@@ -38,7 +36,12 @@ Quartet leverages:
 |![](https://pbs.twimg.com/media/GsCQe3tbIAAN7Ev?format=png)|![](https://pbs.twimg.com/media/GsCQ72TbkAAWQyp?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCRS3bbQAA_3zm?format=jpg)|![](https://pbs.twimg.com/media/GsCWEm7WAAAtxhb?format=jpg)|
 
+## Quartet
+- https://arxiv.org/html/2505.14669v1
+- https://www.alphaxiv.org/abs/2505.14669
+
 |![]()|![]()|
+|-|-|
 |![]()|![]()|
 |![]()|![]()|
 |![]()|![]()|
