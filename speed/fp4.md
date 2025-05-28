@@ -17,7 +17,7 @@ Quartet leverages:
 
 - Unbiased `stochastic rounding` for **stable backward-pass propagation** 
 
-![](https://pbs.twimg.com/media/Gr4-Y4MXoAA0m8y?format=jpg)
+<img width="70%" src="https://pbs.twimg.com/media/Gr4-Y4MXoAA0m8y?format=jpg" />
 
 ## QuEST - Quantization-Aware (QAT) Stable Training of LLMs with 1-Bit Weights and Activations
 - https://www.youtube.com/watch?v=e3ClKTyVrkI
