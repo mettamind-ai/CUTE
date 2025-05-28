@@ -17,7 +17,7 @@ Quartet leverages:
 
 - Unbiased `stochastic rounding` for **stable backward-pass propagation** 
 
-<img width="70%" src="https://pbs.twimg.com/media/Gr4-Y4MXoAA0m8y?format=jpg" />
+<img width="70%" src="https://pbs.twimg.com/media/Gr4-Y4MXoAA0m8y?format=jpg">
 
 ## QuEST - Quantization-Aware (QAT) Stable Training of LLMs with 1-Bit Weights and Activations
 - https://www.youtube.com/watch?v=e3ClKTyVrkI
@@ -25,7 +25,8 @@ Quartet leverages:
 - https://www.alphaxiv.org/abs/2502.05003
 - https://arxiv.org/html/2502.05003v1
 
-![](https://arxiv.org/html/2502.05003v1/x1.png)
+<img width="70%" src="https://arxiv.org/html/2502.05003v1/x1.png">
+
 > **Figure 1**: The scaling law induced by QuEST when training Llama-family models from 30 to 800M parameters on C4, with quantized weights and activations from 1 to 4 bits, in the 100 tokens/parameter regime (higher compression uses proportionally more data at fixed memory). QuEST allows for stable training at 1-bit weights and activations (W1A1), and the QuEST W4A4 model is Pareto-dominant relative to BF16, with lower loss at lower size.
 
 |![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg)|
