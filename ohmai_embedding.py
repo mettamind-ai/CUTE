@@ -126,8 +126,8 @@ class OhMaiEmbedding(nn.Module):
         self.active_vocab = active_vocab
 
 
-    def activate(self, indices, active=None, inverse=None):
-        # assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
+    def activate(self, indices, active=None, inverse=None, force=False):
+        if not force: assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
         if active is None:
                 active, inverse = torch.unique(indices, return_inverse=True, sorted=True)
                 self.active_tokens = active.cpu().to(torch.long)
@@ -148,8 +148,8 @@ class OhMaiEmbedding(nn.Module):
         self.active_tokens = None # clear inactive data
 
 
-    def forward(self, indices, active=None, inverse=None):
-        inverse = self.activate(indices, active, inverse)
+    def forward(self, indices, active=None, inverse=None, force=False):
+        inverse = self.activate(indices, active, inverse, force)
         return OhMaiEmbFunction.apply(self.active_weight, inverse)
 
 

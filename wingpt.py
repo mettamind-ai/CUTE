@@ -418,12 +418,13 @@ if __name__ == "__main__":
 
         loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
 
-        a = ohmai.embeddings(input_seq)
-        b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
-        if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
-
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
+
+        ## Đảm bảo 2 cách lấy embedding là giống nhau
+        a = ohmai.embeddings(input_seq, force=True)
+        b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
+        if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
 
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
