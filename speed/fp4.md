@@ -11,7 +11,7 @@ QUARTET FP4 TRAINING
 
 Quartet leverages:
 
-- `QuEST-based quantization-aware` training (QAT) for **minimal forward-pass error**
+- `QuEST-based quantization-aware` training (`QAT` or `Mixed` or `MXFP4`) for **minimal forward-pass error**
 
 - Unbiased `stochastic rounding` for **stable backward-pass propagation** 
 

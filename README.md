@@ -68,3 +68,7 @@
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
+- [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale
+- [ ] kiểm tra compiled graph xem ở những phép tính có thể song song và dùng cùng 1 activation đã đc torch tối ưu chưa?
+  - Ví dụ `self.q_proj(x); self.kv_proj(x)` và `q, k, v = norm(q), norm(k), norm(v)` trong attn fwd
+  - [ ] tìm hiểu cách torch compile tối ưu và fuse các phép toán ...

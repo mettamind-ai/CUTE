@@ -1,7 +1,30 @@
-# JetFire fully INT8 training for Transformers
+# [JetFire fully INT8 Training](https://github.com/thu-ml/Jetfire-INT8Training)
 by using a novel `per-block quantization` scheme to **handle activation and gradient `outliers`**. By partitioning matrices into small blocks and scaling each block independently, JetFire preserved accuracy comparable to FP16 training while obtaining ∼40% end-to-end speedup and 1.49× reduction in memory usage. The JetFire approach is conceptually `similar to the FP8 DeepSeek training technique`, which used larger block sizes.
 
-# HALO
+![](https://arxiv.org/html/2403.12422v2/x1.png)
+> **Figure 1**: Visualization of INT8 data flow. (a) Floating point training with FP data flow. (b) Existing works on quantized training with FP data flow. (c) Ours INT8 training forward process, with INT8 data flow. 𝐗 refers to the activation, and 𝐒 refers to the corresponding quantization scale factors.
+
+- _Post-Training Quantization_ (PTQ)
+- _Quantization-Aware Training_ (QAT)
+- _Fully Quantized Training_ (FQT)
+- _Per-token Quant_   = _Row Scale_ Activations  => Scale
+- _Per-channel Quant_ = _Col Scale_ Weights      => Matmul
+- _Per-block Quantization_ = B×B Scale factor    => Tiled Scale Matmul
+
+- _Quantize-Compute-Dequantize_ (QCD) 
+  * Q: `FP16 → INT8`: X_fp16 → Q(X) = X_int8
+                      W_fp16 → Q(W) = W_int8
+  * C: `INT8 × INT8 → INT32`:
+        Y_int32 = X_int8 × W_int8^T
+
+  * D: `INT32 → FP16`:
+       Y_fp16 = Q^(-1)(Y_int32)
+
+=> 1 feature vector (hidden vector / embedding vector) có 1 hệ số scales, nếu hidim là 2048 thì 2048 elems mới có 1 scale factor => Vẫn thưa. Nếu chia block, giả sử 32 x 32 thì 1024 elems có 1 scale factor => giúp tăng độ chính xác!
+
+Hopper architecture, FP8 TransformerEngine (Nvidia, 2022) incorporates `per-layer scaling` to reduce quantization errors and proposes using `E4M3` during forward and `E5M2` during backward passes to adapt. (Perez et al., 2023) explores adjusting `per-tensor scaling` biases to improve accuracy.
+
+# [HALO](https://github.com/IST-DASLab/HALO)
 improved upon JetFire in terms of the **accuracy-speedup trade-off** in INT8, specifically focusing on low-precision fine-tuning.
 
 ![](https://github.com/IST-DASLab/HALO/raw/main/data/HALO-illustration.jpeg)
