@@ -26,7 +26,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "T C XS S L M fusedloss ohmai".split():
+for x in "T C XS S L M fused ohmai".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
