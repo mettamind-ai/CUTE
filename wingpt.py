@@ -236,11 +236,11 @@ class WinGPT(nn.Module):
 
         lte = te - 1 # layer token embeddings
         if te > 1:
-            dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
-            self.tok_embs = Embedding(vocab_size, dd*lte, active_vocab)
-            self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
-            with torch.no_grad():
-                self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
+            self.tok_embs = Embedding(vocab_size, dim*lte, active_vocab)
+            # dd = dim // 4 # thu nhỏ dim nếu không phải tok emb gốc to save vram
+            # self.tok_embs = Embedding(vocab_size, dd*lte, active_vocab)
+            # self.tok_proj = nn.Linear(dd*lte, dim*lte, bias=False)
+            # with torch.no_grad(): self.tok_proj.weight.copy_(init_linear(torch.empty(dim*lte, dd*lte)))
 
         kv_dim = num_kv_heads * head_dim # use _proj như tok nếu val_embs quá to
         self.val_embs = Embedding(vocab_size, kv_dim*ve, active_vocab)
@@ -272,7 +272,7 @@ class WinGPT(nn.Module):
 
         if self.te > 1:
                 t_embs = do_embedding(self.tok_embs, input_seq, act, inv)[0]
-                t_embs = self.tok_proj(t_embs)
+                # t_embs = self.tok_proj(t_embs)
                 t_embs = [x0] + list(t_embs.chunk(self.te-1, dim=-1))
         else:   t_embs = [x0]
 

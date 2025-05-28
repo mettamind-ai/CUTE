@@ -136,8 +136,8 @@ class OhMaiEmbedding(nn.Module):
         n = len(self.active_tokens)
         assert n <= self.active_vocab, f"OhMai found {n} > active_vocab"
 
-        with torch.no_grad():
-            self.active_weight[:n,] = self.weight[self.active_tokens]
+        with torch.no_grad():  # load active tokens' embeddings to GPU
+            self.active_weight.data[:n] = self.weight[self.active_tokens]
         return inverse
 
 
@@ -154,25 +154,21 @@ class OhMaiEmbedding(nn.Module):
         return OhMaiEmbFunction.apply(self.active_weight, inv), self.active_tokens, inv
 
 
+## TESTING
 if __name__ == "__main__":
-    vocab, dim, ctx = 6400, 128, 32
-    e = OhMaiEmbedding(vocab, dim)
-    e.train()
+    from liger_kernel import LigerEmbedding
 
-    optimizer = torch.optim.AdamW(e.parameters(), lr=0.001)
-    # In ra thông tin các parameters
-    print("\nCác parameters trong optimizer:")
-    for i, param_group in enumerate(optimizer.param_groups):
-        print(f"Parameter group {i}:")
-        for j, param in enumerate(param_group['params']):
-            print(f"  - Parameter {j}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
+    vocab, dim, ctx = 6400, 128, 32
+    e0 = OhMaiEmbedding(vocab, dim)
+    e1 =   nn.Embedding(vocab, dim)
+    e2 = LigerEmbedding(vocab, dim)
+    optimizer = torch.optim.AdamW(e0.parameters(), lr=0.001)
 
     for i in range(3):
         optimizer.zero_grad()
     
         x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
-        y, active, inverse = e(x)
-        # print(f"{x}\n{e.active_tokens}, {e.active_vocab}\n{y}")
+        y, active, inverse = e0(x)
 
         # Tạo loss giả để có gradient
         target = torch.randn_like(y)
@@ -180,16 +176,13 @@ if __name__ == "__main__":
         loss.backward()  # Tính gradient
 
         # Kiểm tra gradient
-        active_weight_clone = e.active_weight.clone()
+        active_weight_clone = e0.active_weight.clone()
+        assert e0.active_weight.grad is not None
 
-        if e.active_weight.grad is not None:
-            grad_norm = e.active_weight.grad.norm().item()
-            print(f"Gradient norm: {grad_norm}")
-            
-            # Apply gradients
-            optimizer.step()
+        # Apply gradients
+        optimizer.step()
 
-            assert not torch.allclose(active_weight_clone, e.active_weight), "active_weight không đổi"
-            print(f"Optimizer step {i} completed")
+        assert not torch.allclose(active_weight_clone, e0.active_weight), "active_weight không đổi"
+        print(f"Optimizer step {i} completed")
 
-        e.update_embeddings()
+        e0.update_embeddings()
