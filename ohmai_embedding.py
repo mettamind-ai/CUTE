@@ -99,7 +99,6 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return grad_weight, None
 
 
-# from liger_kernel import LigerEmbeddingFunction as OhMaiEmbFunction
 # NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
 # https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
 @torch.compiler.disable
@@ -130,8 +129,8 @@ class OhMaiEmbedding(nn.Module):
     def activate(self, indices, active=None, inverse=None):
         # assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
         if active is None:
-                self.active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
-                self.active_tokens = self.active_tokens.cpu().to(torch.long)
+                active_tokens, inverse = torch.unique(indices, return_inverse=True, sorted=True)
+                self.active_tokens = active_tokens.cpu().to(torch.long)
         else:   self.active_tokens = active
 
         n = len(self.active_tokens)
