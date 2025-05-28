@@ -174,12 +174,9 @@ def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     scale = tensor.abs().amax(dim, keepdim=True) / 127  # [N, 1]
     inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
     tensor = tensor.float() * inv_scale.view(-1, 1) # tensor/scale.clip(eps)
-    # tensor = tensor.to(dtype=torch.float, copy=False).mul_(inv_scale.view(-1, 1))
-    # if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
-    if sr:   tensor.add_(torch.rand_like(tensor)).floor_() # hiệu quả hơn
+    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
     else:    tensor.round_() # ^^^stochastic rounding^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
-    # tensor = tensor.clamp_(-128, 127).to(torch.int8, copy=False)
     return ( tensor, scale )
 
 
