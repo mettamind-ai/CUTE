@@ -28,15 +28,15 @@ Quartet leverages:
 ![](https://arxiv.org/html/2502.05003v1/x1.png)
 > **Figure 1**: The scaling law induced by QuEST when training Llama-family models from 30 to 800M parameters on C4, with quantized weights and activations from 1 to 4 bits, in the 100 tokens/parameter regime (higher compression uses proportionally more data at fixed memory). QuEST allows for stable training at 1-bit weights and activations (W1A1), and the QuEST W4A4 model is Pareto-dominant relative to BF16, with lower loss at lower size.
 
-![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg&name=large)
-![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg&name=large)
-![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg&name=large)
-![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg&name=medium)
-![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg&name=medium)
-![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg&name=medium)
-![]()
-![]()
-![]()
-![]()
-![]()
-![]()
+|![](https://pbs.twimg.com/media/GsCE20NbwAADNj3?format=jpg)|![](https://pbs.twimg.com/media/GsCFPonasAAY7Yw?format=jpg)|
+|-|-|
+|![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg)|![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg)|
+|![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg)|![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg)|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
