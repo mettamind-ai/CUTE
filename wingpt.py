@@ -196,7 +196,6 @@ class Future(nn.Module):
 
 ##########################################
 from ohmai_embedding import OhMaiEmbedding
-from liger_kernel import LigerEmbedding
 
 @torch.compiler.disable
 def do_embedding(emb, input_seq, act=None, inv=None):
@@ -213,8 +212,7 @@ class WinGPT(nn.Module):
         max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0, active_vocab=None):
 
         self.ohmai = ( active_vocab is not None )
-        Embedding = OhMaiEmbedding if self.ohmai else LigerEmbedding
-        # Embedding = LigerEmbedding if self.ohmai else nn.Embedding
+        Embedding = OhMaiEmbedding if self.ohmai else nn.Embedding
         print(f"OH_MAI? {self.ohmai}; using {Embedding.__name__}")
 
         super().__init__()
