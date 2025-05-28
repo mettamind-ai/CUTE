@@ -3,13 +3,13 @@ QUARTET FP4 TRAINING
 - https://github.com/IST-DASLab/Quartet
 - https://arxiv.org/html/2505.14669v1
 - https://www.alphaxiv.org/abs/2505.14669
-
 - https://x.com/DAlistarh/status/1927046856179081281
 - https://x.com/DAlistarh/status/1927046864219550073
 
 <table><tr><td width="40%"><img src="https://pbs.twimg.com/media/GsB8pYda8AAosOH?format=jpg"></td>
 <td width="60%"><img src="https://pbs.twimg.com/media/GsB-vd6bwAAKKeK?format=jpg"></td></tr></table>
-> Rất nhiều models như Llama, qwen, gemma có tỉ lệ params (N) và data (D) rơi vào vùng tối ưu của fp4 
+
+> Rất nhiều models như Llama, qwen, gemma có tỉ lệ params (N) và data (D) rơi vào vùng tối ưu của fp4
 
 Quartet leverages:
 
