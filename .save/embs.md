@@ -13,7 +13,11 @@ PHÂN CHIA PARAMS VÀO OPTIMIZERS:
  TOTAL: 100.0% 691,372,188
 ```
 
-![](embs-00-crunch.png)
+![](/.save/embs-00-crunch.png)
+
+KẾT LUẬN:
+- Bổ xung value embeddings ở mọi layer có lợi nhất về loss, vram và speed
+- OhMaiEmbedding giúp giảm đáng kể lượng params phải load trong vram
 
 ---
 
