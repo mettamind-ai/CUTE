@@ -33,7 +33,7 @@ Quartet leverages:
 |-|-|
 |![](https://pbs.twimg.com/media/GsCFxSlbAAAfU3X?format=jpg)|![](https://pbs.twimg.com/media/GsCJYc9awAAb29B?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCKHQ9bMAACaMy?format=jpg)|![](https://pbs.twimg.com/media/GsCLczNbYAAFdPO?format=jpg)|
-|![]()|![]()|
+|![](https://pbs.twimg.com/media/GsCOkKhawAA9DVE?format=jpg&name=medium)STE = Straight Through Estimation|![](![alt text](image.png))|
 |![]()|![]()|
 |![]()|![]()|
 |![]()|![]()|
