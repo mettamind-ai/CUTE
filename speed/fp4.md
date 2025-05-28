@@ -36,7 +36,8 @@ Quartet leverages:
 |![](https://pbs.twimg.com/media/GsCOkKhawAA9DVE?format=jpg)STE = Straight Through Estimation|![](https://pbs.twimg.com/media/GsCPbL2acAAZL1o?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCQLMka4AAau2D?format=png)|![](https://pbs.twimg.com/media/GsCQVkWa8AAQ306?format=jpg)|
 |![](https://pbs.twimg.com/media/GsCQe3tbIAAN7Ev?format=png)|![](https://pbs.twimg.com/media/GsCQ72TbkAAWQyp?format=jpg)|
-|![]()|![]()|
+|![](https://pbs.twimg.com/media/GsCRS3bbQAA_3zm?format=jpg)|![](https://pbs.twimg.com/media/GsCWEm7WAAAtxhb?format=jpg)|
+
 |![]()|![]()|
 |![]()|![]()|
 |![]()|![]()|
