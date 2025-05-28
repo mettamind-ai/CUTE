@@ -127,7 +127,7 @@ class OhMaiEmbedding(nn.Module):
         self.active_vocab = active_vocab
 
         # Khởi tạo CUDA stream cho async transfer
-        # self.update_stream = torch.cuda.Stream()
+        self.update_stream = torch.cuda.Stream()
 
 
     def activate(self, indices, active=None, inverse=None, force=False):
@@ -141,7 +141,7 @@ class OhMaiEmbedding(nn.Module):
         assert n <= self.active_vocab, f"OhMai found {n} > active_vocab"
 
         with torch.no_grad():  # load active tokens' embeddings to GPU
-            # self.update_stream.synchronize() # Finish update_embeddings first
+            self.update_stream.synchronize() # Finish update_embeddings first
             self.active_weight.data[:n] = self.weight[self.active_tokens]
         return inverse
 
@@ -150,9 +150,9 @@ class OhMaiEmbedding(nn.Module):
         assert self.active_weight.grad is not None # => grad đã chảy tới
 
         # Sử dụng stream để async transfer
-        # with torch.cuda.stream(self.update_stream):
-        v = self.active_weight[:len(self.active_tokens)]
-        self.weight[self.active_tokens] = v.cpu().bfloat16()
+        with torch.cuda.stream(self.update_stream):
+            v = self.active_weight[:len(self.active_tokens)]
+            self.weight[self.active_tokens] = v.cpu().bfloat16()
 
         self.active_tokens = None # clear inactive data
 

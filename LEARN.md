@@ -1,3 +1,15 @@
+
+# Flash Attn (in Triton)
+- [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
+- https://www.youtube.com/watch?v=zEuwuCTEf_0
+- https://www.youtube.com/watch?v=4jQTb6sRGLg
+- https://www.youtube.com/watch?v=zy8ChVd_oTM
+
+Tốc độ các bản triton thua flash attn 2 với 16 bit, hoặc 3 với 8 bit.
+Trừ khi ép xuống 4 bit như 
+
+---
+
 # Learning Objectives
 Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
@@ -27,15 +39,7 @@ Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
 - **X-Denoiser**: An extreme version of denoising where the model must recover a large part of the input, given a small to moderate part of it. This simulates a situation where a model needs to generate long target from a memory with relatively limited information. To do so, we opt to include examples with aggressive denoising where approximately 50% of the input sequence is masked. This is by increasing the span length and/or corruption rate. We consider a pre-training task to be extreme if it has a long span (e.g., ≥ 12 tokens) or have a large corruption rate (e.g., ≥ 30%). X-denoising is motivated by being an interpolation between regular span corruption and language model like objectives.
 
-
-# Flash Attn in Triton
-- [`./save/attn.py`](https://github.com/bryanzhang/triton_fusedattention/blob/main/fused-attention.py)
-- https://www.youtube.com/watch?v=zEuwuCTEf_0
-- https://www.youtube.com/watch?v=4jQTb6sRGLg
-- https://www.youtube.com/watch?v=zy8ChVd_oTM
-
-# mô phỏng long short layers
-- Train 2k ctxlen trước, sau đó freeze 2/3 layers rồi train tiếp với 4k ctxlen
+---
 
 # INT8 SageBwd
 https://www.alphaxiv.org/abs/2505.11594
@@ -45,6 +49,8 @@ Trong forward, SageBwd áp dụng `per-block quantization` cho Q, K, V và `per-
 SageBwd có tốc độ hội tụ chậm hơn BF16 trong pretraining vì **quantization errors tích lũy** ảnh hưởng đến chất lượng gradient. Khi quantize các phép nhân ma trận xuống INT8, độ chính xác của gradient bị giảm, dẫn đến việc model học chậm hơn. Sự khác biệt giữa pretraining và fine-tuning là ở mức độ thay đổi cần thiết. Pretraining yêu cầu model học toàn bộ kiến thức từ đầu, cần gradient chính xác để cập nhật trọng số hiệu quả. Trong khi đó, `fine-tuning` chỉ cần điều chỉnh nhỏ từ model đã có kiến thức sẵn, nên `ít nhạy cảm hơn với noise trong gradient`.
 
 ---
+
+# Others
 
 - optim scheduler: scaling laws for wd & bs in llm training
   https://x.com/dmsobol/status/1925273068840390801
@@ -63,7 +69,7 @@ SageBwd có tốc độ hội tụ chậm hơn BF16 trong pretraining vì **quan
 
 ---
 
-Marin test various optimizers (muon seem the best)
+# Marin test various optimizers (muon seem the best)
 - https://github.com/marin-community/marin/issues/1290
 - https://github.com/marin-community/marin/blob/main/docs/reports/marin-8b-retro.md#training-phases
 - WSD Cycle https://github.com/marin-community/marin/blob/main/docs/reports/marin-8b-retro.md#wsd-cycle-change
