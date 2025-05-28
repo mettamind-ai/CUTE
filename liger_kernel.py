@@ -206,7 +206,7 @@ class LigerEmbedding(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
-        self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+        self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim).bfloat16())
 
         if padding_idx is not None:
             with torch.no_grad():

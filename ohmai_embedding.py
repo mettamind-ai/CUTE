@@ -162,21 +162,37 @@ if __name__ == "__main__":
     from liger_kernel import LigerEmbedding
 
     vocab, dim, ctx = 6400, 128, 32
-    e0 = OhMaiEmbedding(vocab, dim)
-    e1 =   nn.Embedding(vocab, dim)
-    e2 = LigerEmbedding(vocab, dim)
-    optimizer = torch.optim.AdamW(e0.parameters(), lr=0.001)
+ 
+    torch.manual_seed(1981)
+    e0 = OhMaiEmbedding(vocab, dim).cuda()
+ 
+    torch.manual_seed(1981)
+    e1 =   nn.Embedding(vocab, dim).cuda()
+ 
+    torch.manual_seed(1981)
+    e2 = LigerEmbedding(vocab, dim).cuda()
+
+    params = \
+        list(e0.parameters()) + \
+        list(e1.parameters()) + \
+        list(e2.parameters())
+
+    optimizer = torch.optim.AdamW(params, lr=0.1)
 
     for i in range(3):
         optimizer.zero_grad()
     
         x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
-        y, active, inverse = e0(x)
-
-        # Tạo loss giả để có gradient
-        target = torch.randn_like(y)
-        loss = torch.nn.functional.mse_loss(y, target)
-        loss.backward()  # Tính gradient
+        
+        losses = []
+        for e in [e0, e1, e2]:
+            if not isinstance(e, OhMaiEmbedding): y = e(x.long())
+            else: y, _, _ = e(x)
+            # Tạo loss giả để có gradient
+            target = torch.randn_like(y)
+            loss = torch.nn.functional.mse_loss(y, target)
+            losses.append(loss.item())
+            loss.backward()  # Tính gradient
 
         # Kiểm tra gradient
         active_weight_clone = e0.active_weight.clone()
@@ -186,6 +202,7 @@ if __name__ == "__main__":
         optimizer.step()
 
         assert not torch.allclose(active_weight_clone, e0.active_weight), "active_weight không đổi"
-        print(f"Optimizer step {i} completed")
+        losses = [ f"{l:.4f}" for l in losses ]
+        print(f"Optimizer step {i}, losses {', '.join(losses)}")
 
         e0.update_embeddings()
