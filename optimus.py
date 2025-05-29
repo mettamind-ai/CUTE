@@ -17,7 +17,7 @@ Revert commit quantized-training/commit/d430911a5fcf70ba4d4331933b8d0147927a9d6f
 ##  INT8 Triton Matmul support ##
 #################################
 
-import torch, triton
+import torch, triton, os
 import triton.language as tl
 from torch import Tensor
 
