@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """ https://github.com/thu-ml/SageAttention/blob/main/sageattention/triton/attn_qk_int8_per_block_causal_varlen.py
 SageAttention: Accurate 8-bit Inference Attention https://arxiv.org/html/2410.02367v6
-     N_CTX     pytorch   flash_attn  flash_attn_varlen  sageattn_varlen
-0     1024  101.688067   118.003940         109.207398        53.948444
-1     2048  140.851681   262.960917         142.428452       110.656421
-2     4096  155.690084   536.076564         157.530936       172.889696
-3     8192  162.372505  1090.679558         164.438866       232.255332
-4    16384  164.710178  2193.152006         168.112195       264.587893
 """
 
 import torch, triton, math
@@ -250,44 +244,17 @@ def per_block_int8_varlen(q, k, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_se
 
 @torch.compiler.disable
 def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> torch.Tensor:
-    """
-    Parameters
-    ----------
-    q : torch.Tensor, shape: ``[cu_seqlens[-1], num_qo_heads, head_dim]``.
-    k : torch.Tensor, shape: ``[cu_seqlens[-1], num_kv_heads, head_dim]``.
-    v : torch.Tensor, shape: ``[cu_seqlens[-1], num_kv_heads, head_dim]``.
-
-    cu_seqlens : torch.Tensor
-        The cumulative sequence lengths for the query, key, value sequences in the batch, used to index into `q`, `k`, `v`. 
-        Shape: ``[batch_size + 1]``, where each entry represents the cumulative length of sequences up to that batch index.
-
-    max_seqlen : int, The maximum sequence length for the query, key, value tensors in the batch.
-
-    sm_scale : Optional[float]
-        The scale used in softmax, if not provided, will be set to ``1.0 / sqrt(head_dim)``.
-
-    Returns
-    -------
-    The output tensor, shape: ``[cu_seqlens[-1], num_qo_heads, head_dim]``.
-
-    Note
-    ----
-    - ``num_qo_heads`` must be divisible by ``num_kv_heads``.
-    - The tensors `q`, `k`, and `v` must have the dtype ``torch.float16``, ``torch.bfloat16``.
-    - The tensors `cu_seqlens` must have the dtype ``torch.int32`` or ``torch.int64``.
-    - !!! `smooth_k` will introduce slight overhead but will improve the accuracy under most circumstances. !!!
+    """q: torch.Tensor, shape: [cu_seqlens[-1], num_qo_heads, head_dim].
+    k, v: torch.Tensor, shape: [cu_seqlens[-1], num_kv_heads, head_dim].
+    sm_scale: Optional[float]: softmax scale, if not provided, set to 1.0 / sqrt(head_dim).
+    Return Tensor shape: [cu_seqlens[-1], num_qo_heads, head_dim].
     """
     dtype = q.dtype
     assert q.is_cuda, "Input tensors must be on cuda."
     assert dtype in [torch.float16, torch.bfloat16], "Input tensors must be in dtype of torch.float16 or torch.bfloat16"
     assert q.device == k.device == v.device, "All tensors must be on the same device."
     assert q.dtype == k.dtype == v.dtype, "All tensors must have the same dtype."
-
-    ''' FIXME(DefTruth): make sage attention work compatible with distributed env, for example, xDiT
-which launch by torchrun. Without this workaround, sage attention will run into illegal memory access
-error after first inference step in distributed env for multi gpus inference. This small workaround
-also make sage attention work compatible with torch.compile through non-fullgraph compile mode. '''
-    torch.cuda.set_device(v.device)
+    torch.cuda.set_device(v.device) ### FIXME(DefTruth)
 
     head_dim_og = q.size(-1)
     assert head_dim_og in [64, 128], "Only support 64 or 128 head_dim"
@@ -310,18 +277,16 @@ if __name__ == "__main__":
     import torch.nn.functional as F
     from flash_attn import flash_attn_func, flash_attn_varlen_func
 
-    lines = "pytorch flash_attn flash_attn_varlen sageattn_varlen".split()
+    lines = "pytorch flash_attn_varlen sageattn_varlen".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
         line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
         x_vals=[2**i for i in range(10, 15)], # 1024 2048 4096 8192 16384   
-        # styles=[("red", "-"), ("blue", "-"), ("green", "-")],
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
         args=dict(H=N_HEADS, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
     )
-
 
     @triton.testing.perf_report([config])
     def bench_flash_attention(BATCH, H, N_CTX, HEAD_DIM, provider, device="cuda"):
@@ -330,8 +295,9 @@ if __name__ == "__main__":
         k = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
         v = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
-        max_seqlen, seq_len = N_CTX, BATCH*N_CTX 
-        cu_seqlens = torch.tensor([i*N_CTX for i in range(BATCH + 1)], dtype=torch.int32, device="cuda")                
+        max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
+        cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
+        cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device="cuda")
         qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
         kk = k.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
         vv = v.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
