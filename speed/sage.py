@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-""" https://github.com/thu-ml/SageAttention/blob/main/sageattention/triton/attn_qk_int8_per_block_causal_varlen.py
-SageAttention: Accurate 8-bit Inference Attention https://arxiv.org/html/2410.02367v6
+""" SageAttention: Accurate 8-bit Inference Attention 
+https://arxiv.org/html/2410.02367v6
 """
-
 import torch, triton, math
 import triton.language as tl
 
