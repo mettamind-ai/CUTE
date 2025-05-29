@@ -123,8 +123,7 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor):
-     return C
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor): return C
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor) -> Tensor:
@@ -157,13 +156,12 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
 
-    C = torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.float32)
-    scaled_mm(
+    C = scaled_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
         row_scale.contiguous(),
         col_scale.T.contiguous(),
-        C,
+        torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.float32),
     )
     if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
