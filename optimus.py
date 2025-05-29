@@ -158,19 +158,20 @@ import torch.utils._pytree as pytree
 from torch import Tensor, nn
 aten = torch.ops.aten
 
-INT8_MIXED_SR = os.getenv('INT8_MIXED_SR', 'abit')
-print(f"INT8_MIXED_SR => {INT8_MIXED_SR}")
+INT8_SR_MODE = os.getenv('INT8_SR_MODE', 'abit')
+print(f"INT8_SR_MODE => {INT8_SR_MODE}")
 
 HACK = os.getenv('INT8_SR_HACK', '1') == '1' # bật HACK sẽ giảm số sr đi << 1/2 do chỉ sr ma trận nhỏ
 print(f"INT8_SR_HACK => {HACK}")
 
-ABIT = INT8_MIXED_SR == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
-BACK = INT8_MIXED_SR == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@grad.weight         )
-HALF = INT8_MIXED_SR == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )
-FULL = INT8_MIXED_SR == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
+ABIT = INT8_SR_MODE == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
+BACK = INT8_SR_MODE == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@grad.weight         )
+HALF = INT8_SR_MODE == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )
+FULL = INT8_SR_MODE == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
 
-FWD_SR       = HALF or FULL
-BWD_INPUT_SR = HALF or FULL or BACK or ABIT # always True
+FWD_SR          = HALF or FULL
+BWD_INPUT_SR    = HALF or FULL or BACK or ABIT # always True
+BWD_WEIGHT_SR   = BACK or FULL
 
 @torch.no_grad()
 def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
@@ -232,10 +233,7 @@ class Int8MixedLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn '''
-            if FULL or BACK:    # chú ý sr=True ở bước này dễ gây oom
-                grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=True).T
-            else:               # Tăng tốc và giảm vram hết cỡ
-                grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=False).T
+            grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR).T
 
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
