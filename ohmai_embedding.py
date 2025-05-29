@@ -115,7 +115,7 @@ class OhMaiEmbedding(nn.Module):
         self.hidim = hidim
 
         # Pinned Memory → GPU Memory   vs   CPU Memory → Staging Buffer → GPU Memory
-        self.weight = torch.randn(vocab, hidim, device="cpu", pin_memory=True)
+        self.weight = torch.randn(vocab, hidim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         self.active_weight = None
@@ -152,7 +152,7 @@ class OhMaiEmbedding(nn.Module):
         # Sử dụng stream để async transfer
         with torch.cuda.stream(self.update_stream):
             v = self.active_weight[:len(self.active_tokens)]
-            self.weight[self.active_tokens] = v.cpu()
+            self.weight[self.active_tokens] = v.cpu().to(self.weight.dtype)
 
         self.active_tokens = None # clear inactive data
 

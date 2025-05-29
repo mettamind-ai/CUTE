@@ -12,7 +12,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.bfloat16)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
