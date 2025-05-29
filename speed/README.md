@@ -17,8 +17,8 @@ ROUNDING & SMOOTHING
 --------------------
 |Method | effN (fwd) | effD (bwd) | Misalignment |
 |-|-|-|-|
-|QuEST  |  0.65 ⭐  |   0.18 ❌  |  1.3×10⁻²    |
-|SR     |  0.44 ❌  |   0.85 ⭐  |  0 ✅       |
+|QuEST  |  0.65 ✅  |   0.18 ❌  |  1.3×10⁻²    |
+|SR     |  0.44 ❌  |   0.85 ✅  |  0           |
 
 - Fwd
   - `Hadamard Transform` (HT) biến dist gần gaussian để smooth outlier
