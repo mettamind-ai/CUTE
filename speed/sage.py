@@ -60,8 +60,8 @@ def _attn_fwd_inner(
 
 @triton.jit
 def _attn_fwd(
-    Q, K, V, cu_seqlens_q, cu_seqlens_k,
-    Q_scale, K_scale, cu_seqlens_q_scale, cu_seqlens_k_scale,
+    Q, K, V, cu_seqlens,
+    Q_scale, K_scale, cu_seqlens_scale,
     Out,  
     stride_qh, stride_qn, stride_kh, stride_kn,  
     stride_vh, stride_vn, stride_oh, stride_on,  
@@ -73,20 +73,18 @@ def _attn_fwd(
     off_z   = tl.program_id(2).to(tl.int64)
     off_h   = tl.program_id(1).to(tl.int64)
 
-    cu_seqlens_q_start = tl.load(cu_seqlens_q + off_z)
-    cu_seqlens_q_end   = tl.load(cu_seqlens_q + off_z + 1)
+    cu_seqlens_q_start = tl.load(cu_seqlens + off_z)
+    cu_seqlens_q_end   = tl.load(cu_seqlens + off_z + 1)
 
     qo_len = cu_seqlens_q_end - cu_seqlens_q_start
     if (start_m * BLOCK_M) >= qo_len: return #####
 
-    cu_seq_lens_q_scale_start = tl.load(cu_seqlens_q_scale + off_z)
-    cu_seq_lens_k_scale_start = tl.load(cu_seqlens_k_scale + off_z)    
+    cu_seq_lens_scale_start = tl.load(cu_seqlens_scale + off_z)
+    q_scale_offset = cu_seq_lens_scale_start * H + off_h + start_m * H
+    k_scale_offset = cu_seq_lens_scale_start * (H // num_kv_groups) + off_h // num_kv_groups
 
-    q_scale_offset = cu_seq_lens_q_scale_start * H + off_h + start_m * H
-    k_scale_offset = cu_seq_lens_k_scale_start * (H // num_kv_groups) + off_h // num_kv_groups
-
-    cu_seqlens_k_start = tl.load(cu_seqlens_k + off_z)
-    cu_seqlens_k_end   = tl.load(cu_seqlens_k + off_z + 1)
+    cu_seqlens_k_start = tl.load(cu_seqlens + off_z)
+    cu_seqlens_k_end   = tl.load(cu_seqlens + off_z + 1)
 
     kv_len = cu_seqlens_k_end - cu_seqlens_k_start
 
@@ -121,26 +119,26 @@ def _attn_fwd(
     tl.store(O_block_ptr, acc.to(Out.type.element_ty), mask = (offs_m[:, None] < qo_len))
 
 
-def attn_true_varlen(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, q_scale, 
-        k_scale, cu_seqlens_q_scale, cu_seqlens_k_scale, output_dtype=torch.float16):
+def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqlens_scale, output_dtype=torch.float16):
 
     BLOCK_M = 128
     BLOCK_N = 64
     stage = 3
 
     o = torch.empty(q.shape, dtype=output_dtype, device=q.device)
-    b = cu_seqlens_q.shape[0] - 1
+    b = cu_seqlens.shape[0] - 1
 
     _, h_qo, head_dim = q.shape
     _, h_kv, _ = k.shape
 
     HEAD_DIM_K = head_dim
     num_kv_groups = h_qo // h_kv
+    num_warps = ( 4 if head_dim == 64 else 8 )
 
-    grid = (triton.cdiv(max_seqlen_q, BLOCK_M), h_qo, b)
+    grid = (triton.cdiv(max_seqlen, BLOCK_M), h_qo, b)
     _attn_fwd[grid](
-        q, k, v, cu_seqlens_q, cu_seqlens_k,
-        q_scale, k_scale, cu_seqlens_q_scale, cu_seqlens_k_scale,
+        q, k, v, cu_seqlens,
+        q_scale, k_scale, cu_seqlens_scale,
         o,  
         q.stride(1), q.stride(0), 
         k.stride(1), k.stride(0),  
@@ -148,11 +146,9 @@ def attn_true_varlen(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, q_scale,
         o.stride(1), o.stride(0),
         h_qo, num_kv_groups,
         BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, HEAD_DIM=HEAD_DIM_K,  
-        STAGE=stage, 
-        num_warps=4 if head_dim == 64 else 8,
-        num_stages=4)
+        STAGE=stage, num_warps=num_warps, num_stages=4
+    )
     return o
-
 
 
 @triton.jit
@@ -172,17 +168,15 @@ def quant_per_block_int8_kernel(
     cu_seqlens_input_end   = tl.load(cu_seqlens_input + off_b + 1)
 
     L = cu_seqlens_input_end - cu_seqlens_input_start
-
     if (off_blk * BLK) >= L: return
     
     cu_seqlens_scale_start = tl.load(cu_seqlens_scale + off_b)
-
     offs_n = off_blk * BLK + tl.arange(0, BLK)
     offs_k = tl.arange(0, C)
 
     input_ptrs  = Input  + cu_seqlens_input_start*stride_in + off_h*stride_ih + offs_n[:, None]*stride_in + offs_k[None, :]
     output_ptrs = Output + cu_seqlens_input_start*stride_on + off_h*stride_oh + offs_n[:, None]*stride_on + offs_k[None, :]
-    scale_ptrs  = Scale + cu_seqlens_scale_start * H + off_h + off_blk * H
+    scale_ptrs  = Scale  + cu_seqlens_scale_start*H + off_h + off_blk*H
 
     x = tl.load(input_ptrs, mask=offs_n[:, None] < L)
     x = x.to(tl.float32)
@@ -195,7 +189,7 @@ def quant_per_block_int8_kernel(
     tl.store(scale_ptrs, scale)
 
 
-def per_block_int8_varlen(q, k, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, BLKQ=128, BLKK=64, sm_scale=None):
+def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None):
     q_int8 = torch.empty(q.shape, dtype=torch.int8, device=q.device)
     k_int8 = torch.empty(k.shape, dtype=torch.int8, device=k.device)
 
@@ -203,43 +197,35 @@ def per_block_int8_varlen(q, k, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_se
     h_kv = k.shape[1]
     head_dim = q.shape[-1]
 
-    b = cu_seqlens_q.shape[0] - 1
-    q_batch_len = cu_seqlens_q[1:] - cu_seqlens_q[:-1]
-    k_batch_len = cu_seqlens_k[1:] - cu_seqlens_k[:-1]
+    b = cu_seqlens.shape[0] - 1
+    batch_len = cu_seqlens[1:] - cu_seqlens[:-1]
+    scale_len = (batch_len + BLK_QK - 1) // BLK_QK
 
-    q_scale_len = (q_batch_len + BLKQ - 1) // BLKQ
-    k_scale_len = (k_batch_len + BLKK - 1) // BLKK
-
-    cu_seqlens_q_scale = torch.nn.functional.pad(torch.cumsum(q_scale_len, dim=0), (1, 0), value=0)
-    cu_seqlens_k_scale = torch.nn.functional.pad(torch.cumsum(k_scale_len, dim=0), (1, 0), value=0)
-
-    q_scale = torch.empty((cu_seqlens_q_scale[-1], h_qo), device=q.device, dtype=torch.float32)
-    k_scale = torch.empty((cu_seqlens_k_scale[-1], h_kv), device=k.device, dtype=torch.float32)
+    cu_seqlens_scale = torch.nn.functional.pad(torch.cumsum(scale_len, dim=0), (1, 0), value=0)
+    q_scale = torch.empty((cu_seqlens_scale[-1], h_qo), device=q.device, dtype=torch.float32)
+    k_scale = torch.empty((cu_seqlens_scale[-1], h_kv), device=k.device, dtype=torch.float32)
 
     if sm_scale is None: sm_scale = head_dim**-0.5
+    grid = ((max_seqlen + BLK_QK - 1) // BLK_QK, h_qo, b)
 
-    grid = ((max_seqlen_q + BLKQ - 1) // BLKQ, h_qo, b)
     quant_per_block_int8_kernel[grid](
         q, q_int8, q_scale,
-        cu_seqlens_q, cu_seqlens_q_scale,
+        cu_seqlens, cu_seqlens_scale,
         q.stride(1), q.stride(0),
         q_int8.stride(1), q_int8.stride(0),
         sm_scale=(sm_scale * 1.44269504), H=h_qo,
-        C=head_dim, BLK=BLKQ
+        C=head_dim, BLK=BLK_QK
     )
-
-    grid = ((max_seqlen_k + BLKK - 1) // BLKK, h_kv, b)
-
+    grid = ((max_seqlen + BLK_QK - 1) // BLK_QK, h_kv, b)
     quant_per_block_int8_kernel[grid](
         k, k_int8, k_scale,
-        cu_seqlens_k, cu_seqlens_k_scale,
+        cu_seqlens, cu_seqlens_scale,
         k.stride(1), k.stride(0),
         k_int8.stride(1), k_int8.stride(0),
         sm_scale=1.0, H=h_kv,
-        C=head_dim, BLK=BLKK
+        C=head_dim, BLK=BLK_QK
     )
-
-    return q_int8, q_scale, k_int8, k_scale, cu_seqlens_q_scale, cu_seqlens_k_scale
+    return q_int8, q_scale, k_int8, k_scale, cu_seqlens_scale
 
 
 @torch.compiler.disable
@@ -265,11 +251,11 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
     k = k - k.mean(dim=0, keepdim=True) # Always smooth_k
     if sm_scale is None: sm_scale = 1.0 / (head_dim_og ** 0.5)
 
-    q_int8, q_scale, k_int8, k_scale, cu_seqlens_q_scale, cu_seqlens_k_scale = \
-        per_block_int8_varlen(q, k, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, sm_scale=sm_scale)
+    q_int8, q_scale, k_int8, k_scale, cu_seqlens_scale = \
+        per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, sm_scale=sm_scale)
 
-    o = attn_true_varlen(q_int8, k_int8, v, cu_seqlens, cu_seqlens, max_seqlen, q_scale, \
-            k_scale, cu_seqlens_q_scale, cu_seqlens_k_scale, output_dtype=dtype)
+    o = attn_true_varlen(q_int8, k_int8, v, cu_seqlens, max_seqlen, q_scale, \
+            k_scale, cu_seqlens_scale, output_dtype=dtype)
     return o
 
 
