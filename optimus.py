@@ -150,9 +150,10 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
     Asr = Bsr = sr
-    # if sr and hack: # => chỉ sr ma trận nhỏ
-    #     Asr = A.numel() < B.numel()
-    #     Bsr = not Asr
+    if sr and hack:
+        # Asr = A.numel() < B.numel()
+        # Bsr = not Asr # <= chỉ sr ma trận nhỏ
+        Asr = Bsr = False 
     A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
 
@@ -163,7 +164,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         col_scale.T.contiguous(),
         torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32),
     )
-    if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
+    if sr and hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         assert A.dtype == torch.bfloat16
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
         C = C + noise
