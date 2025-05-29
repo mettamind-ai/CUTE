@@ -149,8 +149,8 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         Asr = A.numel() < B.numel()
         Bsr = not Asr
     else: Asr = Bsr = sr
-    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
-    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
+    A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
+    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
 
     dtype = torch.float32 if quant else A.dtype
     C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=dtype)
