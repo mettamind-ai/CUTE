@@ -79,7 +79,7 @@ else:        # (XS)mall ~ 100m
         active_vocab=2048 if args.ohmai else None,
     )
 model = model.cuda()
-names, params = convert_int8_mixed_precision(model, ignore=r'head|kv_proj|q_proj')
+names, params = convert_int8_mixed_precision(model, ignore=r'head')
 
 def find_key(s):
     m = re.search(r'(blocks\.\d+\.)?(.*)', s)
