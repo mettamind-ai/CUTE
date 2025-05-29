@@ -12,7 +12,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high') # better for f32 head
 torch.backends.cuda.matmul.allow_tf32  = True
-torch.set_default_dtype(torch.bfloat16)
+torch.set_default_dtype(torch.float32)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -46,11 +46,11 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
     def forward(self, x:Tensor, te):
-        x = self.fc1_proj(x)
-        x = F.relu(x).square() 
-        x = self.fc2_proj(x)
-        if te is not None: x = x*te
-        return x
+        y = self.fc1_proj(x)
+        y = F.relu(y).square() 
+        y = self.fc2_proj(y)
+        if te is not None: y = y*te
+        return y.to(x.dtype)
 
 
 
@@ -180,18 +180,16 @@ class CausalSelfAttention(nn.Module):
         if self.rope: q, k = rotary(q), rotary(k)
 
         y = flash_attn_varlen_func(
-            q, k, v,
+            q.bfloat16(), k.bfloat16(), v.bfloat16(),
             cu_seqlens, cu_seqlens,
             max_seqlen, max_seqlen,
             causal=True, dropout_p=0.0,
             softmax_scale=self.attn_scale,
             window_size=(self.window, 0),
-        )
+        ).to(x.dtype)
         y = y.contiguous()
         y = y.reshape(T, H * D)
-        y = self.o_proj(y) # y có shape (T, dim)
-        return y    # trả về y có shape giống hệt x đầu vào
-
+        return self.o_proj(y)
 
 ##############################
 ## Transformer for the WIN  ##
@@ -417,9 +415,9 @@ if __name__ == "__main__":
             assert torch.allclose(p1, p2), f"{n1} values are different"
     check_params()
 
-    for m in [model, ohmai]:
-        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
+    # for m in [model, ohmai]:
+    #     for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+    #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     # convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!

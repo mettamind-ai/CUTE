@@ -33,8 +33,6 @@ ROUNDING & SMOOTHING
 - Quartet Bwd 
   - `final_gradient = stochastic_round(computed_gradient)`
 
-=> Giống https://alphaxiv.org/overview/2502.20586#key-innovation-mxfp4-with-random-hadamard-transform-and-stochastic-rounding
-
 ## SageBwd
 |Activation|Storage|Computation|Lý do|
 |-|-|-|-|
@@ -48,6 +46,3 @@ The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's gra
 
 |![](.save/sagebwd-00.png)|![](.save/sagebwd-01.png)|![](https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png)|
 |-|-|-|
-
-- Áp dụng cả per token scaling (PV) và block scaling (V)
-- 

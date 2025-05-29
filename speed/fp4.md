@@ -30,9 +30,6 @@ For MXFP8:
 
 > Figure 1:Our method uses stochastic rounding (SR) to compute unbiased gradients and the random Hadamard transform to bound the variance of SR. This enables us to perform more accurate model updates with MXFP4 in the backward pass, enabling a speedup of > 1.3× over FP8 and > 1.7× over BF16.
 
-|![]()|![]()|
-|-|-|
-
 # Quartet
 - https://github.com/IST-DASLab/QuEST
 - https://github.com/IST-DASLab/Quartet
