@@ -25,20 +25,9 @@ lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
 cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
-    ## https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
     (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4),
-    # ( 64, 256,  32, 4, 4), (128, 256,  64, 3, 8), ( 64,  32,  32, 5, 2), ( 32,  64,  32, 5, 2),
-
-    ## Good config for fp8 inputs
     (128, 128, 128, 4, 4), (128,  64,  64, 4, 4), ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4),
-    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8), (256,  64, 128, 4, 4), ( 64, 256, 128, 4, 4),
-
-    ## https://github.com/pytorch/pytorch/blob/7868b65c4d4f34133607b0166f08e9fbf3b257c4/torch/_inductor/kernel/mm_common.py#L172
     ( 64,  64,  32, 2, 4), (128, 128,  32, 2, 8), ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8),
-    # ( 64, 128,  32, 3, 4), (128,  64,  32, 3, 4), ( 64,  32,  32, 5, 8), ( 32,  64,  32, 5, 8), ( 64,  64,  64, 3, 8),
-
-    ## https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
-    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
 ], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 
@@ -100,8 +89,8 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, Tensor C) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor) -> Tensor:
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
     - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
@@ -116,57 +105,57 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor)
     is_col_scale_B     = scale_B.shape == ( 1, B.shape[1] )
     is_tensor_scale_B  = scale_B.shape == ( 1,          1 )
 
-    assert is_row_scale_A
-    assert is_col_scale_B or is_tensor_scale_B
-    assert scale_A.is_contiguous()
-    assert scale_B.is_contiguous()
-
-    return lib_ops.scaled_mm(A, B, C, scale_A, scale_B)
-
+    if is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B ):
+        assert scale_A.is_contiguous() and scale_B.is_contiguous()
+        return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+    ''' CÓ THỂ MỞ RỘNG RA TILE-WISED SCALE MM ...
+    else:
+        assert scale_A.shape[1] == scale_B.shape[0]
+        return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
+    # '''
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor): return C
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> Tensor:
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+
     M, K = A.shape
     _, N = B.shape
-    _scaled_mm_kernel[_grid]( 
-        A, B, C, row_scale_A, col_scale_B,
-        M, N, K, *A.stride(), *B.stride(), *C.stride(),
+
+    assert K % 2 == 0             # => EVEN_K = True
+    assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
+
+    C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
+    _scaled_mm_kernel[_grid](
+        A, B, C,
+        row_scale_A, col_scale_B,
+        M, N, K,
+        *A.stride(), *B.stride(), *C.stride(),
     )
     return C
 
 
 @torch.no_grad()
-def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
+def quantize_int8(tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
-    tensor = tensor.float() # tensor là float32 => scale là float32
-    scale  = tensor.abs().amax(1, keepdim=True) / 127
-    tensor = tensor / scale.clip(eps)
+    scale  = tensor.abs().amax(dim, keepdim=True) / 127
+    tensor = tensor.float() / scale.float().clip(eps)
     if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
     else:    tensor.round_()      # ^^^stochastic rounding^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
     return ( tensor.contiguous(), scale.contiguous() )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
-    if hack: sr = False 
-    A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
-    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
-
-    return scaled_mm(
-        A_i8, B_t_i8.T, row_scale, col_scale.T,
-        torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32),
-    )
-    # if sr and hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
-    #     assert A.dtype == torch.bfloat16
-    #     noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-    #     C = C + noise
-    # # if quant: return ...
-    # # print(A.size(), B.size(), C.size(), "<= A, B, C")
-    # return C.to(A.dtype)
-
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
+    if sr and hack: # => chỉ sr ma trận nhỏ
+        Asr = A.numel() < B.numel()
+        Bsr = not Asr
+    else: Asr = Bsr = sr
+    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
+    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
+    return scaled_mm(A_i8, B_t_i8.T, row_scale, col_scale.T,)
 
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
@@ -193,14 +182,14 @@ BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None, quant=False):
+    def forward(input:Tensor, weight, bias=None):
         assert bias is None
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR, quant=quant)
+        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias, _ = inputs
+        input, weight, bias = inputs
         assert bias is None
         ctx.save_for_backward(input, weight._data)
         ctx.bias = False
@@ -212,16 +201,15 @@ class Int8MixedLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             grad_input = _dynamic_int8_mm(grad_output, weight, sr=BWD_INPUT_SR)
-            grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn, bật hack để rounding sau khi nhân xong '''
+            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn, bật hack '''
             grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR, hack=True).T
 
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias, None
+        return grad_input, grad_weight, grad_bias
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph

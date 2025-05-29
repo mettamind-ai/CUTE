@@ -155,7 +155,6 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x = x.bfloat16()
         q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
 
@@ -338,7 +337,6 @@ class WinGPT(nn.Module):
 
 def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
     x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
-    # print(x.dtype); input()
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
     if not model.has_future(): return loss
@@ -355,7 +353,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        logits = head(hidden.bfloat16())
+        logits = head(hidden)
         logits = logits.view(-1, logits.size(-1))
         # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
@@ -364,7 +362,7 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
 
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        hidden = hidden.view(-1, hidden.size(-1)).bfloat16()
+        hidden = hidden.view(-1, hidden.size(-1))#.bfloat16()
         return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
