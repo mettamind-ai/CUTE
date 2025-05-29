@@ -25,18 +25,20 @@ lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
 cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
-    # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
-    (128, 256,  64, 3, 8), ( 64, 256,  32, 4, 4), (128, 128,  32, 4, 4), (128,  64, 32, 4, 4),
-    ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4), ( 64,  32,  32, 5, 2), ( 32,  64, 32, 5, 2),
-    # Good config for fp8 inputs
-    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8), (256,  64, 128, 4, 4), ( 64, 256, 128, 4, 4),
+    ## https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
+    (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4),
+    # ( 64, 256,  32, 4, 4), (128, 256,  64, 3, 8), ( 64,  32,  32, 5, 2), ( 32,  64,  32, 5, 2),
+
+    ## Good config for fp8 inputs
     (128, 128, 128, 4, 4), (128,  64,  64, 4, 4), ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4),
-    # https://github.com/pytorch/pytorch/blob/7868b65c4d4f34133607b0166f08e9fbf3b257c4/torch/_inductor/kernel/mm_common.py#L172
-    ( 64,  64,  32, 2, 4), ( 64, 128,  32, 3, 4), (128,  64,  32, 3, 4),
-    ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), ( 64,  32,  32, 5, 8),
-    ( 32,  64,  32, 5, 8), (128, 128,  32, 2, 8), ( 64,  64,  64, 3, 8),
-    # https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
-    (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
+    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8), (256,  64, 128, 4, 4), ( 64, 256, 128, 4, 4),
+
+    ## https://github.com/pytorch/pytorch/blob/7868b65c4d4f34133607b0166f08e9fbf3b257c4/torch/_inductor/kernel/mm_common.py#L172
+    ( 64,  64,  32, 2, 4), (128, 128,  32, 2, 8), ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8),
+    # ( 64, 128,  32, 3, 4), (128,  64,  32, 3, 4), ( 64,  32,  32, 5, 8), ( 32,  64,  32, 5, 8), ( 64,  64,  64, 3, 8),
+
+    ## https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/int8_mm.py#L47
+    # (128, 256, 128, 3, 8), (256, 128, 128, 3, 8),  # no need ??
 ], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 
@@ -153,20 +155,20 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
 
-    C = scaled_mm(
+    return scaled_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
         row_scale.contiguous(),
         col_scale.T.contiguous(),
         torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32),
     )
-    if sr and hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
-        assert A.dtype == torch.bfloat16
-        noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-        C = C + noise
-    # if quant: return ...
-    # print(A.size(), B.size(), C.size(), "<= A, B, C")
-    return C.to(A.dtype)
+    # if sr and hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
+    #     assert A.dtype == torch.bfloat16
+    #     noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
+    #     C = C + noise
+    # # if quant: return ...
+    # # print(A.size(), B.size(), C.size(), "<= A, B, C")
+    # return C.to(A.dtype)
 
 
 ##############################################

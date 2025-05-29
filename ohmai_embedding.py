@@ -122,7 +122,7 @@ class OhMaiEmbedding(nn.Module):
         self.active_tokens = None # Cần kích hoạt mỗi lần forward
 
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
-        w = torch.empty(active_vocab, self.hidim, device="cuda")
+        w = torch.empty(active_vocab, self.hidim, device="cuda", dtype=self.weight.dtype)
         self.active_weight = nn.Parameter(w)
         self.active_vocab = active_vocab
 
@@ -159,7 +159,8 @@ class OhMaiEmbedding(nn.Module):
 
     def forward(self, indices, active=None, inverse=None, force=False):
         inverse = self.activate(indices, active, inverse, force)
-        return OhMaiEmbFunction.apply(self.active_weight, inverse)
+        x = OhMaiEmbFunction.apply(self.active_weight, inverse)
+        return x
 
 
 ########################

@@ -155,6 +155,7 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+        x = x.bfloat16()
         q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
 
@@ -292,6 +293,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
+        # print(self.embeddings.__class__.__name__, embs.dtype); input()
 
         t_embs = embs[..., : self.dim*self.te ]
         t_embs = list(t_embs.chunk(self.te, dim=-1))
@@ -336,6 +338,7 @@ class WinGPT(nn.Module):
 
 def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
     x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
+    # print(x.dtype); input()
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
     if not model.has_future(): return loss
@@ -352,7 +355,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        logits = head(hidden)
+        logits = head(hidden.bfloat16())
         logits = logits.view(-1, logits.size(-1))
         # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
@@ -361,7 +364,7 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
 
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        hidden = hidden.view(-1, hidden.size(-1))
+        hidden = hidden.view(-1, hidden.size(-1)).bfloat16()
         return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
@@ -415,12 +418,12 @@ if __name__ == "__main__":
             assert torch.allclose(p1, p2), f"{n1} values are different"
     check_params()
 
-    # for m in [model, ohmai]:
-    #     for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-    #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
+    for m in [model, ohmai]:
+        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
-    model = torch.compile(model) # chậm !!!
+    # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "fc" in n or "proj" in n]
@@ -459,7 +462,7 @@ if __name__ == "__main__":
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
-
+ 
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         a = ohmai.embeddings(input_seq, force=True)
         b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
@@ -475,7 +478,6 @@ if __name__ == "__main__":
         optim.step()
         aptim.step()
 
-        # print(f"@@@ {model.tok_emb0.__class__.__name__}'s grad <=== {model.tok_emb0.weight.grad.sum()}")
         ohmai.update_embeddings()
         # check_params()
 
