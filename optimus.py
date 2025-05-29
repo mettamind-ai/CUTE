@@ -148,11 +148,7 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
-INT8_SR_HACK = os.getenv('INT8_SR_HACK', '1') == 1
-print(f"INT8_SR_HACK => {INT8_SR_HACK}") # bật HACK thì toàn bộ số rounding giảm đi 1/2
-
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
-    hack = hack or INT8_SR_HACK
     if hack: sr = False 
     A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
