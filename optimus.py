@@ -198,13 +198,14 @@ BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None):
+    def forward(input:Tensor, weight, bias=None, quant=False):
         assert bias is None
-        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
+        # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
+        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR, quant=quant)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias = inputs
+        input, weight, bias, _ = inputs
         assert bias is None
         ctx.save_for_backward(input, weight._data)
         ctx.bias = False
@@ -229,7 +230,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, None
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
