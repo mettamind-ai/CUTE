@@ -34,21 +34,21 @@ class ReLuSquareMLP(nn.Module):
         if not hdim: hdim = int(3 * dim)
         if not odim: odim = dim
 
-        self.fc = nn.Linear(dim, hdim, bias=False)
-        self.proj = nn.Linear(hdim, odim, bias=False)
+        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
+        self.fc2_proj = nn.Linear(hdim, odim, bias=False)
         
         with torch.no_grad():
-            self.fc.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            self.proj.weight.zero_()
+            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.fc2_proj.weight.zero_()
         
         # Add weight decay multiplier attribute to the weights
-        self.fc.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
+        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
     def forward(self, x:Tensor, te):
-        y = self.fc(x)
-        y = F.relu(y).square() 
-        x = self.proj(y)
+        x = self.fc1_proj(x)
+        x = F.relu(x).square() 
+        x = self.fc2_proj(x)
         if te is not None: x = x*te
         return x
 

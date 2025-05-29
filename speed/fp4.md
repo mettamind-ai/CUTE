@@ -28,6 +28,9 @@ For MXFP8:
 ![](https://arxiv.org/html/2502.20586v2/x1.png)
 > Figure 1:Our method uses stochastic rounding (SR) to compute unbiased gradients and the random Hadamard transform to bound the variance of SR. This enables us to perform more accurate model updates with MXFP4 in the backward pass, enabling a speedup of > 1.3× over FP8 and > 1.7× over BF16.
 
+|![]()|![]()|
+|-|-|
+
 # Quartet
 - https://github.com/IST-DASLab/QuEST
 - https://github.com/IST-DASLab/Quartet
@@ -62,7 +65,3 @@ y = x̂h @ ŵhᵀ      # Matrix multiplication
 - hiệu quả dữ liệu `effD`: liên quan đến `độ lệch trong bộ ước lượng gradient`, đo bằng chỉ số lệch hướng
 - `MXFP4` tối đa hoá cả `effN` và `effD`; đạt độ chính xác vượt trội trên các compute budgets và model sizes
 - Treat FP8 as the lossless baseline for the purposes of comparison.
-
-
-|![]()|![]()|
-|-|-|

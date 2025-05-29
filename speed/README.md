@@ -8,10 +8,13 @@
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
-TODOs
+**TODOs**
 - [ ] Round & smooth thuộc 3. và có thể áp dụng ngược lại cho INT8 Mixed
+  - Áp dụng HT trong fwd và SR trong bwd (xem ROUNDING & SMOOTHING)
+
 - [ ] Activations đang chiếm nhiều vram nhất => nên quant (giảm 1/2)
-- [ ] Tile scale sẽ đều và tốt hơn row-wise / col-wise? Nếu đã smooth thì tile còn tác dụng?
+
+- Tile scale or row-wise / col-wise or tensor scale sẽ phụ thuộc vào round & smooth methods
 
 ROUNDING & SMOOTHING
 --------------------
@@ -20,10 +23,12 @@ ROUNDING & SMOOTHING
 |QuEST  |  0.65 ✅  |   0.18 ❌  |  1.3×10⁻²    |
 |SR     |  0.44 ❌  |   0.85 ✅  |  0           |
 
-- Fwd
+- QuEST Fwd
   - `Hadamard Transform` (HT) biến dist gần gaussian để smooth outlier
   - `MSE-optimal fitting` tìm tensor scaling factor tối ưu để min L2 error
   - `RMS norm` chuẩn hoá về `N(0, 1)` trước khi quant
 
-- Bwd 
+- Quartet Bwd 
   - `final_gradient = stochastic_round(computed_gradient)`
+
+=> Giống https://alphaxiv.org/overview/2502.20586#key-innovation-mxfp4-with-random-hadamard-transform-and-stochastic-rounding

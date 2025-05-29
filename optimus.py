@@ -161,8 +161,8 @@ aten = torch.ops.aten
 INT8_SR_MODE = os.getenv('INT8_SR_MODE', 'abit')
 print(f"INT8_SR_MODE => {INT8_SR_MODE}")
 
-HACK = os.getenv('INT8_SR_HACK', '1') == '1' # bật HACK sẽ giảm số sr đi << 1/2 do chỉ sr ma trận nhỏ
-print(f"INT8_SR_HACK => {HACK}")
+HACK = os.getenv('INT8_SR_HACK', '0') == '1' # bật HACK sẽ giảm số sr đi << 1/2 do chỉ sr ma trận nhỏ
+print(f"INT8_SR_HACK => {HACK}")             # HACK chỉ nên dùng với 1 số trường hợp đặc biệt như bỏ kv_proj ngoài int8 
 
 ABIT = INT8_SR_MODE == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
 BACK = INT8_SR_MODE == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@grad.weight         )
@@ -170,7 +170,7 @@ HALF = INT8_SR_MODE == "half" # 6 phép stochastic rounding ( 2@grad.input +    
 FULL = INT8_SR_MODE == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
 
 FWD_SR          = HALF or FULL
-BWD_INPUT_SR    = HALF or FULL or BACK or ABIT # always True
+BWD_INPUT_SR    = True
 BWD_WEIGHT_SR   = BACK or FULL
 
 @torch.no_grad()
@@ -283,8 +283,8 @@ class MixedPrecisionLinearWeight(Tensor):
         else: return out # new unwrapped object
 
 import re
-def convert_int8_mixed_precision(module:nn.Module, ignore=r'head'):
-    ignore= re.compile(ignore)
+def convert_int8_mixed_precision(module:nn.Module, ignore=r'head|k_proj|v_proj'):
+    ignore= re.compile(ignore) # kv trong  có thể fused
     names, params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
