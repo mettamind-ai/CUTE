@@ -24,8 +24,8 @@ For MXFP8:
 > MXFP4 weight và MXFP6 activation và gradient cho hiệu suất bám sát FP32
 
 # Training LLMs with MXFP4
-- https://github.com/amazon-science/mxfp4-llm
-- https://www.youtube.com/watch?v=1gcUQ-31Kdw
+- https://github.com/amazon-science/mxfp4-llm (dùng https://github.com/microsoft/microxcaling để giả lập)
+- https://www.youtube.com/watch?v=1gcUQ-31Kdw (patch microxcaling cho rounding ...)
 <img src="https://arxiv.org/html/2502.20586v2/x1.png" width="60%">
 
 > Figure 1:Our method uses stochastic rounding (SR) to compute unbiased gradients and the random Hadamard transform to bound the variance of SR. This enables us to perform more accurate model updates with MXFP4 in the backward pass, enabling a speedup of > 1.3× over FP8 and > 1.7× over BF16.
