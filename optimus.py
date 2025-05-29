@@ -169,7 +169,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
         C = C + noise
     # if quant: return ...
-    return C.to(torch.bfloat16)
+    return C.to(A.dtype)
 
 
 ##############################################
@@ -197,17 +197,17 @@ BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None, quant=False):
+    def forward(input:Tensor, weight, bias=None):
         assert bias is None
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
-        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR, quant=quant)
+        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
         out = out.view(*batch_dims, weight.shape[0])
         return out
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias, quant = inputs
+        input, weight, bias = inputs
         assert bias is None
         ctx.save_for_backward(input, weight._data)
         ctx.bias = False
@@ -232,7 +232,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias, None
+        return grad_input, grad_weight, grad_bias
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
