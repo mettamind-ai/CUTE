@@ -446,18 +446,16 @@ if __name__ == "__main__":
     model.train()
     ohmai.train()
 
+    ## Generate sequences with batch dimension
+    input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+
     for step in range(10):
         optim.zero_grad()
         aptim.zero_grad()
-
-        ## Generate sequences with batch dimension
-        input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
-
         loss_fn = [ simple_loss_fn, fused_loss_fn ][step % 2]
-
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  
@@ -472,10 +470,8 @@ if __name__ == "__main__":
 
         loss_ohmai.backward()
         loss_model.backward()
-
         optim.step()
         aptim.step()
-
         ohmai.update_embeddings()
         # check_params()
 
