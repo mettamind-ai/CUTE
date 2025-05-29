@@ -18,7 +18,8 @@ parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best i
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
-parser.add_argument("--int8rd", type=str, default="abit", choices="abit half full hack".split())
+parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj` => ignore all) 
+parser.add_argument("--int8rd", type=str, default="back", choices="abit half full back".split())
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
@@ -79,7 +80,7 @@ else:        # (XS)mall ~ 100m
         active_vocab=2048 if args.ohmai else None,
     )
 model = model.cuda()
-names, params = convert_int8_mixed_precision(model, ignore=r'head')
+names, params = convert_int8_mixed_precision(model, ignore=r'{args.int8ig}')
 
 def find_key(s):
     m = re.search(r'(blocks\.\d+\.)?(.*)', s)
