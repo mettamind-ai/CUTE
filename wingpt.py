@@ -419,7 +419,7 @@ if __name__ == "__main__":
     #     for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
     #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
-    # convert_int8_mixed_precision(model)
+    convert_int8_mixed_precision(model)
     # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}

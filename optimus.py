@@ -44,7 +44,7 @@ cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_w
 @triton.jit
 def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr,
-    row_scale_ptr, col_scale_ptr,
+    A_scale_ptr, B_scale_ptr,
     M, N, K,
     stride_am, stride_ak,
     stride_bk, stride_bn,
@@ -76,9 +76,9 @@ def _scaled_mm_kernel(
     A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
     B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32) # ACC_DTYPE = tl.int32
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        a, b = tl.load(A), tl.load(B)  # EVEN_K = True
+        a, b = tl.load(A), tl.load(B)
         acc += tl.dot(a, b)
         A += BLOCK_K * stride_ak
         B += BLOCK_K * stride_bk
@@ -90,17 +90,16 @@ def _scaled_mm_kernel(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
-    row_scale = tl.load(row_scale_ptr + idx_m, mask=idx_m < M).to(tl.float32)
-    col_scale = tl.load(col_scale_ptr + idx_n, mask=idx_n < N).to(tl.float32)
+    row_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
+    col_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * row_scale * col_scale
 
-    # inductor generates a suffix
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor C, Tensor scale_A, Tensor scale_B) -> None")
+def scaled_mm(A: Tensor, B: Tensor, C: Tensor, scale_A: Tensor, scale_B: Tensor):
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
     - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
@@ -115,36 +114,51 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     is_col_scale_B     = scale_B.shape == ( 1, B.shape[1] )
     is_tensor_scale_B  = scale_B.shape == ( 1,          1 )
 
-    if is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B ):
-        assert scale_A.is_contiguous() and scale_B.is_contiguous()
-        return lib_ops.scaled_mm(A, B, scale_A, scale_B)
-    ''' CÓ THỂ MỞ RỘNG RA TILE-WISED SCALE MM ...
-    else:  #   vvvvv generic tile-wise scale  vvvvv
-        assert scale_A.shape[1] == scale_B.shape[0]
-        return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
-    # '''
+    assert is_row_scale_A
+    assert is_col_scale_B or is_tensor_scale_B
+    assert scale_A.is_contiguous()
+    assert scale_B.is_contiguous()
 
-@torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
+    lib_ops.scaled_mm(A, B, C, scale_A, scale_B)
+
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
-
+def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape
     _, N = B.shape
-
-    assert K % 2 == 0             # => EVEN_K = True
-    assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
-
-    C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
-    _scaled_mm_kernel[_grid](
-        A, B, C,
-        row_scale_A, col_scale_B,
-        M, N, K,
-        *A.stride(), *B.stride(), *C.stride(),
+    _scaled_mm_kernel[_grid]( 
+        A, B, C, row_scale_A, col_scale_B,
+        M, N, K, *A.stride(), *B.stride(), *C.stride(),
     )
-    return C
+
+
+@torch.no_grad()
+def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
+    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
+    tensor = tensor.float() # tensor là float32 => scale là float32
+    scale  = tensor.abs().amax(1, keepdim=True) / 127
+    tensor = tensor / scale.clip(eps)
+    if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
+    else:    tensor.round_()      # ^^^stochastic rounding^^^^
+    tensor = tensor.clip(-128, 127).to(torch.int8)
+    return ( tensor, scale )
+
+
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
+    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32)
+    A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
+    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
+    scaled_mm(
+        A_i8.contiguous(),
+        B_t_i8.contiguous().T,
+        C,
+        row_scale.contiguous(),
+        col_scale.T.contiguous(),
+    )
+    if hack:# Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
+            noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
+            return (C + noise).to(torch.bfloat16)
+    else:   return C.to(A.dtype)
 
 
 ##############################################
@@ -169,32 +183,6 @@ FULL = INT8_SR_MODE == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@g
 FWD_SR          = HALF or FULL
 BWD_INPUT_SR    = True
 BWD_WEIGHT_SR   = BACK or FULL
-
-@torch.no_grad()
-def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
-    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
-    scale = tensor.abs().amax(dim, keepdim=True) / 127  # [N, 1]
-    inv_scale = 1.0 / scale.float().clip(eps)       # little bit faster than 
-    tensor = tensor.float() * inv_scale.view(-1, 1) # tensor/scale.clip(eps)
-    if sr: tensor = (tensor + torch.rand_like(tensor)).floor()
-    else:    tensor.round_() # ^^^stochastic rounding^^^^
-    tensor = tensor.clip(-128, 127).to(torch.int8)
-    return ( tensor, scale )
-
-
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
-    if sr and hack: # => chỉ sr ma trận nhỏ
-        Asr = A.numel() < B.numel()
-        Bsr = not Asr
-    else: Asr = Bsr = sr
-    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
-    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
-    return scaled_mm(
-        A_i8.contiguous(),
-        B_t_i8.contiguous().T,
-        row_scale.contiguous(),
-        col_scale.T.contiguous(),
-    )
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
