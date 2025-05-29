@@ -455,7 +455,7 @@ if __name__ == "__main__":
         future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
-        loss_fn = [ simple_loss_fn, fused_loss_fn ][0]#[step % 2]
+        loss_fn = [ simple_loss_fn, fused_loss_fn ][step % 2]
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
