@@ -99,7 +99,7 @@ def _scaled_mm_kernel(
 
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, Tensor C) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor):
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor) -> Tensor:
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
     - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
