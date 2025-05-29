@@ -36,8 +36,6 @@ ROUNDING & SMOOTHING
 => Giống https://alphaxiv.org/overview/2502.20586#key-innovation-mxfp4-with-random-hadamard-transform-and-stochastic-rounding
 
 ## SageBwd
-<img src="https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png" width="60%">
-
 |Activation|Storage|Computation|Lý do|
 |-|-|-|-|
 |Q, K, V (input)|	FP16	|INT8	|Input precision, quantize khi compute|
@@ -48,8 +46,8 @@ ROUNDING & SMOOTHING
 
 The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's grad) and `dK` during the recurrent process along the sequence length in FlashAttention’s backward pass, meaning longer sequences lead to greater error accumulation. Therefore, we maintain `dOV^T` in FP16 while accelerating the other four matrix multiplications using INT8 per-block quantization.
 
-|![alt text](.save/sagebwd-00.png)|![](.save/sagebwd-01.png)|
-|-|-|
+|![](.save/sagebwd-00.png)|![](.save/sagebwd-01.png)|![](https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png)|
+|-|-|-|
 
 - Áp dụng cả per token scaling (PV) và block scaling (V)
 - 
