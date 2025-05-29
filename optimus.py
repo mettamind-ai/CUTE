@@ -148,7 +148,7 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:\
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
     Asr = Bsr = sr
     # if sr and hack: # => chỉ sr ma trận nhỏ
     #     Asr = A.numel() < B.numel()
