@@ -98,8 +98,8 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor C, Tensor scale_A, Tensor scale_B) -> None")
-def scaled_mm(A: Tensor, B: Tensor, C: Tensor, scale_A: Tensor, scale_B: Tensor):
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, Tensor C, return_dtype) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor, return_dtype):
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
     - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
@@ -119,7 +119,7 @@ def scaled_mm(A: Tensor, B: Tensor, C: Tensor, scale_A: Tensor, scale_B: Tensor)
     assert scale_A.is_contiguous()
     assert scale_B.is_contiguous()
 
-    lib_ops.scaled_mm(A, B, C, scale_A, scale_B)
+    return lib_ops.scaled_mm(A, B, C, scale_A, scale_B)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
