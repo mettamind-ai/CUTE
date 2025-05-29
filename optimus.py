@@ -169,7 +169,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
         return (C + noise).to(torch.bfloat16)
     # if quant: return ...
-    return C
+    return C.bfloat16()
 
 
 ##############################################
