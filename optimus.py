@@ -123,10 +123,10 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor): return C
+def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor): return C
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor) -> Tensor:
+def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> Tensor:
     M, K = A.shape
     _, N = B.shape
     _scaled_mm_kernel[_grid]( 
@@ -161,12 +161,14 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         B_t_i8.contiguous().T,
         row_scale.contiguous(),
         col_scale.T.contiguous(),
-        torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.float32),
+        torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32),
     )
     if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
+        assert A.dtype == torch.bfloat16
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-        return (C + noise).to(torch.bfloat16)
+        C = C + noise
     # if quant: return ...
+    # print(A.size(), B.size(), C.size(), "<= A, B, C")
     return C.to(A.dtype)
 
 
@@ -197,11 +199,7 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(input:Tensor, weight, bias=None):
         assert bias is None
-        batch_dims = input.shape[:-1]
-        input = input.view(-1, weight.shape[1])
-        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
-        out = out.view(*batch_dims, weight.shape[0])
-        return out
+        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
 
     @staticmethod
     def setup_context(ctx, inputs, output):

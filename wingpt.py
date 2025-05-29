@@ -420,7 +420,7 @@ if __name__ == "__main__":
     #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
-    # model = torch.compile(model) # chậm !!!
+    model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "fc" in n or "proj" in n]
@@ -455,7 +455,7 @@ if __name__ == "__main__":
         future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
-        loss_fn = [ simple_loss_fn, fused_loss_fn ][ step % 2]
+        loss_fn = [ simple_loss_fn, fused_loss_fn ][0]#[step % 2]
 
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
