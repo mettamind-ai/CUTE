@@ -144,10 +144,17 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
-    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32)
-    A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
-    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
+    if sr and hack: # => chỉ sr ma trận nhỏ
+        Asr = A.numel() < B.numel()
+        Bsr = not Asr
+    else: Asr = Bsr = sr
+    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
+    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
+
+    dtype = torch.float32 if quant els A.dtype
+    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=dtype)
+
     scaled_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
@@ -155,10 +162,8 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
         row_scale.contiguous(),
         col_scale.T.contiguous(),
     )
-    if hack:# Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
-            noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-            return (C + noise).to(torch.bfloat16)
-    else:   return C.to(A.dtype)
+    # if quant: return ...
+    return C
 
 
 ##############################################
@@ -186,11 +191,11 @@ BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None):
+    def forward(input:Tensor, weight, bias=None, quant=False):
         assert bias is None
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
-        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
+        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR, quant=quant)
         out = out.view(*batch_dims, weight.shape[0])
         return out
 

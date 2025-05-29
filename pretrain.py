@@ -207,7 +207,7 @@ print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 """)
 model.train()
 step = 0
-log_interval = 10
+log_interval = 5
 lossv = 9999 # cần cho args.minloss
 
 if args.T: log_interval = 2
