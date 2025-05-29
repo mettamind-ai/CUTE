@@ -23,7 +23,7 @@ ROUNDING & SMOOTHING
 - Fwd
   - `Hadamard Transform` (HT) biến dist gần gaussian để smooth outlier
   - `MSE-optimal fitting` tìm tensor scaling factor tối ưu để min L2 error
-  - `RMS norm` chuẩn hoá về N(0, 1) trước khi quant
+  - `RMS norm` chuẩn hoá về `N(0, 1)` trước khi quant
 
 - Bwd 
   - `final_gradient = stochastic_round(computed_gradient)`
