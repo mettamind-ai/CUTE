@@ -147,7 +147,7 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
     if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
     else:    tensor.round_()      # ^^^stochastic rounding^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
-    return ( tensor, scale )
+    return ( tensor.contiguous(), scale.contiguous() )
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
@@ -156,10 +156,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
 
     return scaled_mm(
-        A_i8.contiguous(),
-        B_t_i8.contiguous().T,
-        row_scale.contiguous(),
-        col_scale.T.contiguous(),
+        A_i8, B_t_i8.T, row_scale, col_scale.T,
         torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32),
     )
     # if sr and hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
@@ -212,10 +209,6 @@ class Int8MixedLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
-
-        batch_dims = grad_output.shape[:-1]
-        grad_output = grad_output.view(-1, weight.shape[0])
-        input = input.view(-1, weight.shape[1])
 
         if ctx.needs_input_grad[0]:
             grad_input = _dynamic_int8_mm(grad_output, weight, sr=BWD_INPUT_SR)
