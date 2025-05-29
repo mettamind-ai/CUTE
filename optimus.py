@@ -161,9 +161,6 @@ aten = torch.ops.aten
 INT8_SR_MODE = os.getenv('INT8_SR_MODE', 'abit')
 print(f"INT8_SR_MODE => {INT8_SR_MODE}")
 
-HACK = os.getenv('INT8_SR_HACK', '0') == '1' # bật HACK sẽ giảm số sr đi << 1/2 do chỉ sr ma trận nhỏ
-print(f"INT8_SR_HACK => {HACK}")             # HACK chỉ nên dùng với 1 số trường hợp đặc biệt như bỏ kv_proj ngoài int8 
-
 ABIT = INT8_SR_MODE == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
 BACK = INT8_SR_MODE == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@grad.weight         )
 HALF = INT8_SR_MODE == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )
@@ -185,8 +182,8 @@ def quantize_int8(tensor: Tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False) -> Tensor:
-    if sr and HACK: # bật HACK => chỉ sr ma trận nhỏ
+def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
+    if sr and hack: # => chỉ sr ma trận nhỏ
         Asr = A.numel() < B.numel()
         Bsr = not Asr
     else: Asr = Bsr = sr
@@ -205,8 +202,6 @@ class Int8MixedLinear(torch.autograd.Function):
         assert bias is None
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
-        # Có thể không sử dụng stochasic rounding ở forward vì 
-        # x2 slow do activation checkpoint sẽ tính forward 2 lần
         out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
         out = out.view(*batch_dims, weight.shape[0])
         return out
@@ -232,8 +227,8 @@ class Int8MixedLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn '''
-            grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR).T
+            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn có thể bật '''
+            grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR, hack=True).T
 
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
@@ -283,8 +278,8 @@ class MixedPrecisionLinearWeight(Tensor):
         else: return out # new unwrapped object
 
 import re
-def convert_int8_mixed_precision(module:nn.Module, ignore=r'head|k_proj|v_proj'):
-    ignore= re.compile(ignore) # kv trong  có thể fused
+def convert_int8_mixed_precision(module:nn.Module, ignore='head|k_proj|v_proj'):
+    ignore = re.compile(rf'{ignore}')
     names, params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
