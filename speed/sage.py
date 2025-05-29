@@ -190,6 +190,22 @@ def quant_per_block_int8_kernel(
 
 
 def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None):
+    ''' Inputs:
+    q: [total_seqlens, num_qo_heads, head_dim]  
+    k: [total_seqlens, num_kv_heads, head_dim]
+    cu_seqlens: [batch_size + 1] - cumulative sequence lengths
+    
+    Returns:
+    q_int8: [total_seqlens, num_qo_heads, head_dim] - dtype=int8
+    k_int8: [total_seqlens, num_kv_heads, head_dim] - dtype=int8  
+    q_scale: [total_blocks, num_qo_heads] - dtype=float32
+    k_scale: [total_blocks, num_kv_heads] - dtype=float32
+    cu_seqlens_scale: [batch_size + 1] - cumulative block counts
+
+    Với:
+    total_seqlens = cu_seqlens[-1]
+    total_blocks  = cu_seqlens_scale[-1]
+    '''
     q_int8 = torch.empty(q.shape, dtype=torch.int8, device=q.device)
     k_int8 = torch.empty(k.shape, dtype=torch.int8, device=k.device)
 
@@ -201,11 +217,13 @@ def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None
     batch_len = cu_seqlens[1:] - cu_seqlens[:-1]
     scale_len = (batch_len + BLK_QK - 1) // BLK_QK
 
-    cu_seqlens_scale = torch.nn.functional.pad(torch.cumsum(scale_len, dim=0), (1, 0), value=0)
+    cu_seqlens_scale = torch.cumsum(scale_len, dim=0)
+    cu_seqlens_scale = torch.nn.functional.pad(cu_seqlens_scale, (1, 0), value=0) # thêm 0 vào bên trái <= (1, 0)
+
     q_scale = torch.empty((cu_seqlens_scale[-1], h_qo), device=q.device, dtype=torch.float32)
     k_scale = torch.empty((cu_seqlens_scale[-1], h_kv), device=k.device, dtype=torch.float32)
 
-    if sm_scale is None: sm_scale = head_dim**-0.5
+    if sm_scale is None: sm_scale = (2*head_dim)**-0.5
     grid = ((max_seqlen + BLK_QK - 1) // BLK_QK, h_qo, b)
 
     quant_per_block_int8_kernel[grid](
@@ -213,7 +231,7 @@ def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None
         cu_seqlens, cu_seqlens_scale,
         q.stride(1), q.stride(0),
         q_int8.stride(1), q_int8.stride(0),
-        sm_scale=(sm_scale * 1.44269504), H=h_qo,
+        sm_scale=sm_scale, H=h_qo,
         C=head_dim, BLK=BLK_QK
     )
     grid = ((max_seqlen + BLK_QK - 1) // BLK_QK, h_kv, b)
