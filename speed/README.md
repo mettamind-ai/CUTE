@@ -3,8 +3,10 @@
 
 1. có thể train fp8 weights được không? => fp4 kernel (ĐƯỢC!) 
 
-2. flash_attn'3 fp8 có hỗ trợ 5090? (lý thuyết được, thực tế đang bị lỗi?)
-   Nếu không thì có kernels nào nhanh hơn flash_attn không?
+2. flash_attn'3 fp8 có hỗ trợ 5090? (Cài từ source đc?)
+  - FA3 hỗ trợ FP16 / BF16 fwd & bwd, FP8 fwd
+  - Có kernels nào nhanh hơn flash_attn không?
+    - https://www.alphaxiv.org/overview/2505.11594 INT8 SageBwd tốt cho finetune, pretrain yếu
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
@@ -32,3 +34,22 @@ ROUNDING & SMOOTHING
   - `final_gradient = stochastic_round(computed_gradient)`
 
 => Giống https://alphaxiv.org/overview/2502.20586#key-innovation-mxfp4-with-random-hadamard-transform-and-stochastic-rounding
+
+## SageBwd
+<img src="https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png" width="60%">
+
+|Activation|Storage|Computation|Lý do|
+|-|-|-|-|
+|Q, K, V (input)|	FP16	|INT8	|Input precision, quantize khi compute|
+|S (scores)     |	FP16	|FP16	|Intermediate softmax cần precision   |
+|P (attention)  |	FP16	|INT8	|Quantize cho PV multiplication       |
+|dOV^T	        | FP16	|🔴 FP16	|Critical cho gradient accuracy!  |
+|dS, dQ, dK	    | FP16	|INT8	|Gradients cần FP16 storage           |
+
+The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's grad) and `dK` during the recurrent process along the sequence length in FlashAttention’s backward pass, meaning longer sequences lead to greater error accumulation. Therefore, we maintain `dOV^T` in FP16 while accelerating the other four matrix multiplications using INT8 per-block quantization.
+
+|![alt text](.save/sagebwd-00.png)|![](.save/sagebwd-01.png)|
+|-|-|
+
+- Áp dụng cả per token scaling (PV) và block scaling (V)
+- 

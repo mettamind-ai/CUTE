@@ -53,6 +53,40 @@ class ReLuSquareMLP(nn.Module):
         return x
 
 
+
+####################################
+##  LIMe Layer-Integrated Memory  ##
+####################################
+
+# https://github.com/corl-team/lime/blob/main/src/lm/lime.py
+class StaticRouter(nn.Module):
+    def __init__(self, num_kv_heads, layer_id):
+        super().__init__()
+        self.R = num_kv_heads
+        self.L = layer_id + 1
+        self.fan_in = self.L * self.R
+
+        with torch.no_grad():
+            bound = math.sqrt(3 / self.fan_in)
+            w = torch.zeros(self.R, self.fan_in).uniform_(-bound, bound)
+            w[:, -self.R :] = torch.eye(self.R)
+            self.static_weights = nn.Parameter(w)
+
+    def extra_repr(self) -> str: return f"n_repr={self.fan_in}, heads={self.R}"
+    
+    def forward(self, stacked_last_hiddens): # stacked_last_hiddens: (L H) (B T 2 Hd)
+        return self.static_weights.mm(stacked_last_hiddens)
+
+
+class Layer0Router(nn.Module):
+    def __init__(self, num_heads: int):
+        super().__init__()
+        self.num_heads = num_heads
+
+    def forward(self, stacked_last_hiddens):
+        return stacked_last_hiddens[: self.num_heads]
+
+
 #####################################
 ## CausalSelfAttention Time Mixing ##
 #####################################
@@ -89,7 +123,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, long=False, layer_id=None):
+            seq_len:int, head_dim=128, long=False, layer_id=0):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
@@ -108,6 +142,7 @@ class CausalSelfAttention(nn.Module):
             self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
             self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self. o_proj.weight.zero_() # zero init
+        self.lime_router = StaticRouter(num_kv_heads, layer_id) if layer_id > 0 else Layer0Router(num_heads)
 
         if long:
             self.rope   = False
@@ -115,7 +150,6 @@ class CausalSelfAttention(nn.Module):
         else:
             self.rope   = True
             self.window = 1024  # short
-
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
@@ -134,6 +168,13 @@ class CausalSelfAttention(nn.Module):
         q = q.contiguous().view(T, H,   D)
         k = k.contiguous().view(T, Hkv, D)
         v = v.contiguous().view(T, Hkv, D)
+
+        ''' https://github.com/corl-team/lime/blob/main/src/lm/lime.py#L127
+        # routing KV-cache to each head from all previous layers and heads
+        kv_states = self.lime_router(kv_buffer)
+        kv_states = kv_states.view(num_kv_heads, B, T, 2 * Hd).permute(1, 0, 2, 3)
+        k_states, v_states = ( kv_states[..., :Hd], kv_states[..., Hd:],)  # B H T (2 Hd) -> B H T Hd, B H T Hd
+        '''
 
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)

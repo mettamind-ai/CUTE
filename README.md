@@ -72,3 +72,5 @@
 - [ ] kiểm tra compiled graph xem ở những phép tính có thể song song và dùng cùng 1 activation đã đc torch tối ưu chưa?
   - Ví dụ `self.q_proj(x); self.kv_proj(x)` và `q, k, v = norm(q), norm(k), norm(v)` trong attn fwd
   - [ ] tìm hiểu cách torch compile tối ưu và fuse các phép toán ...
+- [ ] LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
+  - giải quyết vấn đề representation collapse trong Transformers
