@@ -4,7 +4,7 @@
 1. có thể train fp8 weights được không? => fp4 kernel (ĐƯỢC!) 
 
 2. flash_attn'3 fp8 có hỗ trợ 5090? (lý thuyết được, thực tế đang bị lỗi?)
-   Nếu không thì có kernels nào nhanh hơn flash_attn không? => Quartet FP4
+   Nếu không thì có kernels nào nhanh hơn flash_attn không?
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
