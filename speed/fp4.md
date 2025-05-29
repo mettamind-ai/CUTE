@@ -5,6 +5,8 @@ FP4 TRAINING
 - https://www.nvidia.com/en-us/on-demand/session/gtc25-s72778
 - https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
 - https://arxiv.org/html/2502.20586v2#S2.SS5
+- MX4DL MXFP6 ~= FP32 https://www.alphaxiv.org/abs/2310.10537
+- MXFP6 MXINT8 https://intel.github.io/neural-compressor/latest/docs/source/3x/PT_MXQuant.html
 
 MX formats have `multiple scaling factors per tensor`:
 - Element dtype and encoding
@@ -16,7 +18,9 @@ For MXFP8:
 - Scale dtype = E8M0
 - Block size = 32
 
-
+|![](https://paper-assets.alphaxiv.org/figures/2310.10537/img-2.jpeg)|![](https://paper-assets.alphaxiv.org/figures/2310.10537/img-3.jpeg)|
+> MXFP6 (weight, activation, gradient) và giữ nguyên công thức huấn luyện đường loss trùng khớp FP32
+> MXFP4 weight và MXFP6 activation và gradient cho hiệu suất bám sát FP32
 
 # Training LLMs with MXFP4
 - https://github.com/amazon-science/mxfp4-llm
