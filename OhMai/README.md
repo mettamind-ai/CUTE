@@ -8,7 +8,7 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
 ---
 
 - [x] [SageAttention3 int8, fp8](https://arxiv.org/abs/2505.11594) fwd/bwd can be a good choice for LoRA.
-  Thử nghiệm [sage.py](sage.py) cho thấy ở 4k ctx sage's fwd x1.5 flash_attn, 8k và 16k thì x2 flash_attn
+  Thử nghiệm [sage.py](/speed/sage.py) cho thấy ở 4k ctx sage's fwd x1.5 flash_attn, 8k và 16k thì x2 flash_attn
   Với LoRA thì chỉ cần tính input gradient nên code sẽ tinh giản hơn ...
 
 - [ ] Trước mắt chỉ cần áp dụng phép nhân ma trận 8bit vào [lora.py](lora.py) là cũng đã save vram và speedup kha khá ...
