@@ -148,14 +148,14 @@ def quantize_int8_rowwise(tensor, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
+INT8_SR_HACK = os.getenv('INT8_SR_HACK', '1') == 1
+print(f"INT8_SR_HACK => {INT8_SR_HACK}") # bật HACK thì toàn bộ số rounding giảm đi 1/2
+
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) -> Tensor:
-    Asr = Bsr = sr
-    if sr and hack:
-        # Asr = A.numel() < B.numel()
-        # Bsr = not Asr # <= chỉ sr ma trận nhỏ
-        Asr = Bsr = False 
-    A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
-    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
+    hack = hack or INT8_SR_HACK
+    if hack: sr = False 
+    A_i8, row_scale = quantize_int8_rowwise(A, sr=sr)
+    B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=sr)
 
     C = scaled_mm(
         A_i8.contiguous(),
@@ -192,8 +192,8 @@ BACK = INT8_SR_MODE == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@g
 HALF = INT8_SR_MODE == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )
 FULL = INT8_SR_MODE == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
 
-FWD_SR          = HALF or FULL
-BWD_INPUT_SR    = True
+FWD_SR          = HALF or FULL  # forward pass nên QuEST để tăng độ chính xác
+BWD_INPUT_SR    = True          # gradient truyền ngược về sau, cần phải luôn rounding
 BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
@@ -224,7 +224,7 @@ class Int8MixedLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn có thể bật '''
+            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn, bật hack để rounding sau khi nhân xong '''
             grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR, hack=True).T
 
         if ctx.needs_input_grad[2] and ctx.bias:
