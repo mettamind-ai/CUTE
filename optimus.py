@@ -167,9 +167,9 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     )
     if hack and dtype == torch.float32: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-        return (C + noise).to(torch.bfloat16)
+        C = C + noise
     # if quant: return ...
-    return C.bfloat16()
+    return C.to(torch.bfloat16)
 
 
 ##############################################
