@@ -123,10 +123,9 @@ def scaled_mm(A: Tensor, B: Tensor, C: Tensor, scale_A: Tensor, scale_B: Tensor)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, C:Tensor, row_scale_A: Tensor, col_scale_B: Tensor): return None
-
+def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor): return None
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> None:
     M, K = A.shape
     _, N = B.shape
     _scaled_mm_kernel[_grid]( 
@@ -155,9 +154,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
 
-    dtype = torch.float32 # if quant else A.dtype
-    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=dtype)
-
+    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32)
     scaled_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
@@ -165,9 +162,9 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         row_scale.contiguous(),
         col_scale.T.contiguous(),
     )
-    if hack and dtype == torch.float32: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
+    if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
-        C = C + noise
+        return (C + noise).to(torch.bfloat16)
     # if quant: return ...
     return C.to(A.dtype)
 
@@ -197,17 +194,17 @@ BWD_WEIGHT_SR   = BACK or FULL
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None):
+    def forward(input:Tensor, weight, bias=None, quant=False):
         assert bias is None
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
-        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
+        out = _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR, quant=quant)
         out = out.view(*batch_dims, weight.shape[0])
         return out
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias = inputs
+        input, weight, bias, quant = inputs
         assert bias is None
         ctx.save_for_backward(input, weight._data)
         ctx.bias = False
@@ -232,7 +229,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, None
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
