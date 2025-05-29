@@ -124,7 +124,7 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor)
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor):
-     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.float32)
+     return C
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor) -> Tensor:
