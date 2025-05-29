@@ -98,8 +98,8 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, Tensor C, return_dtype) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor, return_dtype):
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, Tensor C) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor):
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
     - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
@@ -123,11 +123,11 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, C: Tensor,
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor, return_dtype):
-     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=return_dtype)
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor):
+     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.float32)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor, return_dtype) -> Tensor:
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor) -> Tensor:
     M, K = A.shape
     _, N = B.shape
     _scaled_mm_kernel[_grid]( 
@@ -164,7 +164,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
         B_t_i8.contiguous().T,
         row_scale.contiguous(),
         col_scale.T.contiguous(),
-        C, return_dtype,
+        C,
     )
     if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
