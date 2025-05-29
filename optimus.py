@@ -123,15 +123,18 @@ def scaled_mm(A: Tensor, B: Tensor, C: Tensor, scale_A: Tensor, scale_B: Tensor)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor): return None
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, C: Tensor, return_dtype):
+     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=return_dtype)
+
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, C: Tensor, row_scale_A: Tensor, col_scale_B: Tensor) -> None:
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor,  C: Tensor, return_dtype) -> Tensor:
     M, K = A.shape
     _, N = B.shape
     _scaled_mm_kernel[_grid]( 
         A, B, C, row_scale_A, col_scale_B,
         M, N, K, *A.stride(), *B.stride(), *C.stride(),
     )
+    return C
 
 
 @torch.no_grad()
@@ -154,13 +157,14 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False, quant=False) ->
     A_i8, row_scale = quantize_int8_rowwise(A, sr=Asr)
     B_t_i8, col_scale = quantize_int8_rowwise(B.T, sr=Bsr)
 
-    C = torch.empty(A.shape[0], B.shape[1], device=A.device, dtype=torch.float32)
+    return_dtype = torch.float32
+    C = torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=return_dtype)
     scaled_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
-        C,
         row_scale.contiguous(),
         col_scale.T.contiguous(),
+        C, return_dtype,
     )
     if hack: # Giả định ULP ≈ x * 2^-7 (bỏ qua edge cases)
         noise = (torch.rand_like(C) - 0.5) * torch.abs(C) * (2**-7)
