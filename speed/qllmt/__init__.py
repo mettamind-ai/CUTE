@@ -1,10 +1,8 @@
 import re
-from .utils import timing_block, pack_int8_to_bf16, unpack_bf16_to_int8
 from .halo_linear import HaloLinear
 
-
 def wrap_linear_module(module, config):
-    kernel = config.get('kernel', 'simulated')
+    kernel = config.get('kernel', 'halo')
     if kernel.startswith('halo'):
         print(f'wrapping with {kernel}')
         return HaloLinear.from_unquantized(module, hq_config=config)
