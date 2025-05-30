@@ -50,7 +50,7 @@ _tensor_layout = 0 # "NHD"
 def per_warp_int8(
     q: torch.Tensor, 
     k: torch.Tensor,
-    km: Optional[torch.Tensor] = None,
+    km:torch.Tensor = None,
     BLKQ: int =128,
     WARPQ: int =32,
     BLKK: int =64,
