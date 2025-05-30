@@ -3,6 +3,9 @@ from torch import Tensor
 from pathlib import Path
 import torch.utils.cpp_extension
 
+from typing import Any, List, Literal, Optional, Tuple, Union
+import warnings
+
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 os.environ['MAX_JOBS'] = "4"
 
@@ -50,7 +53,7 @@ _tensor_layout = 0 # "NHD"
 def per_warp_int8(
     q: torch.Tensor, 
     k: torch.Tensor,
-    km:torch.Tensor = None,
+    km: Optional[torch.Tensor] = None,
     BLKQ: int =128,
     WARPQ: int =32,
     BLKK: int =64,
@@ -99,7 +102,7 @@ def sageattn_qk_int8_pv_fp8_cuda(
     v: torch.Tensor,
     is_causal: bool = False,
     qk_quant_gran: str = "per_thread",
-    sm_scale: float = None,
+    sm_scale: Optional[float] = None,
     **kwargs: Any,
 ) -> torch.Tensor:
     """
@@ -113,7 +116,7 @@ q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
 k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
 v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
 is_causal : bool Only applicable when qo_len == kv_len. Default: False.
-sm_scale : float. If not provided, will be set to ``1.0 / sqrt(head_dim)``.
+sm_scale : Optional[float]. If not provided, will be set to ``1.0 / sqrt(head_dim)``.
 
 Returns
 -------
