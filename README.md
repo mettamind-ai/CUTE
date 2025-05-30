@@ -55,12 +55,13 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
-- Overcome điểm yếu của INT Mixed hiện tại:
-  - [x] ~~smooth để giảm thiểu outliers => hadamard transform~~ chậm quá trình
-    - tham khảo HT từ quest và qllmt
-🌸__DOING__🌸
-- [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale/col_scale linh hoạt
+- [x] ~~smooth để giảm thiểu outliers => hadamard transform~~ chậm quá trình
+  - tham khảo HT từ quest và qllmt
+- [x] ~~lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale?~~
+  - không khả thi với row scale vì khi bwd input phải transpose
+  - với tile scale thì kernel hiện tại đang chậm, ko hơn đc bf16 là mấy
 
+🌸__DOING__🌸
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2

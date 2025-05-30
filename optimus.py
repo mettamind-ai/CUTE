@@ -335,14 +335,24 @@ class Int8MixedLinear(torch.autograd.Function):
         
         ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
         grad_input = grad_output @ weight
+        ''' Tile scale
+        A, B = grad_output, weight
+        A, As = tile_quantize_int8(A, tile_shape=tile_shape, sr=True)
+        B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
+        grad_input = scaled_mm(A, B, As, Bs,)
+        # '''
 
         if ctx.needs_input_grad[1]:
             ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
+            # grad_weight = grad_output.T @ inp
             A, B  = grad_output.T, inp
             A, As = quantize_int8(A, dim=1, sr=False)
             B, Bs = quantize_int8(B, dim=0, sr=False)
-            rgrad_weight = scaled_mm(A, B, As, Bs,)
-            # grad_weight = grad_output.T @ inp
+            grad_weight = scaled_mm(A, B, As, Bs,)
+            ''' Tile scale
+            IT, ITs = tile_quantize_int8(inp.T, tile_shape=tile_shape, sr=False)
+            grad_weight = scaled_mm(IT, A, ITs, As).T
+            # '''
 
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
