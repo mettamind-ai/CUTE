@@ -81,9 +81,9 @@ def _scaled_mm_kernel(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
-    row_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
-    col_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
-    acc = acc.to(tl.float32) * row_scale * col_scale
+    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
+    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
+    acc = acc.to(tl.float32) * A_scale * B_scale
 
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
@@ -138,24 +138,24 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 
 
 @torch.no_grad()
-def quantize_int8(tensor, dim=-1, eps=1e-12, sr=False) -> Tensor:
+def quantize_int8(tensor, dim=1, eps=1e-12, sr=False) -> Tensor:
     ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
     scale  = tensor.abs().amax(dim, keepdim=True) / 127
     tensor = tensor.float() / scale.float().clip(eps)
     if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
-    else:    tensor.round_()      # ^^^stochastic rounding^^^^
+    else:    tensor.round_()    # ^^^ stochastic rounding ^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
-    return ( tensor.contiguous(), scale.contiguous() )
+    return ( tensor, scale )
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
-    if sr and hack: # => chỉ sr ma trận nhỏ
+    if sr and hack: # => chỉ rounding ma trận nhỏ
         Asr = A.numel() < B.numel()
         Bsr = not Asr
     else: Asr = Bsr = sr
-    A_i8, row_scale = quantize_int8(A, dim=1, sr=Asr)
-    B_t_i8, col_scale = quantize_int8(B.T, dim=1, sr=Bsr)
-    return scaled_mm(A_i8, B_t_i8.T, row_scale, col_scale.T,)
+    Ai8, row_scale = quantize_int8(A, dim=1, sr=Asr)
+    Bi8, col_scale = quantize_int8(B, dim=0, sr=Bsr)
+    return scaled_mm(Ai8, Bi8, row_scale, col_scale,)
 
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
@@ -195,21 +195,24 @@ class Int8MixedLinear(torch.autograd.Function):
         ctx.bias = False
 
     @staticmethod
-    def backward(ctx, grad_output):
-        input, weight = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
+    def backward(ctx, go):          # grad_output
+        ii, ww = ctx.saved_tensors  # input, weigth
+        gi = gw = gb = None         # grad_input, grad_weight, grad_bias
 
         if ctx.needs_input_grad[0]:
-            grad_input = _dynamic_int8_mm(grad_output, weight, sr=BWD_INPUT_SR)
+            go_i8, go_row_scale = quantize_int8(go, dim=1, sr=BWD_INPUT_SR)
+            ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=BWD_INPUT_SR)
+            gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
 
         if ctx.needs_input_grad[1]:
             ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn, bật hack '''
-            grad_weight = _dynamic_int8_mm(input.T, grad_output, sr=BWD_WEIGHT_SR, hack=True).T
+            it_i8, it_col_scale = quantize_int8(ii.T, dim=1, sr=BWD_WEIGHT_SR)
+            gw = scaled_mm(it_i8, go_i8, it_col_scale, go_row_scale,)
 
         if ctx.needs_input_grad[2] and ctx.bias:
-            grad_bias = grad_output.sum(0)
+            gb = go.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return gi, gw, gb
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph

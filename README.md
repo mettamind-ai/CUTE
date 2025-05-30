@@ -59,13 +59,13 @@
   - [x] ~~smooth để giảm thiểu outliers => hadamard transform~~ chậm quá trình
     - tham khảo HT từ quest và qllmt
 🌸__DOING__🌸
-- [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale
-  - [ ] cần sử dụng block quant và chọn block sao cho tái sử dụng được
-    - sử dụng lại block quant từ sage?
-    - Học cách DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
-      - Activations are quantized in blocks of size 128x1 using the FP8 format
-      - Weights are quantized in blocks of size 128x128 using the FP8 format
-    ![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
+- [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale/col_scale linh hoạt
+- [ ] sử dụng block quant để tăng độ chính xác và chọn block sao cho tái sử dụng được
+  - sử dụng lại block quant từ sage?
+  - Học cách DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
+    - Activations are quantized in blocks of size 128x1 using the FP8 format
+    - Weights are quantized in blocks of size 128x128 using the FP8 format
+  ![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
 
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
