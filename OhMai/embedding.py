@@ -168,11 +168,7 @@ class OhMaiEmbedding(nn.Module):
 ########################
 
 if __name__ == "__main__":
-    import os, sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    
-    from liger_kernel import LigerEmbedding
-
+    # import os, sys; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # extend path to `..`
     vocab, dim, ctx = 6400, 128, 32
  
     torch.manual_seed(1981)
@@ -181,23 +177,19 @@ if __name__ == "__main__":
     torch.manual_seed(1981)
     e1 =   nn.Embedding(vocab, dim).cuda()
  
-    torch.manual_seed(1981)
-    e2 = LigerEmbedding(vocab, dim).cuda()
-
     params = \
         list(e0.parameters()) + \
-        list(e1.parameters()) + \
-        list(e2.parameters())
+        list(e1.parameters())
 
     optimizer = torch.optim.AdamW(params, lr=0.1)
 
-    for i in range(3):
+    for i in range(5):
         optimizer.zero_grad()
     
         x = torch.randint(0, ctx//2, (ctx,), dtype=torch.int16).cuda()
         
         losses = []
-        for e in [e0, e1, e2]:
+        for e in [e0, e1]:
             y = e(x.long())
             # Tạo loss giả để có gradient
             target = torch.randn_like(y)

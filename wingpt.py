@@ -6,7 +6,8 @@ import torch.nn.functional as F
 
 from optimus import Int8MixedLinear
 from flash_attn import flash_attn_varlen_func
-from liger_kernel import LigerFusedLinearCrossEntropyFunction, LigerEmbedding
+from liger_kernel import LigerFusedLinearCrossEntropyFunction
+from OhMai.embedding import OhMaiEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -234,9 +235,6 @@ class Future(nn.Module):
         x = x + self.mlp(norm(x), te)         #  trộn per layer te sau block
         return norm(x)
 
-
-##########################################
-from OhMai.embedding import OhMaiEmbedding
 
 class WinGPT(nn.Module):
     def has_future(self):
