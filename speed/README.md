@@ -1,10 +1,10 @@
 
-**Có ba thứ cần tìm hiểu về blackwell gamming gpus (rtx 50xx)**
+**Có ba thứ cần tìm hiểu về gamming gpus
 
-1. có thể train fp8 weights được không? => fp4 kernel (ĐƯỢC!) 
+1. có thể train fp8 weights được không? => ĐƯỢC! nếu dùng fp4 kernel trên 50xx
 
-2. flash_attn'3 fp8 có hỗ trợ 5090? (Cài từ source đc?)
-  - FA3 hỗ trợ FP16 / BF16 fwd & bwd, FP8 fwd
+2. Full (fwd+bwd) attention kernels nào phù hợp?
+  - flash-attn_3 hỗ trợ FP16 / BF16 fwd & bwd, FP8 fwd, chưa compiled đc trên 4090.
   - Có kernels nào nhanh hơn flash_attn không?
     - https://www.alphaxiv.org/overview/2505.11594 INT8 SageBwd tốt cho finetune, pretrain yếu
 
