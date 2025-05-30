@@ -196,15 +196,16 @@ class Int8MixedLinear(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, go):          # grad_output
-        ii, ww = ctx.saved_tensors  # input, weigth
+        i, ww = ctx.saved_tensors   # input, weigth
         gi = gw = gb = None         # grad_input, grad_weight, grad_bias
 
         if ctx.needs_input_grad[0]: # Grad truyền tiếp, cần độ cx cao 
             gi = go @ ww
+            gi = gi.view(*go.shape[:-1], ww.shape[1])
 
         if ctx.needs_input_grad[1]:
             ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
-            it_i8, it_row_scale = quantize_int8(ii.T, dim=1, sr=False)
+            it_i8, it_row_scale = quantize_int8(i.T, dim=1, sr=False)
             go_i8, go_col_scale = quantize_int8(go, dim=0, sr=False)
             gw = scaled_mm(it_i8, go_i8, it_row_scale, go_col_scale,)
 
