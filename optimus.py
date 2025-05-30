@@ -173,7 +173,9 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(input:Tensor, weight, bias=None):
         assert bias is None
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        return _dynamic_int8_mm(input, weight._data.T, sr=FWD_SR)
+        A, As = quantize_int8(input, dim=1, sr=True)
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)
+        return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
