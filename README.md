@@ -46,6 +46,9 @@
   - NAS https://arxiv.org/abs/2411.19146
   - Llama-Nemotron https://arxiv.org/abs/2505.00949
 - Cross-Layer Attention (CLA) -  sharing key and value heads between adjacent layers - https://arxiv.org/abs/2405.12981
+- LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
+  - giải quyết vấn đề representation collapse trong Transformers
+- tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
 ## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
 - `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
 - Bài toán bộ gõ thông minh:
@@ -60,13 +63,12 @@
 - [x] ~~lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale?~~
   - không khả thi với row scale vì khi bwd input phải transpose
   - với tile scale thì kernel hiện tại đang chậm, ko hơn đc bf16 là mấy
+- [x] ~~int4 mixed mm ko nhanh hơn mấy + vỡ loss~~
 
 🌸__DOING__🌸
+- [ ] Tích hợp qwen 3
+  <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">
+
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
-
-- [ ] LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
-  - giải quyết vấn đề representation collapse trong Transformers
-
-- [ ] tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
