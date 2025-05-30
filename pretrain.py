@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)
+parser.add_argument("--ohmai", type=int, default=None, choices=[None, 1600, 2048, 2560])
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj` => ignore all) 
 parser.add_argument("--int8sr", type=str, default="abit", choices="abit half full back".split())
@@ -27,7 +28,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "T C XS S L M fused ohmai".split():
+for x in "T C XS S L M fused".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -53,7 +54,7 @@ if  args.L: # (L)arge ~ 999m
         ve=args.ve, dim=2048, n_layers=27,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=2048 if args.ohmai else None,
+        active_vocab=args.ohmai,
     )
 elif args.M: # (M)edium ~ 666m
     model = WinGPT(
@@ -61,7 +62,7 @@ elif args.M: # (M)edium ~ 666m
         ve=args.ve, dim=1664, n_layers=26,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=2048 if args.ohmai else None,
+        active_vocab=args.ohmai,
     )
 elif args.S: # (S)mall ~ 333m
     model = WinGPT(
@@ -69,7 +70,7 @@ elif args.S: # (S)mall ~ 333m
         ve=args.ve, dim=1280, n_layers=22,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=2048 if args.ohmai else None,
+        active_vocab=args.ohmai,
     )
 else:        # (XS)mall ~ 100m
     model = WinGPT(
@@ -77,7 +78,7 @@ else:        # (XS)mall ~ 100m
         ve=args.ve, dim=768, n_layers=16,
         te=args.te, num_heads=8, num_kv_heads=4,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=2048 if args.ohmai else None,
+        active_vocab=args.ohmai,
     )
 model = model.cuda()
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
