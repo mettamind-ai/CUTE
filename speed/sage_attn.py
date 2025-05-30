@@ -153,7 +153,7 @@ torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
     seq_dim = 1 if _tensor_layout == 0 else 2
     km = k.mean(dim=seq_dim, keepdim=True)
 
-    q_int8, q_scale, k_int8, k_scale = per_thread_int8_triton(q, k, km, tensor_layout=tensor_layout, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64)
+    q_int8, q_scale, k_int8, k_scale = per_thread_int8(q, k, km, tensor_layout=tensor_layout, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64)
     o = torch.empty(q.size(), dtype=dtype, device=q.device)
 
     v_fp8, v_scale, vm = per_channel_fp8(v, tensor_layout=tensor_layout, smooth_v=False)
