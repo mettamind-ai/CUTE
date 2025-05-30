@@ -4,8 +4,9 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-try: from flash_attn_interface import flash_attn_varlen_func # flash attn 3 hopper
-except:        from flash_attn import flash_attn_varlen_func # flash attn 2
+try: from flash_attn_interface import flash_attn_varlen_func; FA3_ENABLED = True
+except:        from flash_attn import flash_attn_varlen_func; FA3_ENABLED = False
+print("FA3_ENABLED?", FA3_ENABLED)
 
 from optimus import Int8MixedLinear
 from liger_kernel import LigerFusedLinearCrossEntropyFunction

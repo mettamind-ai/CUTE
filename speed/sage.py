@@ -276,12 +276,15 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
     return o
 
 
-if __name__ == "__main__":
-    import torch.nn.functional as F
-    try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func # flash attn 3 hopper
-    except:        from flash_attn import flash_attn_func, flash_attn_varlen_func # flash attn 2
+import torch.nn.functional as F
+from sage_attn import sageattn_qk_int8_pv_fp8_cuda
 
-    lines = "pytorch flash_attn_varlen sageattn_varlen".split()
+try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
+except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
+print("FA3_ENABLED?", FA3_ENABLED)
+
+if __name__ == "__main__":
+    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn sageattn".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
@@ -307,8 +310,12 @@ if __name__ == "__main__":
         vv = v.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
 
         def attn_fn(provider, q, k, v):
-            if "sageattn" in provider:
+            if "sageattn_varlen" == provider:
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
+
+            if "sageattn" == provider:
+                return lambda: sageattn_qk_int8_pv_fp8_cuda(q, k, v, is_causal=True, sm_scale=1.3)
+
 
             if provider == "pytorch":
                 return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)

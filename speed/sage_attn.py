@@ -101,9 +101,7 @@ def sageattn_qk_int8_pv_fp8_cuda(
     k: torch.Tensor, 
     v: torch.Tensor,
     is_causal: bool = False,
-    qk_quant_gran: str = "per_thread",
     sm_scale: Optional[float] = None,
-    **kwargs: Any,
 ) -> torch.Tensor:
     """
 CUDA SageAttention with INT8 quantization for Q and K, FP8 PV with FP32 accumulation.
