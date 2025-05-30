@@ -386,7 +386,7 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     sseed = 1982
-    seq_len = 256
+    seq_len = 1024
     vocab_size = 300
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 8, 4

@@ -2,20 +2,11 @@
 ''' TẬP HỢP CODE TỐI ƯU ĐỂ TRAIN LLM TRÊN GAMING GPU (30xx, 40xx, 50xx)
 INT8 Mixed Precision modded from github.com/gau-nernst/quantized-training
 Muon optimizer modded from github.com/nil0x9/flash-muon
-
-Revert commit quantized-training/commit/d430911a5fcf70ba4d4331933b8d0147927a9d6f
-để giữ triton code đơn giản. Commit này có nhiều điểm thú vị:
-- `scaled_mm` chấp nhận cả int8 và pf8
-- `tile_scaled_mm` kernel mới cho ma trận đã được lượng tử hoá block-wise (32×32)
-  => Đọc một block K nhỏ nhiều lần giúp giảm cache miss
-  => Độ chính xác cao hơn: Block-wise scale (16, 32 phần tử) sai số lượng tử hoá 
-    thấp hơn kiểu per-row/col, đặc biệt với mạng lớn.
-- 4090 có thể hỗ trợ (1 phần) pf8, cần tìm hiểu và khai thác!
 '''
 
-#################################
-##  INT8 Triton Matmul support ##
-#################################
+##########################
+##  INT8 Triton Matmul  ##
+##########################
 
 import torch, triton, os
 import triton.language as tl
@@ -89,7 +80,99 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
+@triton.autotune(
+    # need to find more performant configs...
+    configs=[
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=2, num_warps=8),
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=3, num_warps=8),
+    ],
+    key=["M", "N", "K", "stride_ak", "stride_bk"],
+)
+@triton.jit
+def _tile_scaled_mm_kernel(
+    A_ptr,  # (M, K)
+    B_ptr,  # (K, N)
+    C_ptr,  # (M, N)
+    scale_A_ptr,  # (M // QUANT_BLOCK_M, K // QUANT_BLOCK_K)
+    scale_B_ptr,  # (K // QUANT_BLOCK_K, N // QUANT_BLOCK_N)
+    M, N, K,
+    stride_am, stride_ak,
+    stride_bk, stride_bn,
+    stride_cm, stride_cn,
+    stride_scale_am, stride_scale_ak,
+    stride_scale_bk, stride_scale_bn,
+    QUANT_BLOCK_M: tl.constexpr,
+    QUANT_BLOCK_N: tl.constexpr,
+    QUANT_BLOCK_K: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr = 8,
+):
+    # NOTE: most of the time, it's most performant with BLOCK_K == QUANT_BLOCK_K
+    tl.static_assert(QUANT_BLOCK_K % BLOCK_K == 0)
+
+    # based on triton.ops.matmul
+    pid = tl.program_id(0)
+    grid_m = (M + BLOCK_M - 1) // BLOCK_M
+    grid_n = (N + BLOCK_N - 1) // BLOCK_N
+
+    # re-order program ID for better L2 performance
+    width = GROUP_M * grid_n
+    group_id = pid // width
+    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
+    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_n = (pid % width) // (group_size)
+
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+
+    rk = tl.arange(0, BLOCK_K)
+    A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
+    B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+
+    # NOTE: it seems like we can afford to have QUANT_BLOCK_M and QUANT_BLOCK_N not be constexpr
+    A_scale = scale_A_ptr + ((rm // QUANT_BLOCK_M)[:, None] * stride_scale_am)
+    B_scale = scale_B_ptr + ((rn // QUANT_BLOCK_N)[None, :] * stride_scale_bn)
+
+    # we use 2 accumulators. acc is the final result. mma_acc is accumulator for MMA before
+    # scaling. for every QUANT_BLOCK_K, we will scale mma_acc and accumulate it to acc.
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+
+    for k in range(K, 0, -QUANT_BLOCK_K):
+        mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
+        for _ in tl.static_range(QUANT_BLOCK_K // BLOCK_K):
+            a = tl.load(A)
+            b = tl.load(B)
+            mma_acc += tl.dot(a, b)
+            A += BLOCK_K * stride_ak
+            B += BLOCK_K * stride_bk
+
+        a_scale = tl.load(A_scale).to(tl.float32)
+        b_scale = tl.load(B_scale).to(tl.float32)
+        acc += mma_acc.to(tl.float32) * a_scale * b_scale
+        A_scale += stride_scale_ak
+        B_scale += stride_scale_bk
+
+    # rematerialize rm and rn to save registers
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    idx_m = rm[:, None]
+    idx_n = rn[None, :]
+    mask = (idx_m < M) & (idx_n < N)
+
+    # inductor generates a suffix
+    xindex = idx_m * stride_cm + idx_n * stride_cn
+    tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
+
+
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+lib.define("tile_scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+
+
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
@@ -108,15 +191,15 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     if is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B ):
         assert scale_A.is_contiguous() and scale_B.is_contiguous()
         return lib_ops.scaled_mm(A, B, scale_A, scale_B)
-    ''' CÓ THỂ MỞ RỘNG RA TILE-WISED SCALE MM ...
     else:
         assert scale_A.shape[1] == scale_B.shape[0]
         return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
-    # '''
+
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale_A.dtype)
+@torch.library.impl(lib, "tile_scaled_mm", "Meta")
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
@@ -137,8 +220,29 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     return C
 
 
+@torch.library.impl(lib, "tile_scaled_mm", "CUDA")
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
+    M, K = A.shape
+    _, N = B.shape
+    C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
+    QUANT_BLOCK_K = A.shape[1] // scale_A.shape[1]
+    _tile_scaled_mm_kernel[_grid](
+        A, B, C,
+        scale_A,
+        scale_B,
+        M, N, K,
+        *A.stride(), *B.stride(), *C.stride(),
+        *scale_A.stride(), *scale_B.stride(),
+        QUANT_BLOCK_M=A.shape[0] // scale_A.shape[0],
+        QUANT_BLOCK_N=B.shape[1] // scale_B.shape[1],
+        QUANT_BLOCK_K=QUANT_BLOCK_K,
+        BLOCK_K=QUANT_BLOCK_K,
+    )
+    return C
+
+
 @torch.no_grad()
-def quantize_int8(tensor, dim=1, eps=1e-12, sr=False) -> Tensor:
+def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
     scale  = tensor.abs().amax(dim, keepdim=True) / 127
     tensor = tensor.float() / scale.float().clip(eps)
@@ -148,14 +252,35 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False) -> Tensor:
     return ( tensor, scale )
 
 
-def _dynamic_int8_mm(A: Tensor, B: Tensor, sr=False, hack=False) -> Tensor:
-    if sr and hack: # => chỉ rounding ma trận nhỏ
-        Asr = A.numel() < B.numel()
-        Bsr = not Asr
-    else: Asr = Bsr = sr
-    Ai8, row_scale = quantize_int8(A, dim=1, sr=Asr)
-    Bi8, col_scale = quantize_int8(B, dim=0, sr=Bsr)
-    return scaled_mm(Ai8, Bi8, row_scale, col_scale,)
+@torch.no_grad()
+def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
+    H, W = tensor.shape
+    tile_h, tile_w = tile_shape
+    
+    # Số lượng tile theo mỗi chiều
+    num_tiles_h = H // tile_h
+    num_tiles_w = W // tile_w
+    
+    # Reshape tensor thành các tile
+    tensor_tiles = tensor[:num_tiles_h * tile_h, :num_tiles_w * tile_w]
+    tensor_tiles = tensor_tiles.reshape(num_tiles_h, tile_h, num_tiles_w, tile_w)
+    tensor_tiles = tensor_tiles.permute(0, 2, 1, 3)  # (num_tiles_h, num_tiles_w, tile_h, tile_w)
+    
+    # Tính scale cho mỗi tile
+    scales = tensor_tiles.abs().amax(dim=(2, 3), keepdim=True) / 127
+    scales = scales.clip(min=eps)
+    
+    # Lượng tử hóa
+    quantized = tensor_tiles / scales
+    if sr: quantized = (quantized + torch.rand_like(quantized)).floor()
+    else:  quantized = quantized.round()
+    
+    quantized = quantized.clip(-128, 127).to(torch.int8)
+    
+    # Reshape lại về shape ban đầu
+    quantized = quantized.permute(0, 2, 1, 3).reshape(num_tiles_h * tile_h, num_tiles_w * tile_w)
+    scales = scales.squeeze((2, 3))  # (num_tiles_h, num_tiles_w)    
+    return quantized, scales
 
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
@@ -173,37 +298,36 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(input:Tensor, weight, bias=None):
         assert bias is None
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        A, As = quantize_int8(input, dim=1, sr=False) # ma trận to ko rouding
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # ma trận nhỏ có
+        A, B  = input, weight._data.T
+        A, As = quantize_int8(A, dim=1, sr=False) # ma trận to ko rouding
+        B, Bs = quantize_int8(B, dim=0, sr=True)  # ma trận nhỏ có
         return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias = inputs
+        inp, weight, bias = inputs
         assert bias is None
-        ctx.save_for_backward(input, weight._data)
+        ctx.save_for_backward(inp, weight._data)
         ctx.bias = False
 
     @staticmethod
-    def backward(ctx, go):          # grad_output
-        ii, ww = ctx.saved_tensors  # input, weigth
-        gw = gb = None              # grad_input, grad_weight, grad_bias 
-        # gi = go @ ww              # Grad truyền tiếp về layer sau, nên cần độ cx cao
-        go_i8, go_row_scale = quantize_int8(go, dim=1, sr=True)
-        ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=True)
-        gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
+    def backward(ctx, grad_output):
+        inp, weight = ctx.saved_tensors
+        grad_input = grad_bias = None 
+        tile_shape = (32, 32)
+        
+        ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
+        A, B = grad_output, weight
+        A, As = tile_quantize_int8(A, tile_shape=tile_shape, sr=True)
+        B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
+        grad_input = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[1]:
-            ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
-            gt_i8, gt_row_scale = quantize_int8(go.T, dim=1, sr=False)
-            ii_i8, ii_col_scale = quantize_int8(ii,   dim=0, sr=False)
-            gw = scaled_mm(gt_i8, ii_i8, gt_row_scale, ii_col_scale,)
-            # grad_weight = grad_output.T @ input
+            IT, ITs = tile_quantize_int8(inp.T, tile_shape=tile_shape, sr=False)
+            grad_weight = scaled_mm(IT, A, ITs, As).T
 
-        if ctx.needs_input_grad[2] and ctx.bias:
-            gb = go.sum(0)
-
-        return gi, gw, gb
+        if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
+        return grad_input, grad_weight, grad_bias
 
 
 ## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
