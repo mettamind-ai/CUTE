@@ -56,16 +56,16 @@ if __name__ == '__main__':
             CUDAExtension(
                 name='qllmt._CUDA',
                 sources=[
-                    'qllmt/kernels/bindings.cpp',
-                    'qllmt/kernels/gemm.cu',
-                    'qllmt/kernels/fast_hadamard_transform_cuda.cu',
-                    'qllmt/kernels/codebook_quant_bf16_fast.cu',
-                    'qllmt/kernels/codebook_quant_fp32_fast.cu',
+                    'kernels/bindings.cpp',
+                    'kernels/gemm.cu',
+                    'kernels/fast_hadamard_transform_cuda.cu',
+                    'kernels/codebook_quant_bf16_fast.cu',
+                    'kernels/codebook_quant_fp32_fast.cu',
                 ],
                 include_dirs=[
-                    os.path.join(setup_dir, 'qllmt/kernels/include'),
-                    os.path.join(setup_dir, 'cutlass/include'),
-                    os.path.join(setup_dir, 'cutlass/tools/util/include'),
+                    os.path.join(setup_dir, 'kernels/include'),
+                    os.path.join(setup_dir, 'third-party/cutlass/include'),
+                    os.path.join(setup_dir, 'third-party/cutlass/tools/util/include'),
                 ],
                 extra_compile_args={
                     'cxx': [],
