@@ -19,6 +19,8 @@ cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4),
     (128, 128, 128, 4, 4), (128,  64,  64, 4, 4), ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4),
     ( 64,  64,  32, 2, 4), (128, 128,  32, 2, 8), ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8),
+    (128, 128,  16, 2, 8), ( 64,  64,  16, 2, 4), (256, 128,  64, 4, 8), (128, 256,  64, 4, 8),
+    (128, 128,  64, 3, 8), ( 64,  64,  64, 3, 4), ( 32, 128,  32, 2, 4), (128,  32,  32, 2, 4),
 ], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 
@@ -81,10 +83,27 @@ def _scaled_mm_kernel(
 
 
 @triton.autotune(
-    # need to find more performant configs...
     configs=[
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=2, num_warps=8),
+        # Block sizes lớn cho ma trận lớn
         triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=3, num_warps=8),
+        triton.Config(dict(BLOCK_M=256, BLOCK_N=128), num_stages=3, num_warps=8),
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=256), num_stages=3, num_warps=8),
+        triton.Config(dict(BLOCK_M=256, BLOCK_N=256), num_stages=4, num_warps=8),
+        
+        # Block sizes vừa - cân bằng
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=2, num_warps=8),
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=64), num_stages=3, num_warps=4),
+        triton.Config(dict(BLOCK_M=64, BLOCK_N=128), num_stages=3, num_warps=4),
+        
+        # Block sizes nhỏ cho ma trận nhỏ hoặc không vuông
+        triton.Config(dict(BLOCK_M=64, BLOCK_N=64), num_stages=2, num_warps=4),
+        triton.Config(dict(BLOCK_M=64, BLOCK_N=64), num_stages=3, num_warps=4),
+        triton.Config(dict(BLOCK_M=32, BLOCK_N=128), num_stages=2, num_warps=4),
+        triton.Config(dict(BLOCK_M=128, BLOCK_N=32), num_stages=2, num_warps=4),
+        
+        # Configs đặc biệt cho bandwidth-limited cases
+        triton.Config(dict(BLOCK_M=64, BLOCK_N=256), num_stages=4, num_warps=8),
+        triton.Config(dict(BLOCK_M=256, BLOCK_N=64), num_stages=4, num_warps=8),
     ],
     key=["M", "N", "K", "stride_ak", "stride_bk"],
 )
