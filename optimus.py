@@ -173,8 +173,8 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(input:Tensor, weight, bias=None):
         assert bias is None
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        A, As = quantize_int8(input, dim=1, sr=True)
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)
+        A, As = quantize_int8(input, dim=1, sr=False) # ma trận to ko rouding
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # ma trận nhỏ có
         return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
@@ -188,8 +188,7 @@ class Int8MixedLinear(torch.autograd.Function):
     def backward(ctx, go):          # grad_output
         ii, ww = ctx.saved_tensors  # input, weigth
         gw = gb = None              # grad_input, grad_weight, grad_bias 
-
-        # gi = go @ ww                # Grad truyền tiếp, cần độ cx cao
+        # gi = go @ ww              # Grad truyền tiếp về layer sau, nên cần độ cx cao
         go_i8, go_row_scale = quantize_int8(go, dim=1, sr=True)
         ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=True)
         gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
@@ -197,7 +196,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
             gt_i8, gt_row_scale = quantize_int8(go.T, dim=1, sr=False)
-            ii_i8, ii_col_scale = quantize_int8(ii,   dim=1, sr=False)
+            ii_i8, ii_col_scale = quantize_int8(ii,   dim=0, sr=False)
             gw = scaled_mm(gt_i8, ii_i8, gt_row_scale, ii_col_scale,)
             # grad_weight = grad_output.T @ input
 
