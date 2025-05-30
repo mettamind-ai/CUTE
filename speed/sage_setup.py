@@ -92,8 +92,8 @@ ext_modules = []
 qattn_extension = CUDAExtension(
     name="sageattention._qattn_sm89",
     sources=[
-        "qattn/pybind_sm89.cpp",
-        "qattn/qk_int_sv_f8_cuda_sm89.cu",
+        "csrc/qattn/pybind_sm89.cpp",
+        "csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
     ],
     extra_compile_args={
         "cxx": CXX_FLAGS,
@@ -105,7 +105,10 @@ ext_modules.append(qattn_extension)
 # Fused kernels.
 fused_extension = CUDAExtension(
     name="sageattention._fused",
-    sources=["fused/pybind.cpp", "fused/fused.cu"],
+    sources=[
+        "csrc/fused/pybind.cpp",
+        "fcsrc/used/fused.cu",
+    ],
     extra_compile_args={
         "cxx": CXX_FLAGS,
         "nvcc": NVCC_FLAGS,
