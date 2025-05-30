@@ -351,9 +351,9 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        logits = head(hidden)
+        logits = torch.utils.checkpoint.checkpoint(head, hidden, use_reentrant=False)
         logits = logits.view(-1, logits.size(-1))
-        # logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
         return F.cross_entropy(logits.float(), target.long()), None
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
