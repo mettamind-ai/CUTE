@@ -10,7 +10,7 @@
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
-**TODOs**
+**TODO**
 - [ ] Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed
 
 - [ ] Activations đang chiếm nhiều vram nhất => nên quant (giảm 1/2)
