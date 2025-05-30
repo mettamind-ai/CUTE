@@ -4,8 +4,10 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
+try: from flash_attn_interface import flash_attn_varlen_func # flash attn 3 hopper
+except:        from flash_attn import flash_attn_varlen_func # flash attn 2
+
 from optimus import Int8MixedLinear
-from flash_attn import flash_attn_varlen_func
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
 from OhMai.embedding import OhMaiEmbedding
 
