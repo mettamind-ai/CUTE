@@ -26,7 +26,7 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
 
 
 # Supported NVIDIA GPU architectures.
-SUPPORTED_ARCHS = {"9.0"}
+SUPPORTED_ARCHS = {"8.6", "8.9"}
 
 # Compiler flags.
 CXX_FLAGS = ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"]
@@ -81,29 +81,26 @@ if nvcc_cuda_version < Version("12.3") and any(cc.startswith("9.0") for cc in co
 
 # Add target compute capabilities to NVCC flags.
 for capability in compute_capabilities:
-    assert capability.startswith("9.0")
-    HAS_SM90 = True
-    num = "90a" # need to use sm90a instead of sm90 to use wgmma ptx instruction.
+    assert capability.startswith("8.9")
+    num = "89"
     NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=sm_{num}"]
     if capability.endswith("+PTX"):
         NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=compute_{num}"]
 
 ext_modules = []
 
-if HAS_SM90:
-    qattn_extension = CUDAExtension(
-        name="sageattention._qattn_sm90",
-        sources=[
-            "qattn/pybind_sm90.cpp",
-            "qattn/qk_int_sv_f8_cuda_sm90.cu",
-        ],
-        extra_compile_args={
-            "cxx": CXX_FLAGS,
-            "nvcc": NVCC_FLAGS,
-        },
-        extra_link_args=['-lcuda'],
-    )
-    ext_modules.append(qattn_extension)
+qattn_extension = CUDAExtension(
+    name="sageattention._qattn_sm89",
+    sources=[
+        "qattn/pybind_sm89.cpp",
+        "qattn/qk_int_sv_f8_cuda_sm89.cu",
+    ],
+    extra_compile_args={
+        "cxx": CXX_FLAGS,
+        "nvcc": NVCC_FLAGS,
+    },
+)
+ext_modules.append(qattn_extension)
 
 # Fused kernels.
 fused_extension = CUDAExtension(
