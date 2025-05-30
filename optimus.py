@@ -13,7 +13,7 @@ lib_ops = torch.ops.qtrain
 ###########################
 ##  INT4 Cutlass Matmul  ##
 ###########################
-# ''' Không hiệu quả
+''' Không hiệu quả
 from pathlib import Path
 import torch.utils.cpp_extension
 
@@ -27,22 +27,11 @@ _cutlass_mm = torch.utils.cpp_extension.load(
     extra_include_paths=[str(Path(__file__).parent / "speed/third-party/cutlass/include")],
     verbose=True,
 )
-lib.define("int4_mm(Tensor A, Tensor B) -> Tensor")
-def int4_mm(A: Tensor, B: Tensor) -> Tensor:
-    assert A.is_cuda and A.ndim == 2 and A.dtype is torch.int8 and A.is_contiguous()
-    assert B.is_cuda and B.ndim == 2 and B.dtype is torch.int8 and B.T.is_contiguous()
-    return lib_ops.int4_mm(A, B)
-
-@torch.library.impl(lib, "int4_mm", "Meta")
-def _(A: Tensor, B: Tensor) -> Tensor:
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.int32)
-
-torch.library.impl(lib, "int4_mm", "CUDA")(_cutlass_mm.int4_mm)
 lib.define("scaled_int4_mm(Tensor A, Tensor B, Tensor row_scale, Tensor col_scale) -> Tensor")
 def scaled_int4_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
     assert A.is_cuda and A.ndim == 2 and A.dtype is torch.int8
     assert B.is_cuda and B.ndim == 2 and B.dtype is torch.int8
-    assert row_scale.dtype == col_scale.dtype == torch.bfloat16  # only support bfloat16 for now
+    assert row_scale.dtype == col_scale.dtype == torch.bfloat16
     assert row_scale.squeeze().shape == (A.shape[0],)
     assert col_scale.squeeze().shape == (B.shape[1],)
     return lib_ops.scaled_int4_mm(A, B, row_scale, col_scale)
@@ -407,14 +396,13 @@ class Int8MixedLinear(torch.autograd.Function):
             ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
             ## Áp dụng INT8 matmul ở đây là lợi nhất; sr=False để tránh OOM
             A, B  = grad_output.T, inp
-            # A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
-            # B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
-            # grad_weight = scaled_mm(A, B, As, Bs,)
-
-            ## Thử INT4 Matmul
-            A,  row_scale = quantize_int4(A)
-            BT, col_scale = quantize_int4(B.T)
-            grad_weight = scaled_int4_mm(A, BT.T, row_scale, col_scale.T,)
+            A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
+            B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
+            grad_weight = scaled_mm(A, B, As, Bs,)
+            ## Thử INT4 Matmul <= Speed tăng chút + vỡ đường loss
+            # A,  row_scale = quantize_int4(A)
+            # BT, col_scale = quantize_int4(B.T)
+            # grad_weight = scaled_int4_mm(A, BT.T, row_scale, col_scale.T,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias

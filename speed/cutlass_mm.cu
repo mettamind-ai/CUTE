@@ -25,41 +25,6 @@ constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
 
 
 // we will do input checks in python. A and B are stored as int8
-torch::Tensor int4_mm(torch::Tensor A, torch::Tensor B) {
-  int M = A.size(0);
-  int K = A.size(1) * 2;
-  int N = B.size(1);
-  torch::Tensor C = torch::empty({M, N}, A.options().dtype(torch::kInt32));
-
-  // some configs for int4 mma
-  // https://github.com/NVIDIA/cutlass/blob/v3.5.1/test/unit/gemm/device/gemm_s4t_s4n_s32t_tensor_op_s32_sm80.cu
-  // using default config
-  // using ThreadblockShape = cutlass::gemm::GemmShape<128, 256, 128>;
-  // using WarpShape        = GemmShape<64, 64, 128>;
-  // using InstructionShape = GemmShape<16, 8, 64>;
-  // static int const kStages = 3;
-  using ElementC = int32_t;
-  using Gemm = cutlass::gemm::device::Gemm<
-    ElementA, cutlass::layout::RowMajor,    // A matrix
-    ElementB, cutlass::layout::ColumnMajor, // B matrix
-    ElementC, cutlass::layout::RowMajor,    // C matrix
-    ElementAccumulator, OpClass, ArchTag
-  >;
-  Gemm::Arguments args {
-    {M, N, K},
-    {reinterpret_cast<ElementA *>(A.data_ptr<int8_t>()), K},
-    {reinterpret_cast<ElementB *>(B.data_ptr<int8_t>()), K},
-    {C.data_ptr<ElementC>(), N},
-    {C.data_ptr<ElementC>(), N},
-    {1, 0}  // epilogue
-  };
-  Gemm gemm_op;
-  CUTLASS_CHECK(gemm_op(args));
-
-  return C;
-}
-
-// we will do input checks in python. A and B are stored as int8
 // this function is based on the following cutlass example
 // https://github.com/NVIDIA/cutlass/blob/main/examples/47_ampere_gemm_universal_streamk/ampere_gemm_universal_streamk_broadcast.cu
 // also with the help of emitted code from cutlass Python  
@@ -167,8 +132,6 @@ torch::Tensor scaled_int4_mm(torch::Tensor A, torch::Tensor B, torch::Tensor row
   return C;
 }
 
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("int4_mm", &int4_mm);
   m.def("scaled_int4_mm", &scaled_int4_mm);
 }
