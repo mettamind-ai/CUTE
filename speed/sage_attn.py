@@ -99,7 +99,7 @@ def sageattn_qk_int8_pv_fp8_cuda(
     v: torch.Tensor,
     is_causal: bool = False,
     qk_quant_gran: str = "per_thread",
-    sm_scale: Optional[float] = None,
+    sm_scale: float = None,
     **kwargs: Any,
 ) -> torch.Tensor:
     """
@@ -113,7 +113,7 @@ q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
 k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
 v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
 is_causal : bool Only applicable when qo_len == kv_len. Default: False.
-sm_scale : Optional[float]. If not provided, will be set to ``1.0 / sqrt(head_dim)``.
+sm_scale : float. If not provided, will be set to ``1.0 / sqrt(head_dim)``.
 
 Returns
 -------
