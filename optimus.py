@@ -220,7 +220,6 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
-
     M, K = A.shape
     _, N = B.shape
 
@@ -240,9 +239,10 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     _, N = B.shape
     assert K % 2 == 0
 
-    C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
     QUANT_BLOCK_K = A.shape[1] // scale_A.shape[1]
     assert QUANT_BLOCK_K >= 16 #  Input shapes should have M >= 16, N >= 16 and K >= 16
+
+    C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
     _tile_scaled_mm_kernel[_grid](
         A, B, C,
         scale_A,
@@ -333,27 +333,30 @@ class Int8MixedLinear(torch.autograd.Function):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None 
         
-        ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
-        grad_input = grad_output @ weight
-        ''' Tile scale
+        ''' Tile scale, tốt nhất nhưng ko nhanh hơn bf16 là mấy
         A, B = grad_output, weight
         A, As = tile_quantize_int8(A, tile_shape=tile_shape, sr=True)
         B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
         grad_input = scaled_mm(A, B, As, Bs,)
-        # '''
-
         if ctx.needs_input_grad[1]:
-            ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
-            # grad_weight = grad_output.T @ inp
-            A, B  = grad_output.T, inp
-            A, As = quantize_int8(A, dim=1, sr=False)
-            B, Bs = quantize_int8(B, dim=0, sr=False)
-            grad_weight = scaled_mm(A, B, As, Bs,)
-            ''' Tile scale
             IT, ITs = tile_quantize_int8(inp.T, tile_shape=tile_shape, sr=False)
             grad_weight = scaled_mm(IT, A, ITs, As).T
-            # '''
+        # '''
 
+        ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
+        # grad_input = grad_output @ weight # phép nhân nguyên bản
+        A, B  = grad_output, weight
+        A, As = quantize_int8(A, dim=1, sr=True) # rounding để đạt độ ...
+        B, Bs = quantize_int8(B, dim=0, sr=True) # ... chính xác cao hơn
+        grad_input = scaled_mm(A, B, As, Bs,)
+
+        if ctx.needs_input_grad[1]:
+            ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
+            ## Áp dụng INT8 matmul ở đây là lợi nhất; sr=False để tránh OOM
+            A, B  = grad_output.T, inp
+            A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
+            B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
+            grad_weight = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias
