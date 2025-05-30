@@ -278,7 +278,8 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
 
 if __name__ == "__main__":
     import torch.nn.functional as F
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
+    try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func # flash attn 3 hopper
+    except:        from flash_attn import flash_attn_func, flash_attn_varlen_func # flash attn 2
 
     lines = "pytorch flash_attn_varlen sageattn_varlen".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
