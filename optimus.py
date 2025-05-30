@@ -188,8 +188,8 @@ class Int8MixedLinear(torch.autograd.Function):
         gw = gb = None              # grad_input, grad_weight, grad_bias 
 
         # gi = go @ ww                # Grad truyền tiếp, cần độ cx cao
-        go_i8, go_row_scale = quantize_int8(go, dim=1, sr=BWD_INPUT_SR)Add commentMore actions
-        ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=BWD_INPUT_SR)
+        go_i8, go_row_scale = quantize_int8(go, dim=1, sr=True)
+        ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=True)
         gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
 
         if ctx.needs_input_grad[1]:
