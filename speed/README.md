@@ -1,5 +1,5 @@
 
-**Có ba thứ cần tìm hiểu về gamming gpus
+## Có ba thứ cần tìm hiểu về gamming gpus
 
 1. có thể train fp8 weights được không? => ĐƯỢC! nếu dùng fp4 kernel trên 50xx
 
