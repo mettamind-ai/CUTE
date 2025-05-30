@@ -226,9 +226,6 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape
     _, N = B.shape
 
-    assert K % 2 == 0             # => EVEN_K = True
-    assert A.dtype == torch.int8  # => ACC_DTYPE = tl.int32
-
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
     _scaled_mm_kernel[_grid](
         A, B, C,
@@ -243,6 +240,9 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     M, K = A.shape
     _, N = B.shape
+    assert K % 2 == 0
+    print(M, N, K,"<<<<")
+
     C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
     QUANT_BLOCK_K = A.shape[1] // scale_A.shape[1]
     _tile_scaled_mm_kernel[_grid](
@@ -302,27 +302,6 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
     return quantized, scales
 
 
-@torch.no_grad()
-def transpose_tile_quantized(quantized_tensor, scales, original_tile_shape):
-    H, W = quantized_tensor.shape
-    tile_h, tile_w = original_tile_shape
-    
-    num_tiles_h = H // tile_h
-    num_tiles_w = W // tile_w
-    
-    tiles = quantized_tensor.reshape(num_tiles_h, tile_h, num_tiles_w, tile_w)
-    tiles = tiles.permute(0, 2, 1, 3)
-    
-    tiles_transposed = tiles.transpose(-2, -1)
-    tiles_transposed = tiles_transposed.transpose(0, 1)
-    
-    tiles_transposed = tiles_transposed.permute(0, 2, 1, 3)
-    transposed_tensor = tiles_transposed.reshape(W, H)
-    
-    transposed_scales = scales.T    
-    return transposed_tensor, transposed_scales
-
-
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
@@ -355,20 +334,23 @@ class Int8MixedLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
         grad_input = grad_bias = None 
-        tile_shape = (64, 64)
         
         ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
         A, B = grad_output, weight
-        A, As = tile_quantize_int8(A, tile_shape=tile_shape, sr=True)
+        A, As = quantize_int8(A, dim=0, sr=True)
+
+        x = B.shape[0] // As.shape[1]
+        tile_shape = (x, min(B.shape[1], 2048) // x)
+
         B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
+        print(A.size(), B.size(), As.size(), Bs.size(), tile_shape)
         grad_input = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[1]:
-            # AT, ATs = transpose_tile_quantized(A, As, tile_shape)
-            # I, Is = tile_quantize_int8(inp, tile_shape=tile_shape, sr=False)
-            # grad_weight = scaled_mm(AT, I, ATs, Is,)
-            IT, ITs = tile_quantize_int8(inp.T, tile_shape=tile_shape, sr=False)
+            ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
+            IT, ITs = quantize_int8(inp.T, dim=1, sr=False)
             grad_weight = scaled_mm(IT, A, ITs, As).T
+            # grad_weight = grad_output.T @ inp
 
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
@@ -423,7 +405,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head|k_proj|v_proj'):
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             names.append(n)            
-            params += m.weight.numel()
+            params  += m.weight.numel()
             m.weight = nn.Parameter(
                 MixedPrecisionLinearWeight(m.weight.detach()),
                 requires_grad=m.weight.requires_grad,
