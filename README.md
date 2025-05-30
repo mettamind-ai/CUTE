@@ -55,17 +55,23 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
+- Overcome điểm yếu của INT Mixed hiện tại:
+  - [x] ~~smooth để giảm thiểu outliers => hadamard transform~~ chậm quá trình
+    - tham khảo HT từ quest và qllmt
 🌸__DOING__🌸
 - [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale
-- [ ] Overcome điểm yếu của INT Mixed hiện tại:
-  - Chưa smoothing để giảm thiểu outliers =>
-  - [ ] hadamard transformation
-  - row & col scale không tái sự dụng được quant do phép chuyển vị ma trận =>
   - [ ] cần sử dụng block quant và chọn block sao cho tái sử dụng được
     - sử dụng lại block quant từ sage?
+    - Học cách DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
+      - Activations are quantized in blocks of size 128x1 using the FP8 format
+      - Weights are quantized in blocks of size 128x128 using the FP8 format
+    ![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
+
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
+
 - [ ] LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
   - giải quyết vấn đề representation collapse trong Transformers
+
 - [ ] tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...

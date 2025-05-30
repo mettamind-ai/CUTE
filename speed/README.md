@@ -9,10 +9,6 @@
   - https://www.alphaxiv.org/overview/2505.11594 INT8 SageBwd tốt cho finetune, pretrain yếu
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
-Học cách DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
-- Activations are quantized in blocks of size 128x1 using the FP8 format
-- Weights are quantized in blocks of size 128x128 using the FP8 format
-![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
 
 **TODO**
 - [ ] Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed
