@@ -168,18 +168,6 @@ import torch.utils._pytree as pytree
 from torch import Tensor, nn
 aten = torch.ops.aten
 
-INT8_SR_MODE = os.getenv('INT8_SR_MODE', 'abit')
-print(f"INT8_SR_MODE => {INT8_SR_MODE}")
-
-ABIT = INT8_SR_MODE == "abit" # 2 phép stochastic rounding ( 2@grad.input                         )
-BACK = INT8_SR_MODE == "back" # 4 phép stochastic rounding ( 2@grad.input + 2@grad.weight         )
-HALF = INT8_SR_MODE == "half" # 6 phép stochastic rounding ( 2@grad.input +                 4@fwd )
-FULL = INT8_SR_MODE == "full" # 8 phép stochastic rounding ( 2@grad.input + 2@grad.weight + 4@fwd )
-
-FWD_SR          = HALF or FULL  # forward pass nên QuEST để tăng độ chính xác
-BWD_INPUT_SR    = True          # gradient truyền ngược về sau, cần phải luôn rounding
-BWD_WEIGHT_SR   = BACK or FULL
-
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(input:Tensor, weight, bias=None):
@@ -198,7 +186,11 @@ class Int8MixedLinear(torch.autograd.Function):
     def backward(ctx, go):          # grad_output
         ii, ww = ctx.saved_tensors  # input, weigth
         gw = gb = None              # grad_input, grad_weight, grad_bias 
-        gi = go @ ww                # Grad truyền tiếp, cần độ cx cao
+
+        # gi = go @ ww                # Grad truyền tiếp, cần độ cx cao
+        go_i8, go_row_scale = quantize_int8(go, dim=1, sr=BWD_INPUT_SR)Add commentMore actions
+        ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=BWD_INPUT_SR)
+        gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
 
         if ctx.needs_input_grad[1]:
             ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
