@@ -35,7 +35,7 @@ _qattn_sm89 = torch.utils.cpp_extension.load(
         "csrc/qattn/pybind_sm89.cpp",
         "csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
     ],
-    extra_cuda_cflags=CXX_FLAGS + NVCC_FLAGS,
+    extra_cuda_cflags=NVCC_FLAGS,
 )
 
 _fused = torch.utils.cpp_extension.load(
