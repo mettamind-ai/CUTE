@@ -107,7 +107,7 @@ fused_extension = CUDAExtension(
     name="sageattention._fused",
     sources=[
         "csrc/fused/pybind.cpp",
-        "fcsrc/used/fused.cu",
+        "csrc/used/fused.cu",
     ],
     extra_compile_args={
         "cxx": CXX_FLAGS,
