@@ -128,8 +128,6 @@ def _tile_scaled_mm_kernel(
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
 ):
-    # NOTE: most of the time, it's most performant with BLOCK_K == QUANT_BLOCK_K
-    tl.static_assert(QUANT_BLOCK_K % BLOCK_K == 0)
 
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -241,10 +239,10 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     M, K = A.shape
     _, N = B.shape
     assert K % 2 == 0
-    print(M, N, K,"<<<<")
 
     C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
     QUANT_BLOCK_K = A.shape[1] // scale_A.shape[1]
+    assert QUANT_BLOCK_K >= 16 #  Input shapes should have M >= 16, N >= 16 and K >= 16
     _tile_scaled_mm_kernel[_grid](
         A, B, C,
         scale_A,
@@ -333,23 +331,17 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
-        grad_input = grad_bias = None 
+        grad_weight = grad_bias = None 
         
         ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
-        A, B = grad_output, weight
-        A, As = quantize_int8(A, dim=0, sr=True)
-
-        x = B.shape[0] // As.shape[1]
-        tile_shape = (x, min(B.shape[1], 2048) // x)
-
-        B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
-        print(A.size(), B.size(), As.size(), Bs.size(), tile_shape)
-        grad_input = scaled_mm(A, B, As, Bs,)
+        grad_input = grad_output @ weight
 
         if ctx.needs_input_grad[1]:
             ## Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn
-            IT, ITs = quantize_int8(inp.T, dim=1, sr=False)
-            grad_weight = scaled_mm(IT, A, ITs, As).T
+            A, B  = grad_output.T, inp
+            A, As = quantize_int8(A, dim=1, sr=False)
+            B, Bs = quantize_int8(B, dim=0, sr=False)
+            rgrad_weight = scaled_mm(A, B, As, Bs,)
             # grad_weight = grad_output.T @ inp
 
 
