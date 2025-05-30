@@ -236,7 +236,7 @@ class Future(nn.Module):
 
 
 ##########################################
-from ohmai_embedding import OhMaiEmbedding
+from OhMai.embedding import OhMaiEmbedding
 
 class WinGPT(nn.Module):
     def has_future(self):

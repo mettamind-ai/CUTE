@@ -168,6 +168,9 @@ class OhMaiEmbedding(nn.Module):
 ########################
 
 if __name__ == "__main__":
+    import os, sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
     from liger_kernel import LigerEmbedding
 
     vocab, dim, ctx = 6400, 128, 32
