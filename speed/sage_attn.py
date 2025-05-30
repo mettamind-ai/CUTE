@@ -16,7 +16,6 @@ os.environ['MAX_JOBS'] = "4"
 #     verbose=True,
 # )
 
-CXX_FLAGS = ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"]
 NVCC_FLAGS = ["-O3", "-std=c++17",
     "-U__CUDA_NO_HALF_OPERATORS__",
     "-U__CUDA_NO_HALF_CONVERSIONS__",
@@ -24,7 +23,6 @@ NVCC_FLAGS = ["-O3", "-std=c++17",
     "-Xptxas=-v", "-diag-suppress=174", # suppress the specific warning
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
-CXX_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_{89},code=sm_{89}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_{89},code=compute_{89}"]
@@ -44,10 +42,7 @@ _fused = torch.utils.cpp_extension.load(
         "csrc/fused/pybind.cpp",
         "csrc/fused/fused.cu",
     ],
-    extra_compile_args={
-        "cxx": CXX_FLAGS,
-        "nvcc": NVCC_FLAGS,
-    },
+    extra_cuda_cflags=NVCC_FLAGS,
 )
 
 _tensor_layout = 0 # "NHD"
