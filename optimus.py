@@ -200,14 +200,13 @@ class Int8MixedLinear(torch.autograd.Function):
         gi = gw = gb = None         # grad_input, grad_weight, grad_bias
 
         if ctx.needs_input_grad[0]:
-            go_i8, go_row_scale = quantize_int8(go, dim=1, sr=BWD_INPUT_SR)
-            ww_i8, ww_col_scale = quantize_int8(ww, dim=0, sr=BWD_INPUT_SR)
-            gi = scaled_mm(go_i8, ww_i8, go_row_scale, ww_col_scale,)
+            grad_input = grad_output @ weight
 
         if ctx.needs_input_grad[1]:
-            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn, bật hack '''
-            it_i8, it_col_scale = quantize_int8(ii.T, dim=1, sr=BWD_WEIGHT_SR)
-            gw = scaled_mm(it_i8, go_i8, it_col_scale, go_row_scale,)
+            ''' Đoạn này dễ OOM vì nhân 2 ma trận input và grad_output rất lớn '''
+            it_i8, it_row_scale = quantize_int8(ii.T, dim=1, sr=False)
+            go_i8, go_col_scale = quantize_int8(go, dim=0, sr=False)
+            gw = scaled_mm(it_i8, go_i8, it_row_scale, go_col_scale,)
 
         if ctx.needs_input_grad[2] and ctx.bias:
             gb = go.sum(0)
