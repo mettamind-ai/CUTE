@@ -55,19 +55,14 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
-- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín  (cần đợi thêm)
-- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671) (chưa thấy hiệu quả)
-- [x] thử nghiệm ý tưởng chỉ update gradients với tokens của active batches  (rất tốt khi dùng nhiều embeddings)
-  - [x] thử nghiệm với `OhMaiEmbedding` hiệu quả
-  - [x] ~~Tìm cách khuếch tán gradients ra các tokens không được load vào head~~ PHỨC TẠP => LÀM SAU!
-    - Mỗi lần update gradients load ngẫu nhiên 1 số tokens vào head chẳng hạn ...
-    - Đo lường sự giống và khác nhau giữa việc load full head và load part of head ...
-    - => tìm ra quy luật + rút ra kinh nghiệm
-- [x] thử lưu weight ở fp32 xem có giúp cải thiện loss? NO!, làm chậm đi
-- [x] int8_mm trả về fp32 để tiện bf16 sr và lưu activations ở int8 + row_scale
-
 🌸__DOING__🌸
 - [ ] lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale
+- [ ] Overcome điểm yếu của INT Mixed hiện tại:
+  - Chưa smoothing để giảm thiểu outliers =>
+  - [ ] hadamard transformation
+  - row & col scale không tái sự dụng được quant do phép chuyển vị ma trận =>
+  - [ ] cần sử dụng block quant và chọn block sao cho tái sử dụng được
+    - sử dụng lại block quant từ sage?
 - [ ] save params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2

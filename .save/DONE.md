@@ -105,3 +105,15 @@
 - [x] mix 2 local (rope) + 1 global (nope), 0,1,(2),3,4,(5) ...
 - [x] bench các sdpa engines
 - [x] áp dụng `flash_attn` cho SWA và `packed sequence` (mỗi sample chỉ attn chính nó)
+
+- [x] seq packing without flash-attn <= nested tensor của pytorch chưa chín  (cần đợi thêm)
+- [x] `Conv Attn` [Baichuan M1 14b](https://www.alphaxiv.org/abs/2502.12671) (chưa thấy hiệu quả)
+- [x] thử nghiệm ý tưởng chỉ update gradients với tokens của active batches  (rất tốt khi dùng nhiều embeddings)
+  - [x] thử nghiệm với `OhMaiEmbedding` hiệu quả
+  - [x] ~~Tìm cách khuếch tán gradients ra các tokens không được load vào head~~ PHỨC TẠP => LÀM SAU!
+    - Mỗi lần update gradients load ngẫu nhiên 1 số tokens vào head chẳng hạn ...
+    - Đo lường sự giống và khác nhau giữa việc load full head và load part of head ...
+    - => tìm ra quy luật + rút ra kinh nghiệm
+- [x] thử lưu weight ở fp32 xem có giúp cải thiện loss? NO!, làm chậm đi
+- [x] int8_mm trả về fp32 để tiện bf16 sr và lưu activations ở int8 + row_scale
+
