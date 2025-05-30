@@ -11,12 +11,11 @@
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
 **TODOs**
-- [ ] Round & smooth thuộc 3. và có thể áp dụng ngược lại cho INT8 Mixed
-  - Áp dụng HT trong fwd và SR trong bwd (xem ROUNDING & SMOOTHING)
+- [ ] Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed
 
 - [ ] Activations đang chiếm nhiều vram nhất => nên quant (giảm 1/2)
 
-- Tile scale or row-wise / col-wise or tensor scale sẽ phụ thuộc vào round & smooth methods
+- [ ] Dùng Tile/block scale hoặc tensor scale để có thể dùng lại bwd
 
 ROUNDING & SMOOTHING
 --------------------
