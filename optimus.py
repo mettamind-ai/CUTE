@@ -3,41 +3,39 @@
 INT8 Mixed Precision modded from github.com/gau-nernst/quantized-training
 Muon optimizer modded from github.com/nil0x9/flash-muon
 '''
-
-###########################
-##  INT4 Cutlass Matmul  ##
-###########################
-
-from pathlib import Path
-import torch.utils.cpp_extension
-
 import torch, triton, os
 import triton.language as tl
 from torch import Tensor
 
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
-CURRENT_DIR = Path(__file__).parent
+
+###########################
+##  INT4 Cutlass Matmul  ##
+###########################
+# ''' Không hiệu quả
+from pathlib import Path
+import torch.utils.cpp_extension
+
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
+os.environ['MAX_JOBS'] = "4"
 
 _cutlass_mm = torch.utils.cpp_extension.load(
     "cutlass_mm",
-    sources=[CURRENT_DIR / "speed/cutlass_mm.cu"],
+    sources=[Path(__file__).parent / "speed/cutlass_mm.cu"],
     extra_cuda_cflags=["-O3"],
-    extra_include_paths=[str(CURRENT_DIR / "speed/third-party/cutlass/include")],
+    extra_include_paths=[str(Path(__file__).parent / "speed/third-party/cutlass/include")],
     verbose=True,
 )
-
 lib.define("int4_mm(Tensor A, Tensor B) -> Tensor")
 def int4_mm(A: Tensor, B: Tensor) -> Tensor:
     assert A.is_cuda and A.ndim == 2 and A.dtype is torch.int8 and A.is_contiguous()
     assert B.is_cuda and B.ndim == 2 and B.dtype is torch.int8 and B.T.is_contiguous()
     return lib_ops.int4_mm(A, B)
 
-
 @torch.library.impl(lib, "int4_mm", "Meta")
 def _(A: Tensor, B: Tensor) -> Tensor:
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=torch.int32)
-
 
 torch.library.impl(lib, "int4_mm", "CUDA")(_cutlass_mm.int4_mm)
 lib.define("scaled_int4_mm(Tensor A, Tensor B, Tensor row_scale, Tensor col_scale) -> Tensor")
@@ -47,15 +45,12 @@ def scaled_int4_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -
     assert row_scale.dtype == col_scale.dtype == torch.bfloat16  # only support bfloat16 for now
     assert row_scale.squeeze().shape == (A.shape[0],)
     assert col_scale.squeeze().shape == (B.shape[1],)
-    return lib_ops.scaled_int4_mm(A.contiguous(), B.contiguous(), row_scale.contiguous(), col_scale.contiguous())
-
+    return lib_ops.scaled_int4_mm(A, B, row_scale, col_scale)
 
 @torch.library.impl(lib, "scaled_int4_mm", "Meta")
 def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale.dtype)
-
 torch.library.impl(lib, "scaled_int4_mm", "CUDA")(_cutlass_mm.scaled_int4_mm)
-
 
 @torch.no_grad()
 def quantize_int4(x: Tensor) -> Tensor:
@@ -67,7 +62,7 @@ def quantize_int4(x: Tensor) -> Tensor:
     x = x.round().to(torch.int8)
     x = (x[:, ::2] << 4) | (x[:, 1::2] & 0xF)
     return x, scale
-
+# '''
 
 ##########################
 ##  INT8 Triton Matmul  ##
@@ -419,7 +414,7 @@ class Int8MixedLinear(torch.autograd.Function):
             ## Thử INT4 Matmul
             A,  row_scale = quantize_int4(A)
             BT, col_scale = quantize_int4(B.T)
-            grad_weight = scaled_int4_mm(A, BT.T, row_scale, col_scale,)
+            grad_weight = scaled_int4_mm(A, BT.T, row_scale, col_scale.T,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias
