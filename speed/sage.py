@@ -319,10 +319,12 @@ if __name__ == "__main__":
                 vvv = v.transpose(1, 2)
                 return lambda: sageattn_qk_int8_pv_fp8_cuda(qqq, kkk, vvv, is_causal=True, sm_scale=1.3)
 
-
             if provider == "pytorch":
                 return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
-            
+
+            if provider == "flash_attn_varlen":
+                return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
+
             return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                 causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
