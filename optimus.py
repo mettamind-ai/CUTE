@@ -313,9 +313,9 @@ def quantize_fp8(input: Tensor, block_size: int):
 
 if __name__ == "__main__": # test quantize_fp8
     import time
-    sizes = [(2048, 2048), (16*4096, 4096), (24*8192, 4096)]
-    block_size = 1024
-    tile_shape = (32, 32)
+    sizes = [(2048, 2048), (16*4096, 4096), (16*8192, 8192)]
+    block_size = 4096
+    tile_shape = (64, 64)
 
     quantize_fp8 = torch.compile(quantize_fp8)
     quantize_int8 = torch.compile(quantize_int8)
