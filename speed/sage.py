@@ -299,8 +299,8 @@ if __name__ == "__main__":
     def bench_flash_attention(BATCH, H, N_CTX, HEAD_DIM, provider, device="cuda"):
         dtype = torch.bfloat16
         q = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-        k = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-        v = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+    k = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+    v = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
         max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
         cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
@@ -322,21 +322,6 @@ if __name__ == "__main__":
 
             if provider == "pytorch":
                 return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
-            
-            if provider == "flash_attn_varlen":
-                return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
-    
-            if provider == "flash_attn_fp8":
-                q_scale = (q.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
-                k_scale = (k.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
-                v_scale = (v.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
-
-                q_f8 = (q / q_scale).to(torch.float8_e4m3fn)
-                k_f8 = (k / k_scale).to(torch.float8_e4m3fn)
-                v_f8 = (v / v_scale).to(torch.float8_e4m3fn)
-
-                return lambda: flash_attn_func(q_f8, k_f8, v_f8, 
-                    descale_q=q_scale, descale_k=k_scale, descale_v=v_scale, causal=True, softmax_scale=1.3)
             
             return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                 causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
