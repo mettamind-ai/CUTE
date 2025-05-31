@@ -151,10 +151,10 @@ class CausalSelfAttention(nn.Module):
 
         if long:
             self.rope   = False
-            self.window = 1024*4 # long
-        else:
+            self.window = 1024*4
+        else: # short
             self.rope   = True
-            self.window = 512  # short
+            self.window = 1024
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
@@ -422,7 +422,7 @@ if __name__ == "__main__":
     sseed = 1982
     seq_len = 1024
     vocab_size = 512
-    dim, n_layers = 256, 4
+    dim, n_layers = 256, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
@@ -453,6 +453,7 @@ if __name__ == "__main__":
         print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
+    convert_int8_mixed_precision(ohmai)
     # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
