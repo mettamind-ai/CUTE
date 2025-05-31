@@ -314,10 +314,10 @@ if __name__ == "__main__":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
             if "sageattn" == provider:
-                # q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
-                # k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
-                # v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
-                return lambda: sageattn_qk_int8_pv_fp8_cuda(q, k, v, is_causal=True, sm_scale=1.3)
+                qqq = q.transpose(1, 2)
+                kkk = k.transpose(1, 2)
+                vvv = v.transpose(1, 2)
+                return lambda: sageattn_qk_int8_pv_fp8_cuda(qqq, kkk, vvv, is_causal=True, sm_scale=1.3)
 
 
             if provider == "pytorch":
