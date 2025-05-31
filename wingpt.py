@@ -294,8 +294,9 @@ class WinGPT(nn.Module):
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
 
-        self.lm_head = nn.Linear(dim, vocab_size, bias=False, dtype=torch.float8_e4m3fn)
-        with torch.no_grad(): self.lm_head.weight.zero_()
+        self.lm_head = nn.Linear(dim, vocab_size, bias=False)
+        x = torch.zeros_like(self.lm_head.weight, requires_grad=True, torch.dtype=torch.float8_e4m3fn)
+        self.lm_head.weight = nn.Parameter(x)
 
 
     def update_embeddings(self):
