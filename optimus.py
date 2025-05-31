@@ -332,12 +332,12 @@ if __name__ == "__main__": # test quantize_fp8
         
         # Warm up GPU
         for _ in range(3):
-            _ = quantize_fp8(x.clone(), block_size)
-            _ = quantize_fp8_fast(x.clone(), block_size)
+            for f in [quantize, quantize_fp8_fast]:
+                f(x.clone(), block_size)
         
         # Benchmark
         results = []
-        for f in [quantize_fp8_original, quantize_fp8_fast]:
+        for f in [quantize, quantize_fp8_fast]:
             torch.cuda.synchronize()
             start = time.time()
             for _ in range(10):
