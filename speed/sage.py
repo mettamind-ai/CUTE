@@ -314,6 +314,9 @@ if __name__ == "__main__":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
             if "sageattn" == provider:
+                # q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
+                # k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
+                # v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
                 return lambda: sageattn_qk_int8_pv_fp8_cuda(q, k, v, is_causal=True, sm_scale=1.3)
 
 

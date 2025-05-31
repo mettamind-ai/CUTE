@@ -164,9 +164,9 @@ def per_channel_fp8(
     v: torch.Tensor,
     scale_max: float = 448.0,
 ):
-    b, h_kv, kv_len, head_dim = v.shape
+    b, kv_len, h_kv, head_dim = v.shape
     padded_len = (kv_len + 63) // 64 * 64
-    v_transposed_permutted = torch.empty((b, h_kv, head_dim, padded_len), dtype=v.dtype, device=v.device)
+    v_transposed_permutted = torch.empty((b, head_dim, h_kv, padded_len), dtype=v.dtype, device=v.device)
     
     _fused.transpose_pad_permute_cuda(v, v_transposed_permutted, _tensor_layout)
     v_fp8 = torch.empty(v_transposed_permutted.shape, dtype=torch.float8_e4m3fn, device=v.device)
