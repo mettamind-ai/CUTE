@@ -354,6 +354,7 @@ if __name__ == "__main__": # test quantize_fp8
         
         error = (dequant[0] - dequant[1]).abs().max()
         print(f"Max error: {error:.6f}")
+    print("test quantize END.\n")
 
 
 ##############################################
