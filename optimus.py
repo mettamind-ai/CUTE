@@ -5,7 +5,12 @@ Muon optimizer modded from github.com/nil0x9/flash-muon
 '''
 import torch, triton, os
 import triton.language as tl
-from torch import Tensor
+
+from typing import NamedTuple
+import torch.nn.functional as F
+import torch.utils._pytree as pytree
+from torch import Tensor, nn
+aten = torch.ops.aten
 
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
@@ -299,32 +304,111 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
     scales = scales.squeeze((2, 3))  # (num_tiles_h, num_tiles_w)    
     return quantized, scales
 
-DTYPE = torch.float8_e4m3fn
-def quantize_fp8(input: Tensor, block_size=1024):
-    shape = input.shape
-    input = input.view(-1, block_size)
-    scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
-    input = input / scale.view(-1, 1)
-    codes = input.to(DTYPE).view(-1)
-    return codes.view(shape), scale
+class Int8Tensor(Tensor):
+    @staticmethod
+    @torch._dynamo.disable
+    def __new__(cls, int_data: Tensor, scale: Tensor):
+        return Tensor._make_wrapper_subclass(
+            cls, int_data.shape,
+            dtype=scale.dtype,
+            device=int_data.device,
+        )
+
+    @torch._dynamo.disable
+    def __init__(self, int_data: Tensor, scale: Tensor):
+        assert int_data.dtype is torch.int8
+        assert int_data.ndim == 2
+        assert scale.ndim == 2
+        self.int_data = int_data
+        self.scale = scale
+
+    def __tensor_flatten__(self):
+        return ["int_data", "scale"]
+
+    @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
+        return cls(tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes)
+
+    @classmethod
+    def from_float(cls, tensor: Tensor):
+        int_data, scale = quantize_int8(tensor.detach())
+        out = cls(int_data, scale)
+        out.requires_grad_(tensor.requires_grad)
+        return out
+
+    def dequantize(self):
+        return self.int_data * self.scale.view(-1, 1)
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(shape={tuple(self.shape)}, "
+            f"dtype={self.dtype}, device={self.device}, requires_grad={self.requires_grad})"
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        if func in (aten.detach.default, aten.clone.default):
+            return cls(
+                func(args[0].int_data, *args[1:], **kwargs),
+                func(args[0].scale, *args[1:], **kwargs),
+            )
+
+        elif func in (aten._to_copy.default,):
+            device = kwargs.get("device", None)
+            dtype = kwargs.get("dtype", None)
+            return cls(
+                args[0].int_data.to(device=device),
+                args[0].scale.to(device=device, dtype=dtype),
+            )
+
+        # to make training work with existing PyTorch optimizers, we return a normal tensor instead of Int8LinearWeight
+        elif func is aten.zeros_like.default:
+            dtype = kwargs.get("dtype", args[0].dtype)
+            device = kwargs.get("device", args[0].device)
+            return torch.zeros(args[0].shape, dtype=dtype, device=device)
+
+        elif func in (aten.sub.Tensor, aten.mul.Tensor):
+            args = [x.dequantize() if isinstance(x, cls) else x for x in args]
+            return func(*args, **kwargs)
+
+        elif func is aten.copy_.default:
+            if isinstance(args[0], cls) and isinstance(args[1], cls):
+                args[0].int_data.copy_(args[1].int_data)
+                args[0].scale.copy_(args[1].scale)
+
+            elif isinstance(args[0], cls):
+                int_data, scale = quantize_int8(args[1], stochastic_rounding=True)
+                args[0].int_data.copy_(int_data)
+                args[0].scale.copy_(scale)
+
+            else:
+                args[0].copy_(args[1].dequantize())
+
+            return args[0]
+
+        # optim step
+        elif func in (aten.addcdiv_.default, aten.add_.Tensor):
+            original = args[0]
+            out = func(args[0].dequantize(), *args[1:], **kwargs)
+            return original.copy_(out)
+
+        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
 
 if __name__ == "__main__": # test quantize_fp8
     import time
-    sizes = [(2048, 2048), (16*4096, 4096), (16*8192, 8192)]
-    block_size = 1024
+    sizes = [(2048, 2048), (16*4096, 4096)]
     tile_shape = (32, 32)
 
-    quantize_fp8 = torch.compile(quantize_fp8)
+    x = torch.randn(sizes[1], dtype=torch.float32).cuda()
+    y = Int8Tensor.from_float(x)
+    error = (x - y.float()).abs().mean().item()
+    print(f"float->int8->float mean error: {error:.6f}")
+
     quantize_int8 = torch.compile(quantize_int8)
-    tile_quantize_int8 = torch.compile(tile_quantize_int8)
-
-    funs = [quantize_int8, quantize_fp8]
+    funs = [quantize_int8, torch.compile(tile_quantize_int8)]
     print("Warmup ...")
-    for f in funs: # warmup
-        for _ in range(5):
-            f(torch.randn(sizes[1], dtype=torch.float32).cuda())
-
+    funs[0](x); funs[1](x, tile_shape)
 
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
@@ -335,22 +419,14 @@ if __name__ == "__main__": # test quantize_fp8
         for f in funs:
             torch.cuda.synchronize()
             start = time.time()
-            n = 20
-            for _ in range(n):
-                if   f == quantize_fp8:         c, s = f(x, block_size)
-                elif f == quantize_int8:        c, s = f(x)
-                elif f == tile_quantize_int8:   c, s = f(x, tile_shape)
-                else: assert False
+            for _ in range(5):
+                c, s = f(x) if f == quantize_int8 else f(x, tile_shape)
             torch.cuda.synchronize()
-            t = (time.time() - start) / n
+            t = (time.time() - start) / 5
             results.append((f, c, s, t))
         
         for f, c, s, t in results:
-            if f == quantize_fp8:
-                d = c.float().view(-1, block_size) * s.view(-1, 1)
-                d = d.view(c.shape)
-            elif f == quantize_int8:
-                d = c.float() * s
+            if f == quantize_int8: d = c.float() * s
             else: d = 0 # khó bỏ qua
 
             error = (x - d).abs().mean().item()
@@ -361,13 +437,6 @@ if __name__ == "__main__": # test quantize_fp8
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
-
-from typing import NamedTuple
-import torch, os
-import torch.nn.functional as F
-import torch.utils._pytree as pytree
-from torch import Tensor, nn
-aten = torch.ops.aten
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
