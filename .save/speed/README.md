@@ -10,16 +10,20 @@
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
 
+=> !!! Chờ 1 attention kernel tốt hơn, có thể là SageBwd cho finetune / LoRA !!!
+
 **TODO**
-- [ ] Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed
+- [x] ~~Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed~~
+  int8 mm row scale hiện đã đủ tốt và nhanh, áp dụng thêm HT sẽ làm giảm tốc
 
-- [ ] Activations đang chiếm nhiều vram nhất => nên quant (giảm 1/2)
+- [x] Activations đang chiếm nhiều vram nhất ~~=> nên quant~~ (phức tạp hoá code)
+  => Nếu cần giảm thì fuse 2 blocks làm 1 để giảm 1/2 số lượng activations
 
-- [ ] Dùng block quant để tăng độ chính xác và tái sử dụng được
-  - block quant từ sage?
-  - học cách DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
+- [x] Dùng block quant để tăng độ chính xác và tái sử dụng được
+  - DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
     - Activations are quantized in blocks of size 128x1 using the FP8 format
     - Weights are quantized in blocks of size 128x128 using the FP8 format
+    - Tốc độ đang chậm, có lẽ chỉ hợp để giảm vram khi train ở fp8
   ![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
 
 |    m |     k |     n | block_size | dtype         | fp16_latency (ms) | blockwise_latency (ms) | blockwise_speedup |
