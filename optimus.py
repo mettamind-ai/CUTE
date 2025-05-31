@@ -348,8 +348,8 @@ if __name__ == "__main__": # test quantize_fp8
             elif f == quantize_int8: d = c.float() * s
             else: d = 0 # khó bỏ qua
 
-            error = (x - d).abs().avg().item()
-            print(f"{f.__name__}: {t*1000:.2f}ms, Max error: {error:.6f}")
+            error = (x - d).abs().mean().item()
+            print(f"{f.__name__}: {t*1000:.2f}ms, mean error: {error:.6f}")
     print("test quantize END.\n")
 
 
