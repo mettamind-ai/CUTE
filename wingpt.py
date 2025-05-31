@@ -151,7 +151,7 @@ class CausalSelfAttention(nn.Module):
 
         if long:
             self.rope   = False
-            self.window = 512*4 # long
+            self.window = 1024*4 # long
         else:
             self.rope   = True
             self.window = 512  # short
