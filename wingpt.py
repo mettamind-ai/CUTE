@@ -276,6 +276,7 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
 
+        if ve is None: ve = int(n_blks*0.5)
         if ve > n_blks: ve = n_blks
         if te > n_blks: te = n_blks
 
