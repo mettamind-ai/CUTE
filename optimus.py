@@ -238,7 +238,7 @@ class MixedPrecisionLinearWeight(Tensor):
         else: return out # new unwrapped object
 
 import re
-def convert_int8_mixed_precision(module:nn.Module, ignore='head|k_proj|v_proj'):
+def convert_int8_mixed_precision(module:nn.Module, ignore='nonono'):
     ignore = re.compile(rf'{ignore}')
     names, params = [], 0
     for n, m in module.named_modules():

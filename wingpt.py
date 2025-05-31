@@ -147,7 +147,7 @@ class CausalSelfAttention(nn.Module):
             self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
             self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self. o_proj.weight.zero_() # zero init
-        self.lime_router = StaticRouter(num_kv_heads, layer_id) if layer_id > 0 else Layer0Router(num_heads)
+        # self.lime_router = StaticRouter(num_kv_heads, layer_id) if layer_id > 0 else Layer0Router(num_heads)
 
         if long:
             self.rope   = False
