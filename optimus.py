@@ -347,7 +347,7 @@ if __name__ == "__main__": # test quantize_fp8
         
         for f, c, s, t in results:
             if f == quantize_fp8:
-                d = c.float().view(-1, self.block_size) * self.scale.view(-1, 1)
+                d = c.float().view(-1, block_size) * s.view(-1, 1)
                 d = d.view(c.shape)
             elif f == quantize_int8:
                 d = c.float() * s
