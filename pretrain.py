@@ -27,7 +27,7 @@ parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modd
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=99)           # số value embeds được bổ xung 
-parser.add_argument("--te", type=int, default=01)           # số token embeds 
+parser.add_argument("--te", type=int, default= 1)           # số token embeds 
 for x in "T C XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
