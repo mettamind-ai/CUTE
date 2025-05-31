@@ -302,7 +302,7 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
 
 DTYPE = torch.float8_e4m3fn
 
-def quantize_fp8_original(input: Tensor, block_size: int):
+def quantize_fp8(input: Tensor, block_size: int):
     shape = input.shape
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
@@ -323,7 +323,7 @@ if __name__ == "__main__": # test quantize_fp8
     sizes = [(2048, 2048), (16*4096, 4096), (24*8192, 4096)]
     block_size = 2048
 
-    quantize_fp8_original = torch.compile(quantize_fp8_original)
+    quantize_fp8 = torch.compile(quantize_fp8)
     quantize_fp8_fast = torch.compile(quantize_fp8_fast)
     
     for size in sizes:
@@ -332,7 +332,7 @@ if __name__ == "__main__": # test quantize_fp8
         
         # Warm up GPU
         for _ in range(3):
-            _ = quantize_fp8_original(x.clone(), block_size)
+            _ = quantize_fp8(x.clone(), block_size)
             _ = quantize_fp8_fast(x.clone(), block_size)
         
         # Benchmark
