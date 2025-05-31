@@ -284,7 +284,7 @@ except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; F
 print("FA3_ENABLED?", FA3_ENABLED)
 
 if __name__ == "__main__":
-    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn sageattn".split()
+    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn flash_attn_fp8".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
@@ -313,7 +313,7 @@ if __name__ == "__main__":
             if "sageattn_varlen" == provider:
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            if "sageattn??" == provider:
+            if "sageattn" == provider:
                 # q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
                 # k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
                 # v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
@@ -325,8 +325,8 @@ if __name__ == "__main__":
             
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
-
-            if FA3_ENABLED:
+    
+            if provider == "flash_attn_fp8":
                 q_scale = (q.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
                 k_scale = (k.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
                 v_scale = (v.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
