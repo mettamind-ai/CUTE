@@ -20,7 +20,7 @@ for i in range(2):
 	for line in lzma.open(filename, "rt"):
 		data = json.loads(line)
 		text = data["text"]
-		tids += vocab.tokenize(text) + [et]
+		tids += vocab.tokenize(text).tolist() + [et]
 
 # Convert tids to numpy array and save to data.bin
 tids_array = np.array(tids, dtype=np.int16)
