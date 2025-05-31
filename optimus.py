@@ -350,7 +350,7 @@ if __name__ == "__main__": # test quantize_fp8
         for f, c, s, t in results:
             print(f"{f}: {t*1000:.2f}ms")        
             d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
-            dequants.apend(d)
+            dequants.append(d)
         
         error = (dequant[0] - dequant[1]).abs().max()
         print(f"Max error: {error:.6f}")
