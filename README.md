@@ -68,7 +68,9 @@
 🌸__DOING__🌸
 - [ ] Tích hợp qwen 3
   <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">
+  - [ ] Đọc Qwen3 TR
 
-- [ ] save params + inference
+- [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
+  - https://github.com/turboderp-org/exllamav3/blob/master/doc/exl3.md
