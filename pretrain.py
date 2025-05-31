@@ -17,7 +17,7 @@ from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
-parser.add_argument("--vocab", type=int, default=6400)
+parser.add_argument("--vocab", type=int, default=32000)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj|head` => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
@@ -26,8 +26,8 @@ parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in 
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
-parser.add_argument("--te", type=int, default=1)            # số token embeds 
+parser.add_argument("--ve", type=int, default=99)           # số value embeds được bổ xung 
+parser.add_argument("--te", type=int, default=01)           # số token embeds 
 for x in "T C XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
