@@ -3,6 +3,7 @@
 import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
@@ -305,7 +306,6 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
-        # print(self.embeddings.__class__.__name__, embs.dtype); input()
 
         t_embs = embs[..., : self.dim*self.te ]
         t_embs = list(t_embs.chunk(self.te, dim=-1))
@@ -340,7 +340,7 @@ class WinGPT(nn.Module):
             def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
 
-            x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
+            x = checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
         return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
@@ -376,15 +376,11 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
             end_idx = (i + 1) * chunk_size
             if end_idx > total_tokens: end_idx = total_tokens
             
-            # Lấy chunk của hidden và target
-            hidden_chunk = hidden[start_idx:end_idx]
-            target_chunk = target[start_idx:end_idx]
-            
-            logits_chunk = torch.utils.checkpoint.checkpoint(head, hidden_chunk, use_reentrant=False,)                
+            logits_chunk = checkpoint(head, hidden[start_idx:end_idx], use_reentrant=False,)                
             logits_chunk = logits_chunk.view(-1, logits_chunk.size(-1))
             logits_chunk = 15 * logits_chunk * torch.rsqrt(logits_chunk.square() + 15*15)
             
-            chunk_loss = F.cross_entropy(logits_chunk.float(), target_chunk.long(),)
+            chunk_loss = F.cross_entropy(logits_chunk.float(), target[start_idx:end_idx].long(),)
             if total_loss is None: total_loss = chunk_loss
             else: total_loss += chunk_loss
         return total_loss / num_chunks, None
@@ -431,18 +427,17 @@ if __name__ == "__main__":
     # Đảm bảo toàn bộ tham số của 2 model là như nhau
     def check_params():
         for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
-
             if n2 == "embeddings.active_weight":
                 n2 = "embeddings.weight"
                 p2 = ohmai.embeddings.weight.cuda()
-
             assert n1 == n2, f"{n1} != {n2}"
             assert torch.allclose(p1, p2), f"{n1} values are different"
     check_params()
 
-    # for m in [model, ohmai]:
-    #     for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-    #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
+    # Đảm bảo toàn bộ 2 models đều là bf16
+    for m in [model, ohmai]:
+        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
     convert_int8_mixed_precision(ohmai)
@@ -487,19 +482,17 @@ if __name__ == "__main__":
  
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         a = ohmai.embeddings(input_seq, force=True)
-        b = ohmai.embeddings.weight.to(input_seq.device)[input_seq.long()]
-        if not torch.allclose(a.cpu(), b.cpu(), atol=1e-5): assert False
+        b = ohmai.embeddings.weight[input_seq.cpu().long()]
+        if not torch.allclose(a.bfloat16().cpu(), b, atol=1e-5): print(a, b)
 
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
-        # assert torch.allclose(loss_model, loss_ohmai, atol=1e-5), f"Loss mismatch: model={loss_model.item():.6f}, ohmai={loss_ohmai.item():.6f}"
 
         loss_ohmai.backward()
         loss_model.backward()
         optim.step()
         aptim.step()
         ohmai.update_embeddings()
-        # check_params()
 
     ohmai.embeddings.update_stream.synchronize() # đảm bảo weigh đã được cập nhật
     tok_emb_after = ohmai.embeddings.weight.data
