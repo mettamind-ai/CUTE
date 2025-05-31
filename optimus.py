@@ -15,7 +15,6 @@ aten = torch.ops.aten
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
-
 ##########################
 ##  INT8 Triton Matmul  ##
 ##########################
@@ -87,114 +86,7 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-@triton.autotune(
-    configs=[
-        # Block sizes lớn cho ma trận lớn
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=3, num_warps=8),
-        triton.Config(dict(BLOCK_M=256, BLOCK_N=128), num_stages=3, num_warps=8),
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=256), num_stages=3, num_warps=8),
-        triton.Config(dict(BLOCK_M=256, BLOCK_N=256), num_stages=4, num_warps=8),
-        
-        # Block sizes vừa - cân bằng
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=128), num_stages=2, num_warps=8),
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=64), num_stages=3, num_warps=4),
-        triton.Config(dict(BLOCK_M=64, BLOCK_N=128), num_stages=3, num_warps=4),
-        
-        # Block sizes nhỏ cho ma trận nhỏ hoặc không vuông
-        triton.Config(dict(BLOCK_M=64, BLOCK_N=64), num_stages=2, num_warps=4),
-        triton.Config(dict(BLOCK_M=64, BLOCK_N=64), num_stages=3, num_warps=4),
-        triton.Config(dict(BLOCK_M=32, BLOCK_N=128), num_stages=2, num_warps=4),
-        triton.Config(dict(BLOCK_M=128, BLOCK_N=32), num_stages=2, num_warps=4),
-        
-        # Configs đặc biệt cho bandwidth-limited cases
-        triton.Config(dict(BLOCK_M=64, BLOCK_N=256), num_stages=4, num_warps=8),
-        triton.Config(dict(BLOCK_M=256, BLOCK_N=64), num_stages=4, num_warps=8),
-    ],
-    key=["M", "N", "K", "stride_ak", "stride_bk"],
-)
-@triton.jit
-def _tile_scaled_mm_kernel(
-    A_ptr,  # (M, K)
-    B_ptr,  # (K, N)
-    C_ptr,  # (M, N)
-    scale_A_ptr,  # (M // QUANT_BLOCK_M, K // QUANT_BLOCK_K)
-    scale_B_ptr,  # (K // QUANT_BLOCK_K, N // QUANT_BLOCK_N)
-    M, N, K,
-    stride_am, stride_ak,
-    stride_bk, stride_bn,
-    stride_cm, stride_cn,
-    stride_scale_am, stride_scale_ak,
-    stride_scale_bk, stride_scale_bn,
-    QUANT_BLOCK_M: tl.constexpr,
-    QUANT_BLOCK_N: tl.constexpr,
-    QUANT_BLOCK_K: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    GROUP_M: tl.constexpr = 8,
-):
-
-    # based on triton.ops.matmul
-    pid = tl.program_id(0)
-    grid_m = (M + BLOCK_M - 1) // BLOCK_M
-    grid_n = (N + BLOCK_N - 1) // BLOCK_N
-
-    # re-order program ID for better L2 performance
-    width = GROUP_M * grid_n
-    group_id = pid // width
-    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
-    pid_m = group_id * GROUP_M + (pid % group_size)
-    pid_n = (pid % width) // (group_size)
-
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-
-    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
-    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
-
-    rk = tl.arange(0, BLOCK_K)
-    A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
-    B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
-
-    # NOTE: it seems like we can afford to have QUANT_BLOCK_M and QUANT_BLOCK_N not be constexpr
-    A_scale = scale_A_ptr + ((rm // QUANT_BLOCK_M)[:, None] * stride_scale_am)
-    B_scale = scale_B_ptr + ((rn // QUANT_BLOCK_N)[None, :] * stride_scale_bn)
-
-    # we use 2 accumulators. acc is the final result. mma_acc is accumulator for MMA before
-    # scaling. for every QUANT_BLOCK_K, we will scale mma_acc and accumulate it to acc.
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-
-    for k in range(K, 0, -QUANT_BLOCK_K):
-        mma_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
-        for _ in tl.static_range(QUANT_BLOCK_K // BLOCK_K):
-            a = tl.load(A)
-            b = tl.load(B)
-            mma_acc += tl.dot(a, b)
-            A += BLOCK_K * stride_ak
-            B += BLOCK_K * stride_bk
-
-        a_scale = tl.load(A_scale).to(tl.float32)
-        b_scale = tl.load(B_scale).to(tl.float32)
-        acc += mma_acc.to(tl.float32) * a_scale * b_scale
-        A_scale += stride_scale_ak
-        B_scale += stride_scale_bk
-
-    # rematerialize rm and rn to save registers
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-    idx_m = rm[:, None]
-    idx_n = rn[None, :]
-    mask = (idx_m < M) & (idx_n < N)
-
-    # inductor generates a suffix
-    xindex = idx_m * stride_cm + idx_n * stride_cn
-    tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
-
-
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-lib.define("tile_scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-
-
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
     - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
@@ -210,16 +102,12 @@ def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     is_col_scale_B     = scale_B.shape == ( 1, B.shape[1] )
     is_tensor_scale_B  = scale_B.shape == ( 1,          1 )
 
-    if is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B ):
-        assert scale_A.is_contiguous() and scale_B.is_contiguous()
-        return lib_ops.scaled_mm(A, B, scale_A, scale_B)
-    else:
-        assert scale_A.shape[1] == scale_B.shape[0]
-        return lib_ops.tile_scaled_mm(A, B, scale_A, scale_B)
+    assert is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B )
+    assert scale_A.is_contiguous() and scale_B.is_contiguous()
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-@torch.library.impl(lib, "tile_scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
@@ -238,31 +126,6 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     return C
 
 
-@torch.library.impl(lib, "tile_scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
-    M, K = A.shape
-    _, N = B.shape
-    assert K % 2 == 0
-
-    QUANT_BLOCK_K = A.shape[1] // scale_A.shape[1]
-    assert QUANT_BLOCK_K >= 16 #  Input shapes should have M >= 16, N >= 16 and K >= 16
-
-    C = torch.empty(M, N, device=A.device, dtype=scale_A.dtype)
-    _tile_scaled_mm_kernel[_grid](
-        A, B, C,
-        scale_A,
-        scale_B,
-        M, N, K,
-        *A.stride(), *B.stride(), *C.stride(),
-        *scale_A.stride(), *scale_B.stride(),
-        QUANT_BLOCK_M=A.shape[0] // scale_A.shape[0],
-        QUANT_BLOCK_N=B.shape[1] // scale_B.shape[1],
-        QUANT_BLOCK_K=QUANT_BLOCK_K,
-        BLOCK_K=QUANT_BLOCK_K,
-    )
-    return C
-
-
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
@@ -272,74 +135,6 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     else:    tensor.round_()    # ^^^ stochastic rounding ^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
     return ( tensor, scale )
-
-
-@torch.no_grad()
-def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
-    H, W = tensor.shape
-    tile_h, tile_w = tile_shape
-    
-    # Số lượng tile theo mỗi chiều
-    num_tiles_h = H // tile_h
-    num_tiles_w = W // tile_w
-    
-    # Reshape tensor thành các tile
-    tensor_tiles = tensor[:num_tiles_h * tile_h, :num_tiles_w * tile_w]
-    tensor_tiles = tensor_tiles.reshape(num_tiles_h, tile_h, num_tiles_w, tile_w)
-    tensor_tiles = tensor_tiles.permute(0, 2, 1, 3)
-    
-    # Tính scale cho mỗi tile
-    scales = tensor_tiles.abs().amax(dim=(2, 3), keepdim=True) / 127
-    scales = scales.clip(min=eps)
-    
-    # Lượng tử hóa
-    quantized = tensor_tiles / scales
-    if sr: quantized = (quantized + torch.rand_like(quantized)).floor()
-    else:  quantized = quantized.round()
-    
-    quantized = quantized.clip(-128, 127).to(torch.int8)
-    
-    # Reshape lại về shape ban đầu
-    quantized = quantized.permute(0, 2, 1, 3).reshape(num_tiles_h * tile_h, num_tiles_w * tile_w)
-    scales = scales.squeeze((2, 3))  # (num_tiles_h, num_tiles_w)    
-    return quantized, scales
-
-
-if __name__ == "__main__": # test quantize_fp8
-    import time
-    sizes = [(2048, 2048), (16*4096, 4096)]
-    tile_shape = (32, 32)
-
-    x = torch.randn(sizes[1], dtype=torch.float32).cuda()
-    quantize_int8 = torch.compile(quantize_int8)
-
-    funs = [quantize_int8, torch.compile(tile_quantize_int8)]
-    print("Warmup ...")
-    funs[0](x); funs[1](x, tile_shape)
-
-    for size in sizes:
-        print(f"\n--- Tensor size: {size} ---")
-        x = torch.randn(size, dtype=torch.float32).cuda()
-        
-        # Benchmark
-        results = []
-        for f in funs:
-            torch.cuda.synchronize()
-            start = time.time()
-            for _ in range(5):
-                c, s = f(x) if f == quantize_int8 else f(x, tile_shape)
-            torch.cuda.synchronize()
-            t = (time.time() - start) / 5
-            results.append((f, c, s, t))
-        
-        for f, c, s, t in results:
-            if f == quantize_int8: d = c.float() * s
-            else: d = 0 # khó bỏ qua
-
-            error = (x - d).abs().mean().item()
-            print(f"{f.__name__}: {t*1000:.2f}ms, mean error: {error:.6f}")
-    print("test quantize END.\n")
-
 
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
