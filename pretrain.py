@@ -28,7 +28,7 @@ parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 parser.add_argument("--ve", type=int, default=3)            # số value embeds được bổ xung 
 parser.add_argument("--te", type=int, default=1)            # số token embeds 
-for x in "T C XS S L M fused".split():
+for x in "T C XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -179,7 +179,7 @@ print0(f"Adam: {sorted(set(x.replace('.weight','') for x in adam_keys))}")
 print0(f"Muon: {sorted(set(x.replace('.weight','').replace('future.block.','') for x in muon_keys))}")
 for x in muon_params: assert x.ndim >= 2
 
-# Dùng torch.optim.AdamW cho chuẩn xác + fused to save vram
+# Dùng torch.optim.AdamW cho chuẩn xác
 adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
 muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size)
 
@@ -189,12 +189,8 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 ## LOSS FUNCTION & PREPARE ##
 #############################
-from wingpt import simple_loss_fn, fused_loss_fn
-lossf = fused_loss_fn if args.fused else simple_loss_fn
-
-if args.C:
-    if args.fused: model = torch.compile(model); print(">>> torch.compile(model) <<<")
-    else:          lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
+from wingpt import simple_loss_fn as lossf
+if args.C: lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}

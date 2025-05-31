@@ -9,7 +9,6 @@ except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; F
 print("FA3_ENABLED?", FA3_ENABLED)
 
 from optimus import Int8MixedLinear
-from liger_kernel import LigerFusedLinearCrossEntropyFunction
 from OhMai.embedding import OhMaiEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -392,13 +391,6 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
-def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head):
-        hidden = hidden.view(-1, hidden.size(-1))#.bfloat16()
-        return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
-    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
-
-
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
         mask[-1] = True
@@ -488,7 +480,8 @@ if __name__ == "__main__":
     for step in range(10):
         optim.zero_grad()
         aptim.zero_grad()
-        loss_fn = [ simple_loss_fn, fused_loss_fn ][step % 2]
+
+        loss_fn = simple_loss_fn
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  

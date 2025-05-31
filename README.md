@@ -68,7 +68,6 @@
 🌸__DOING__🌸
 - [ ] Tích hợp qwen 3
   <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">
-  - [ ] Đọc Qwen3 TR
 
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
