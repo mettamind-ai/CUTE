@@ -323,7 +323,7 @@ if __name__ == "__main__": # test quantize_fp8
 
     funs = [quantize_int8, quantize_fp8]
     for f in funs: # warmup
-        for _ in 10:
+        for _ in range(10):
             f(torch.randn(sizes[1], dtype=torch.float32).cuda())
 
 
