@@ -342,7 +342,7 @@ if __name__ == "__main__": # test quantize_fp8
             torch.cuda.synchronize()
             start = time.time()
             for _ in range(10):
-                c, s = quantize_fp8_original(x.clone(), block_size)
+                c, s = f(x.clone(), block_size)
             torch.cuda.synchronize()
             t = (time.time() - start) / 10
             results.append((f, c, s, t))
