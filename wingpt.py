@@ -8,7 +8,7 @@ try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; F
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
-from optimus import Int8MixedLinear, quantize_int8
+from optimus import Int8MixedLinear
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
 from OhMai.embedding import OhMaiEmbedding
 
@@ -213,29 +213,22 @@ class CausalSelfAttention(nn.Module):
 ##############################
 
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0, last=False):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.last = last
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
             head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 2, 5, 8, 11 ...
 
-    def forward(self, x, x0, skip_value, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        if not isinstance(x, Tensor):
-            xi8, scale = x
-            x = xi8 * scale
-
-        if skip_value is not None: x += skip_value
-        x = te_lambdas[0] *  x # te_lambdas[0] init là 1
+    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+        x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
-        # if te is not None: x += te_lambdas[2] * te  # trộn trước block
 
+        ## per layer token emb trộn sau block
+        # if te is not None: x += te_lambdas[2] * te  # trộn trước block
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x), te)
-
-        if self.last: return x
-        return quantize_int8(x)
+        return x
 
 
 class Future(nn.Module):
@@ -275,7 +268,6 @@ class WinGPT(nn.Module):
 
         self.n_layers = n_layers
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
-        blocks[-1].last = True
 
         self.future_ratio = future_percent / 100.0
         if self.has_future():
@@ -343,18 +335,11 @@ class WinGPT(nn.Module):
         layer_outputs = []
         for i in range(self.n_layers):
             if i in self.skip_from:
-                    k = self.skip_from[i]
-                    if not isinstance(layer_outputs[k], Tensor):
-                            vi8, s = layer_outputs[k]
-                            v = vi8 * s
-                    else:   v = layer_outputs[k]
-                    skip_value = skip_weights[k] * v
-            else:   skip_value = None
+                k = self.skip_from[i]
+                x += skip_weights[k] * layer_outputs[k]
             
-            def fwd(blk, x0, sv, te, ve, tl, vl, c, m):
-                return lambda x: blk(x, x0, sv, te, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.blocks[i], skip_value, t_embs[0], t_embs[i], 
-                    v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
+            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
+            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
 
             x = torch.utils.checkpoint.checkpoint(f, x, use_reentrant=False)
             layer_outputs.append(x)
@@ -437,7 +422,7 @@ if __name__ == "__main__":
     sseed = 1982
     seq_len = 1024
     vocab_size = 512
-    dim, n_layers = 256, 8
+    dim, n_layers = 256, 4
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
@@ -468,7 +453,6 @@ if __name__ == "__main__":
         print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
-    # convert_int8_mixed_precision(ohmai)
     # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
@@ -494,13 +478,13 @@ if __name__ == "__main__":
     model.train()
     ohmai.train()
 
-    for step in range(10):
-        ## Generate sequences with batch dimension
-        input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+    ## Generate sequences with batch dimension
+    input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.int16).cuda()
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
+    for step in range(10):
         optim.zero_grad()
         aptim.zero_grad()
         loss_fn = [ simple_loss_fn, fused_loss_fn ][step % 2]
