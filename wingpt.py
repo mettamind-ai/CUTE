@@ -185,7 +185,7 @@ class CausalSelfAttention(nn.Module):
         if self.rope: q, k = rotary(q), rotary(k)
 
         # Layer lẻ hoặc nope áp dụng varlen
-        if self.layer_id % 2 == 1 or self.rope is None: # long attn
+        if self.layer_id % 3 == 2 or not self.rope: # long attn
             y = flash_attn_varlen_func(
                 q, k, v,
                 cu_seqlens, cu_seqlens,
@@ -195,7 +195,7 @@ class CausalSelfAttention(nn.Module):
                 window_size=(self.window, 0),
             ).to(x.dtype)
         else:
-            # bẻ seq thành bs, self.window
+            assert self.rope
             y = flash_attn_func(
                 q=q.view(-1, self.window, H, D),
                 k=k.view(-1, self.window, Hkv, D),
