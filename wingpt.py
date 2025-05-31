@@ -4,8 +4,8 @@ import os, math, torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-try: from flash_attn_interface import flash_attn_varlen_func; FA3_ENABLED = True
-except:        from flash_attn import flash_attn_varlen_func; FA3_ENABLED = False
+try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
+except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
 from optimus import Int8MixedLinear
@@ -134,6 +134,7 @@ class CausalSelfAttention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
+        self.layer_id = layer_id
 
         qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
@@ -183,14 +184,26 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)
 
-        y = flash_attn_varlen_func(
-            q.bfloat16(), k.bfloat16(), v.bfloat16(),
-            cu_seqlens, cu_seqlens,
-            max_seqlen, max_seqlen,
-            causal=True, dropout_p=0.0,
-            softmax_scale=self.attn_scale,
-            window_size=(self.window, 0),
-        ).to(x.dtype)
+        # Layer lẻ hoặc nope áp dụng varlen
+        if self.layer_id % 2 == 1 or self.rope is None: # long attn
+            y = flash_attn_varlen_func(
+                q, k, v,
+                cu_seqlens, cu_seqlens,
+                max_seqlen, max_seqlen,
+                causal=True, dropout_p=0.0,
+                softmax_scale=self.attn_scale,
+                window_size=(self.window, 0),
+            ).to(x.dtype)
+        else:
+            # bẻ seq thành bs, self.window
+            y = flash_attn_func(
+                q=q.view(-1, self.window, H, D),
+                k=k.view(-1, self.window, Hkv, D),
+                v=v.view(-1, self.window, Hkv, D),
+                causal=True, dropout_p=0.0,
+                softmax_scale=self.attn_scale,
+            )
+
         y = y.contiguous()
         y = y.reshape(T, H * D)
         return self.o_proj(y)
