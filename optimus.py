@@ -321,7 +321,7 @@ if __name__ == "__main__": # test quantize_fp8
     quantize_int8 = torch.compile(quantize_int8)
     tile_quantize_int8 = torch.compile(tile_quantize_int8)
 
-    funs = [quantize_fp8, quantize_int8, tile_quantize_int8]
+    funs = [quantize_int8, tile_quantize_int8, quantize_fp8]
 
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
@@ -332,13 +332,14 @@ if __name__ == "__main__": # test quantize_fp8
         for f in funs:
             torch.cuda.synchronize()
             start = time.time()
-            for _ in range(10):
+            n = 20
+            for _ in range(n):
                 if   f == quantize_fp8:         c, s = f(x, block_size)
                 elif f == quantize_int8:        c, s = f(x)
                 elif f == tile_quantize_int8:   c, s = f(x, tile_shape)
                 else: assert False
             torch.cuda.synchronize()
-            t = (time.time() - start) / 10
+            t = (time.time() - start) / n
             results.append((f, c, s, t))
         
         for f, c, s, t in results:
