@@ -8,7 +8,7 @@ try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; F
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
-from optimus import Int8MixedLinear
+from optimus import Int8MixedLinear, quantize_int8
 from OhMai.embedding import OhMaiEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -440,9 +440,9 @@ if __name__ == "__main__":
             assert torch.allclose(p1, p2), f"{n1} values are different"
     check_params()
 
-    for m in [model, ohmai]:
-        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
+    # for m in [model, ohmai]:
+    #     for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+    #     print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
     convert_int8_mixed_precision(ohmai)

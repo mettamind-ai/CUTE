@@ -21,7 +21,7 @@ parser.add_argument("--vocab", type=int, default=6400)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj` => ignore all) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
-parser.add_argument("--ohmai", type=int, default=None, choices=[None, 1600, 2048, 2560])
+parser.add_argument("--ohmai", type=int, default=2048, choices=[None, 1600, 2048, 2560])
 parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
