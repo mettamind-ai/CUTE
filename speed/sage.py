@@ -299,8 +299,8 @@ if __name__ == "__main__":
     def bench_flash_attention(BATCH, H, N_CTX, HEAD_DIM, provider, device="cuda"):
         dtype = torch.bfloat16
         q = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-    k = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-    v = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+        k = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+        v = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
         max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
         cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
