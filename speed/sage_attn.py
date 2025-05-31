@@ -118,31 +118,20 @@ def quant_key_per_thread_int8_kernel(Input, Output, Scale, L,
     tl.store(scale_ptrs, scale)
 
 
-def per_thread_int8_triton(q, k, km=None, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64, sm_scale=None, tensor_layout="HND"):
+def per_thread_int8_triton(q, k, km=None, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64, sm_scale=None):
     q_int8 = torch.empty(q.shape, dtype=torch.int8, device=q.device)
     k_int8 = torch.empty(k.shape, dtype=torch.int8, device=k.device)
 
     if km is not None:
         k = k - km
 
-    if tensor_layout == "HND":
-        b, h_qo, qo_len, head_dim = q.shape
-        _, h_kv, kv_len, _ = k.shape
+    b, h_qo, qo_len, head_dim = q.shape
+    _, h_kv, kv_len, _ = k.shape
 
-        stride_bz_q, stride_h_q, stride_seq_q = q.stride(0), q.stride(1), q.stride(2)
-        stride_bz_qo, stride_h_qo, stride_seq_qo = q_int8.stride(0), q_int8.stride(1), q_int8.stride(2)
-        stride_bz_k, stride_h_k, stride_seq_k = k.stride(0), k.stride(1), k.stride(2)
-        stride_bz_ko, stride_h_ko, stride_seq_ko = k_int8.stride(0), k_int8.stride(1), k_int8.stride(2)
-    elif tensor_layout == "NHD":
-        b, qo_len, h_qo, head_dim = q.shape
-        _, kv_len, h_kv, _ = k.shape
-
-        stride_bz_q, stride_h_q, stride_seq_q = q.stride(0), q.stride(2), q.stride(1)
-        stride_bz_qo, stride_h_qo, stride_seq_qo = q_int8.stride(0), q_int8.stride(2), q_int8.stride(1)
-        stride_bz_k, stride_h_k, stride_seq_k = k.stride(0), k.stride(2), k.stride(1)
-        stride_bz_ko, stride_h_ko, stride_seq_ko = k_int8.stride(0), k_int8.stride(2), k_int8.stride(1)
-    else:
-        raise ValueError(f"Unknown tensor layout: {tensor_layout}")
+    stride_bz_q, stride_h_q, stride_seq_q = q.stride(0), q.stride(1), q.stride(2)
+    stride_bz_qo, stride_h_qo, stride_seq_qo = q_int8.stride(0), q_int8.stride(1), q_int8.stride(2)
+    stride_bz_k, stride_h_k, stride_seq_k = k.stride(0), k.stride(1), k.stride(2)
+    stride_bz_ko, stride_h_ko, stride_seq_ko = k_int8.stride(0), k_int8.stride(1), k_int8.stride(2)
 
     q_scale = torch.empty((b, h_qo, (qo_len + BLKQ - 1) // BLKQ * (BLKQ // WARPQ) * 8), device=q.device, dtype=torch.float32)
     k_scale = torch.empty((b, h_kv, (kv_len + BLKK - 1) // BLKK * (BLKK // WARPK) * 4), device=q.device, dtype=torch.float32)
@@ -250,7 +239,7 @@ torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
     q_int8, q_scale, k_int8, k_scale = per_thread_int8_triton(q, k, km, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64)
     o = torch.empty(q.size(), dtype=dtype, device=q.device)
 
-    v_fp8, v_scale, vm = per_channel_fp8(v, smooth_v=False)
+    v_fp8, v_scale, vm = per_channel_fp8(v)
     _qattn_sm89.qk_int8_sv_f8_accum_f32_fuse_v_scale_attn_inst_buf(q_int8, k_int8, v_fp8, o, q_scale, k_scale, v_scale, _tensor_layout, _is_caual, _qk_quant_gran, sm_scale, _return_lse)
 
     o = o[..., :head_dim_og]
