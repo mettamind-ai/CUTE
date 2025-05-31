@@ -352,12 +352,30 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
+import math
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head):
-        logits = torch.utils.checkpoint.checkpoint(head, hidden, use_reentrant=False)
-        logits = logits.view(-1, logits.size(-1))
-        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
-        return F.cross_entropy(logits.float(), target.long()), None
+    def _loss_method(hidden, target, head, chunk_size=2048):
+        total_tokens = hidden.size(0)  # hidden đã được flatten
+        num_chunks = math.ceil(total_tokens / chunk_size)
+        total_loss = None
+        
+        for i in range(num_chunks):
+            start_idx = i * chunk_size
+            end_idx = (i + 1) * chunk_size
+            if end_idx > total_tokens: end_idx = total_tokens
+            
+            # Lấy chunk của hidden và target
+            hidden_chunk = hidden[start_idx:end_idx]
+            target_chunk = target[start_idx:end_idx]
+            
+            logits_chunk = torch.utils.checkpoint.checkpoint(head, hidden_chunk, use_reentrant=False,)                
+            logits_chunk = logits_chunk.view(-1, logits_chunk.size(-1))
+            logits_chunk = 15 * logits_chunk * torch.rsqrt(logits_chunk.square() + 15*15)
+            
+            chunk_loss = F.cross_entropy(logits_chunk.float(), target_chunk.long(),)
+            if total_loss is None: total_loss = chunk_loss
+            else: total_loss += chunk_loss
+        return total_loss / num_chunks, None
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
