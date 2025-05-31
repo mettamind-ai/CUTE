@@ -79,6 +79,7 @@ def per_channel_fp8(
     v: torch.Tensor,
     scale_max: float = 448.0,
 ):
+    # NHD
     b, kv_len, h_kv, head_dim = v.shape
     padded_len = (kv_len + 63) // 64 * 64
     v_transposed_permutted = torch.empty((b, head_dim, h_kv, padded_len), dtype=v.dtype, device=v.device)
@@ -108,9 +109,9 @@ CUDA SageAttention with INT8 quantization for Q and K, FP8 PV with FP32 accumula
 
 Parameters
 ----------
-q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
-k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
-v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
+q : torch.Tensor ``[batch_size, qo_len, num_qo_heads, head_dim]``.
+k : torch.Tensor ``[batch_size, kv_len, num_kv_heads, head_dim]``.
+v : torch.Tensor ``[batch_size, kv_len, num_kv_heads, head_dim]``.
 is_causal : bool Only applicable when qo_len == kv_len. Default: False.
 sm_scale : Optional[float]. If not provided, will be set to ``1.0 / sqrt(head_dim)``.
 
@@ -118,8 +119,9 @@ Returns
 -------
 torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
     """
+    _tensor_layout = 0 # "NHD"
     _is_caual = 1 if is_causal else 0
-    _qk_quant_gran = 3  # "per_thread"
+    _qk_quant_gran = 2  # "per_warp"
     _return_lse = 0
 
     dtype = q.dtype
