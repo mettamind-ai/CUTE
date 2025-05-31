@@ -320,7 +320,7 @@ def quantize_fp8_fast(input: Tensor, block_size: int):
 
 if __name__ == "__main__": # test quantize_fp8
     import time
-    sizes = [(2048, 2048), (16*4096, 4096), (32*8192, 8192)]
+    sizes = [(2048, 2048), (16*4096, 4096), (24*8192, 4096)]
     block_size = 2048
 
     quantize_fp8_original = torch.compile(quantize_fp8_original)
@@ -348,7 +348,7 @@ if __name__ == "__main__": # test quantize_fp8
         
         dequants = []
         for f, c, s, t in results:
-            print(f"{f}: {t*1000:.2f}ms")        
+            print(f"{f.__name__}: {t*1000:.2f}ms")        
             d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
             dequants.append(d)
         
