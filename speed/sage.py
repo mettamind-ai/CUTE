@@ -313,7 +313,7 @@ if __name__ == "__main__":
             if "sageattn_varlen" == provider:
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            if "sageattn" == provider:
+            if "sageattn??" == provider:
                 # q : torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
                 # k : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
                 # v : torch.Tensor ``[batch_size, num_kv_heads, kv_len, head_dim]``.
@@ -326,6 +326,18 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
+            if FA3_ENABLED:
+                q_scale = (q.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
+                k_scale = (k.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
+                v_scale = (v.abs().max().to(torch.float32) / 448.0).unsqueeze(-1)
+
+                q_f8 = (q / q_scale).to(torch.float8_e4m3fn)
+                k_f8 = (k / k_scale).to(torch.float8_e4m3fn)
+                v_f8 = (v / v_scale).to(torch.float8_e4m3fn)
+
+                return lambda: flash_attn_func(q_f8, k_f8, v_f8, 
+                    descale_q=q_scale, descale_k=k_scale, descale_v=v_scale, causal=True, softmax_scale=1.3)
+            
             return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                 causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 

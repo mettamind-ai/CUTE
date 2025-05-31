@@ -148,7 +148,6 @@ torch.Tensor ``[batch_size, num_qo_heads, qo_len, head_dim]``.
     km = k.mean(dim=seq_dim, keepdim=True)
 
     q_int8, q_scale, k_int8, k_scale = per_warp_int8_cuda(q, k, km, BLKQ=128, WARPQ=32, BLKK=64)
-    # q_int8, q_scale, k_int8, k_scale = per_thread_int8_triton(q, k, km, BLKQ=128, WARPQ=32, BLKK=64, WARPK=64)
     o = torch.empty(q.size(), dtype=dtype, device=q.device)
 
     v_fp8, v_scale, _ = per_channel_fp8(v)
