@@ -310,30 +310,22 @@ def quantize_fp8(input: Tensor, block_size: int):
     codes = input.to(DTYPE).view(-1)
     return codes.view(shape), scale
 
-def quantize_fp8_fast(input: Tensor, block_size: int):
-    shape = input.shape
-    input = input.view(-1, block_size)
-    scale = torch.finfo(DTYPE).max / input.abs().amax(-1, keepdim=True).clip(1e-12)
-    codes = (input * scale).to(DTYPE)
-    return codes.view(shape), scale.squeeze()
-
 
 if __name__ == "__main__": # test quantize_fp8
     import time
     sizes = [(2048, 2048), (16*4096, 4096), (24*8192, 4096)]
-    block_size = 2048
+    block_size = 1024
+    tile_shape = (32, 32)
 
     quantize_fp8 = torch.compile(quantize_fp8)
-    quantize_fp8_fast = torch.compile(quantize_fp8_fast)
-    funs = [quantize_fp8, quantize_fp8_fast]
+    quantize_int8 = torch.compile(quantize_int8)
+    tile_quantize_int8 = torch.compile(tile_quantize_int8)
+
+    funs = [quantize_fp8, quantize_int8, tile_quantize_int8]
 
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
         x = torch.randn(size, dtype=torch.float32).cuda()
-        
-        # Warm up GPU
-        for _ in range(3):
-            for f in funs: f(x, block_size)
         
         # Benchmark
         results = []
@@ -341,19 +333,22 @@ if __name__ == "__main__": # test quantize_fp8
             torch.cuda.synchronize()
             start = time.time()
             for _ in range(10):
-                c, s = f(x, block_size)
+                if   f == quantize_fp8:         c, s = f(x, block_size)
+                elif f == quantize_int8:        c, s = f(x)
+                elif f == tile_quantize_int8:   c, s = f(x, tile_shape)
+                else: assert False
             torch.cuda.synchronize()
             t = (time.time() - start) / 10
             results.append((f, c, s, t))
         
-        dequants = []
         for f, c, s, t in results:
-            print(f"{f.__name__}: {t*1000:.2f}ms")        
-            d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
-            dequants.append(d)
-        
-        error = (dequants[0] - dequants[1]).abs().max()
-        print(f"Max error: {error:.6f}")
+            if f == quantize_fp8:
+                d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
+            elif f == quantize_int8: d = c.float() * s
+            else: d = 0 # khó bỏ qua
+
+            error = (x - d).abs().max().item()
+            print(f"{f.__name__}: {t*1000:.2f}ms, Max error: {error:.6f}")
     print("test quantize END.\n")
 
 
