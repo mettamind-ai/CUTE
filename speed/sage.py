@@ -284,7 +284,7 @@ except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; F
 print("FA3_ENABLED?", FA3_ENABLED)
 
 if __name__ == "__main__":
-    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn flash_attn_fp8".split()
+    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn sageattn".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
