@@ -9,49 +9,6 @@ import warnings
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 os.environ['MAX_JOBS'] = "4"
 
-###########################
-##  INT4 Cutlass Matmul  ##
-###########################
-''' Không hiệu quả
-from pathlib import Path
-import torch.utils.cpp_extension
-
-os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
-os.environ['MAX_JOBS'] = "4"
-_cutlass_mm = torch.utils.cpp_extension.load(
-    "cutlass_mm",
-    sources=["speed/cutlass_mm.cu"],
-    extra_cuda_cflags=["-O3"],
-    extra_include_paths=["third-party/cutlass/include"],
-    verbose=True,
-)
-lib.define("scaled_int4_mm(Tensor A, Tensor B, Tensor row_scale, Tensor col_scale) -> Tensor")
-def scaled_int4_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
-    assert A.is_cuda and A.ndim == 2 and A.dtype is torch.int8
-    assert B.is_cuda and B.ndim == 2 and B.dtype is torch.int8
-    assert row_scale.dtype == col_scale.dtype == torch.bfloat16
-    assert row_scale.squeeze().shape == (A.shape[0],)
-    assert col_scale.squeeze().shape == (B.shape[1],)
-    return lib_ops.scaled_int4_mm(A, B, row_scale, col_scale)
-
-@torch.library.impl(lib, "scaled_int4_mm", "Meta")
-def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale.dtype)
-torch.library.impl(lib, "scaled_int4_mm", "CUDA")(_cutlass_mm.scaled_int4_mm)
-
-@torch.no_grad()
-def quantize_int4(x: Tensor) -> Tensor:
-    pos_scale = x.relu().amax(dim=1) / 7
-    neg_scale = x.neg().relu().amax(dim=1) / 8
-    scale = torch.maximum(pos_scale, neg_scale)
-    inv_scale = 1.0 / scale.float().clip(1e-12)
-    x = x.float() * inv_scale.view(-1, 1)
-    x = x.round().to(torch.int8)
-    x = (x[:, ::2] << 4) | (x[:, 1::2] & 0xF)
-    return x, scale
-# '''
-
-
 NVCC_FLAGS = ["-O3", "-std=c++17",
     "-U__CUDA_NO_HALF_OPERATORS__",
     "-U__CUDA_NO_HALF_CONVERSIONS__",
