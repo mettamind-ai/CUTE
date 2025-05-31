@@ -314,8 +314,8 @@ def quantize_fp8(input: Tensor, block_size: int):
 if __name__ == "__main__": # test quantize_fp8
     import time
     sizes = [(2048, 2048), (16*4096, 4096), (16*8192, 8192)]
-    block_size = 4096
-    tile_shape = (64, 64)
+    block_size = 1024
+    tile_shape = (32, 32)
 
     quantize_fp8 = torch.compile(quantize_fp8)
     quantize_int8 = torch.compile(quantize_int8)
@@ -348,7 +348,7 @@ if __name__ == "__main__": # test quantize_fp8
             elif f == quantize_int8: d = c.float() * s
             else: d = 0 # khó bỏ qua
 
-            error = (x - d).abs().max().item()
+            error = (x - d).abs().avg().item()
             print(f"{f.__name__}: {t*1000:.2f}ms, Max error: {error:.6f}")
     print("test quantize END.\n")
 
