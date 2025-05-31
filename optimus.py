@@ -317,9 +317,10 @@ def quantize_fp8_fast(input: Tensor, block_size: int):
     codes = (input * scale).to(DTYPE)
     return codes.view(shape), scale.squeeze()
 
+
 if __name__ == "__main__": # test quantize_fp8
     import time
-    sizes = [(2048, 2048), (16*4096, 4096)]
+    sizes = [(2048, 2048), (16*4096, 4096), (32*8192, 8192)]
     block_size = 2048
 
     quantize_fp8_original = torch.compile(quantize_fp8_original)
@@ -334,32 +335,24 @@ if __name__ == "__main__": # test quantize_fp8
             _ = quantize_fp8_original(x.clone(), block_size)
             _ = quantize_fp8_fast(x.clone(), block_size)
         
-        # Benchmark original
-        torch.cuda.synchronize()
-        start = time.time()
-        for _ in range(10):
-            codes1, scale1 = quantize_fp8_original(x.clone(), block_size)
-        torch.cuda.synchronize()
-        time1 = (time.time() - start) / 10
+        # Benchmark
+        results = []
+        for f in [quantize_fp8_original, quantize_fp8_fast]:
+            torch.cuda.synchronize()
+            start = time.time()
+            for _ in range(10):
+                c, s = quantize_fp8_original(x.clone(), block_size)
+            torch.cuda.synchronize()
+            t = (time.time() - start) / 10
+            results.apend(f, c, s, t)
         
-        # Benchmark fast
-        torch.cuda.synchronize()
-        start = time.time()
-        for _ in range(10):
-            codes2, scale2 = quantize_fp8_fast(x.clone(), block_size)
-        torch.cuda.synchronize()
-        time2 = (time.time() - start) / 10
+        dequants = []
+        for f, c, s, t in results:
+            print(f"{f}: {t*1000:.2f}ms")        
+            d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
+            dequants.apend(d)
         
-        # So sánh kết quả
-        print(f"Original: {time1*1000:.2f}ms")
-        print(f"Fast:     {time2*1000:.2f}ms")
-        print(f"Speedup:  {time1/time2:.2f}x")
-        
-        # Kiểm tra tương đương (dequantize để so sánh)
-        dequant1 = codes1.float() * scale1.view(-1, 1).repeat(1, block_size).view(size)
-        dequant2 = codes2.float() / scale2.view(-1, 1).repeat(1, block_size).view(size)
-        
-        error = (dequant1 - dequant2).abs().max()
+        error = (dequant[0] - dequant[1]).abs().max()
         print(f"Max error: {error:.6f}")
 
 
