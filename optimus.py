@@ -344,7 +344,7 @@ if __name__ == "__main__": # test quantize_fp8
                 c, s = quantize_fp8_original(x.clone(), block_size)
             torch.cuda.synchronize()
             t = (time.time() - start) / 10
-            results.apend(f, c, s, t)
+            results.append((f, c, s, t))
         
         dequants = []
         for f, c, s, t in results:
