@@ -295,7 +295,7 @@ class WinGPT(nn.Module):
         print("WinGPT.skip_from", self.skip_from)
 
         self.lm_head = nn.Linear(dim, vocab_size, bias=False)
-        x = torch.zeros_like(self.lm_head.weight, requires_grad=True, torch.dtype=torch.float8_e4m3fn)
+        x = torch.zeros_like(self.lm_head.weight, requires_grad=True, dtype=torch.float8_e4m3fn)
         self.lm_head.weight = nn.Parameter(x)
 
 
