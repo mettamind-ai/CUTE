@@ -302,7 +302,7 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
 
 DTYPE = torch.float8_e4m3fn
 
-def quantize_fp8(input: Tensor, block_size: int):
+def quantize_fp8(input: Tensor, block_size=1024):
     shape = input.shape
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
@@ -322,6 +322,10 @@ if __name__ == "__main__": # test quantize_fp8
     tile_quantize_int8 = torch.compile(tile_quantize_int8)
 
     funs = [quantize_int8, quantize_fp8]
+    for f in funs: # warmup
+        for _ in 10:
+            f(torch.randn(sizes[1], dtype=torch.float32).cuda())
+
 
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
