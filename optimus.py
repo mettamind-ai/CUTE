@@ -352,7 +352,7 @@ if __name__ == "__main__": # test quantize_fp8
             d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
             dequants.append(d)
         
-        error = (dequant[0] - dequant[1]).abs().max()
+        error = (dequants[0] - dequants[1]).abs().max()
         print(f"Max error: {error:.6f}")
     print("test quantize END.\n")
 
