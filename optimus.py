@@ -321,7 +321,7 @@ if __name__ == "__main__": # test quantize_fp8
     quantize_int8 = torch.compile(quantize_int8)
     tile_quantize_int8 = torch.compile(tile_quantize_int8)
 
-    funs = [quantize_int8, tile_quantize_int8, quantize_fp8]
+    funs = [quantize_int8, quantize_fp8]
 
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
