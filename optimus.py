@@ -322,8 +322,9 @@ if __name__ == "__main__": # test quantize_fp8
     tile_quantize_int8 = torch.compile(tile_quantize_int8)
 
     funs = [quantize_int8, quantize_fp8]
+    print("Warmup ...")
     for f in funs: # warmup
-        for _ in range(10):
+        for _ in range(5):
             f(torch.randn(sizes[1], dtype=torch.float32).cuda())
 
 
