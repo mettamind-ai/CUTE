@@ -1,4 +1,5 @@
 import tokenmonster # pip install tokenmonster
+import lzma, json
 
 tokenmonster.set_local_directory(".")
 
@@ -9,3 +10,9 @@ vocab = tokenmonster.load("english-28416-balanced-v1.vocab")
 text = "Some text to turn into token IDs."
 tokens = vocab.tokenize(text)
 print(tokens)
+
+et = 32000-1
+
+for i in range(2):
+	filename = f"tinystories.en_{i}.jsonl.xz"
+	for line in lzma.open(filename, "rt"):
