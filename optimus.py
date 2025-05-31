@@ -299,9 +299,7 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
     scales = scales.squeeze((2, 3))  # (num_tiles_h, num_tiles_w)    
     return quantized, scales
 
-
 DTYPE = torch.float8_e4m3fn
-
 def quantize_fp8(input: Tensor, block_size=1024):
     shape = input.shape
     input = input.view(-1, block_size)
@@ -349,8 +347,10 @@ if __name__ == "__main__": # test quantize_fp8
         
         for f, c, s, t in results:
             if f == quantize_fp8:
-                d = c.float() * s.view(-1, 1).repeat(1, block_size).view(size)
-            elif f == quantize_int8: d = c.float() * s
+                d = c.float().view(-1, self.block_size) * self.scale.view(-1, 1)
+                d = d.view(c.shape)
+            elif f == quantize_int8:
+                d = c.float() * s
             else: d = 0 # khó bỏ qua
 
             error = (x - d).abs().mean().item()
