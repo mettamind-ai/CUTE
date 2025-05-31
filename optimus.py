@@ -325,19 +325,20 @@ if __name__ == "__main__": # test quantize_fp8
 
     quantize_fp8 = torch.compile(quantize_fp8)
     quantize_fp8_fast = torch.compile(quantize_fp8_fast)
-    
+    funs = [quantize_fp8, quantize_fp8_fast]
+
     for size in sizes:
         print(f"\n--- Tensor size: {size} ---")
         x = torch.randn(size, dtype=torch.float32).cuda()
         
         # Warm up GPU
         for _ in range(3):
-            for f in [quantize, quantize_fp8_fast]:
+            for f in funs:
                 f(x.clone(), block_size)
         
         # Benchmark
         results = []
-        for f in [quantize, quantize_fp8_fast]:
+        for f in funs:
             torch.cuda.synchronize()
             start = time.time()
             for _ in range(10):
