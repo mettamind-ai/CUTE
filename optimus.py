@@ -304,96 +304,6 @@ def tile_quantize_int8(tensor, tile_shape, eps=1e-12, sr=False):
     scales = scales.squeeze((2, 3))  # (num_tiles_h, num_tiles_w)    
     return quantized, scales
 
-class Int8Tensor(Tensor):
-    @staticmethod
-    @torch._dynamo.disable
-    def __new__(cls, int_data: Tensor, scale: Tensor):
-        return Tensor._make_wrapper_subclass(
-            cls, int_data.shape,
-            dtype=scale.dtype,
-            device=int_data.device,
-        )
-
-    @torch._dynamo.disable
-    def __init__(self, int_data: Tensor, scale: Tensor):
-        assert int_data.dtype is torch.int8
-        assert int_data.ndim == 2
-        assert scale.ndim == 2
-        self.int_data = int_data
-        self.scale = scale
-
-    def __tensor_flatten__(self):
-        return ["int_data", "scale"]
-
-    @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes)
-
-    @classmethod
-    def from_float(cls, tensor: Tensor):
-        int_data, scale = quantize_int8(tensor.detach())
-        out = cls(int_data, scale)
-        out.requires_grad_(tensor.requires_grad)
-        return out
-
-    def dequantize(self):
-        return self.int_data * self.scale.view(-1, 1)
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}(shape={tuple(self.shape)}, "
-            f"dtype={self.dtype}, device={self.device}, requires_grad={self.requires_grad})"
-        )
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in (aten.detach.default, aten.clone.default):
-            return cls(
-                func(args[0].int_data, *args[1:], **kwargs),
-                func(args[0].scale, *args[1:], **kwargs),
-            )
-
-        elif func in (aten._to_copy.default,):
-            device = kwargs.get("device", None)
-            dtype = kwargs.get("dtype", None)
-            return cls(
-                args[0].int_data.to(device=device),
-                args[0].scale.to(device=device, dtype=dtype),
-            )
-
-        # to make training work with existing PyTorch optimizers, we return a normal tensor instead of Int8LinearWeight
-        elif func is aten.zeros_like.default:
-            dtype = kwargs.get("dtype", args[0].dtype)
-            device = kwargs.get("device", args[0].device)
-            return torch.zeros(args[0].shape, dtype=dtype, device=device)
-
-        elif func in (aten.sub.Tensor, aten.mul.Tensor):
-            args = [x.dequantize() if isinstance(x, cls) else x for x in args]
-            return func(*args, **kwargs)
-
-        elif func is aten.copy_.default:
-            if isinstance(args[0], cls) and isinstance(args[1], cls):
-                args[0].int_data.copy_(args[1].int_data)
-                args[0].scale.copy_(args[1].scale)
-
-            elif isinstance(args[0], cls):
-                int_data, scale = quantize_int8(args[1], stochastic_rounding=True)
-                args[0].int_data.copy_(int_data)
-                args[0].scale.copy_(scale)
-
-            else:
-                args[0].copy_(args[1].dequantize())
-
-            return args[0]
-
-        # optim step
-        elif func in (aten.addcdiv_.default, aten.add_.Tensor):
-            original = args[0]
-            out = func(args[0].dequantize(), *args[1:], **kwargs)
-            return original.copy_(out)
-
-        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
-
 
 if __name__ == "__main__": # test quantize_fp8
     import time
@@ -401,11 +311,8 @@ if __name__ == "__main__": # test quantize_fp8
     tile_shape = (32, 32)
 
     x = torch.randn(sizes[1], dtype=torch.float32).cuda()
-    y = Int8Tensor.from_float(x)
-    error = (x - y.float()).abs().mean().item()
-    print(f"float->int8->float mean error: {error:.6f}")
-
     quantize_int8 = torch.compile(quantize_int8)
+
     funs = [quantize_int8, torch.compile(tile_quantize_int8)]
     print("Warmup ...")
     funs[0](x); funs[1](x, tile_shape)
@@ -440,12 +347,13 @@ if __name__ == "__main__": # test quantize_fp8
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input:Tensor, weight, bias=None):
+    def forward(inp:Tensor, weight, bias=None):
         assert bias is None
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        A, B  = input, weight._data.T
-        A, As = quantize_int8(A, dim=1, sr=False) # ma trận to ko rouding
-        B, Bs = quantize_int8(B, dim=0, sr=True)  # ma trận nhỏ có
+        A, B  = inp, weight._data.T
+        A, As = quantize_int8(A, dim=1, sr=False)
+        # print(A, As)#; input()
+        B, Bs = quantize_int8(B, dim=0, sr=True)  # rounding ma trận nhỏ có
         return scaled_mm(A, B, As, Bs,)
 
     @staticmethod

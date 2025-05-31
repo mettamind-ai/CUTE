@@ -8,7 +8,7 @@ try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; F
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
-from optimus import Int8MixedLinear
+from optimus import Int8MixedLinear, quantize_int8
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
 from OhMai.embedding import OhMaiEmbedding
 
@@ -213,22 +213,27 @@ class CausalSelfAttention(nn.Module):
 ##############################
 
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0, last=False):
         super().__init__()
         self.layer_id = layer_id
+        self.last = last
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
             head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 2, 5, 8, 11 ...
 
     def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+        if not isinstance(x, Tensor):
+            xi8, scale = x
+            x = xi8 * scale
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
-
-        ## per layer token emb trộn sau block
         # if te is not None: x += te_lambdas[2] * te  # trộn trước block
+
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x), te)
-        return x
+
+        if self.last: return x
+        return quantize_int8(x)
 
 
 class Future(nn.Module):
@@ -268,6 +273,7 @@ class WinGPT(nn.Module):
 
         self.n_layers = n_layers
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
+        blocks[-1].last = True
 
         self.future_ratio = future_percent / 100.0
         if self.has_future():
@@ -453,6 +459,7 @@ if __name__ == "__main__":
         print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
+    # convert_int8_mixed_precision(ohmai)
     # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
