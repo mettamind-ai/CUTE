@@ -70,10 +70,10 @@ class OhMaiEmbedding(nn.Module):
         reuse, neww = self.active[reuse_mask], self.active[~reuse_mask]
         self.active = torch.cat([reuse, neww])
 
-        self.update_stream.synchronize()
-        x = self.weight[neww.cpu()].to(device=self.active_weight.device)
-        x = torch.cat([self.active_weight.data[reuse_indices], x])
-        self.active_weight.data[ : len(self.active) ] = x
+        reuse = self.active_weight.data[reuse_indices].clone()
+        self.update_stream.synchronize() # đồng bộ hoá lần update trước
+        newww = self.weight[neww.cpu()].to(device=self.active_weight.device)
+        self.active_weight.data[ : len(self.active) ] = torch.cat([reuse, newww])
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
