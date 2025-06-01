@@ -16,3 +16,8 @@ LoRA, freezed, inference thì:
 
 
 https://huggingface.co/allenai/OLMoE-1B-7B-0125
+
+https://stanford-cs336.github.io/spring2025-lectures/?trace=var%2Ftraces%2Flecture_10.json&step=383
+
+|![](https://stanford-cs336.github.io/spring2025-lectures/var/files/image-8f165bbc7b78ab8ca356e2866bbdd118-https_huggingface_co_blog_assets_96_hf_bitsandbytes_integration_quant-freeze_png)|![](https://stanford-cs336.github.io/spring2025-lectures/var/files/image-5e056ed09ad2b0888540d9e4e4795efa-https_huggingface_co_blog_assets_96_hf_bitsandbytes_integration_Mixed-int8_gif)|
+|-|-|
