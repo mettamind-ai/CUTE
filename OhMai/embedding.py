@@ -141,13 +141,12 @@ class OhMaiEmbedding(nn.Module):
 
     @torch.no_grad()
     def activate(self, indices):
-        prev_active = self.active.clone()
         curr_active = torch.unique(indices).long()
         assert len(curr_active) <= self.active_vocab, f"OhMai found {len(curr_active)} > active_vocab"
 
         # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
-        unuse_mask    = ~torch.isin(prev_active, curr_active)
-        unuse_tokens  = prev_active[unuse_mask]
+        unuse_mask    = ~torch.isin(self.active, curr_active)
+        unuse_tokens  = self.active[unuse_mask]
 
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
         unuse_embeds  = self.active_weight.data[unuse_indices].clone()

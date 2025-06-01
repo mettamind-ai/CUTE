@@ -11,11 +11,11 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
   Thử nghiệm [sage.py](/speed/sage.py) cho thấy ở 4k ctx sage's fwd x1.5 flash_attn, 8k và 16k thì x2 flash_attn
   Với LoRA thì chỉ cần tính input gradient nên code sẽ tinh giản hơn ...
 
-- [x] OhMaiEmbedding is good :) Nhưng cần giảm IO
-  - [ ] chỉ update những tokens ko có trong batch và 
-  - [ ] chỉ load những tokens không có sẵn trong vram
+- [x] OhMaiEmbedding cần giảm tối thiểu IO
+  - [x] chỉ update những tokens ko có trong batch và 
+  - [x] chỉ load những tokens không có sẵn trong vram
 
-- [ ] OhMaiHead <= chunked cross entropy loss?
+- [x] OhMaiHead <= chunked cross entropy loss
 
 - [ ] Trước mắt chỉ cần áp dụng phép nhân ma trận 8bit vào [lora.py](lora.py) là cũng đã save vram và speedup kha khá ...
 
