@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import torch
 from torch import nn, Tensor
+
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
@@ -33,49 +34,61 @@ class OhMaiEmbedding(nn.Module):
         self.weight = torch.randn(vocab, hidim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
-        self.active_weight = None
-        self.active_tokens = None # Cần kích hoạt mỗi lần forward
-
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
         w = torch.empty(active_vocab, self.hidim, device="cuda", dtype=self.weight.dtype)
+
         self.active_weight = nn.Parameter(w)
         self.active_vocab = active_vocab
+
+        self.active = torch.tensor([], dtype=torch.long, device='cuda')
+        self.active.requires_grad_(False)
 
         # Khởi tạo CUDA stream cho async transfer
         self.update_stream = torch.cuda.Stream()
 
 
-    def activate(self, indices, active=None, inverse=None, force=False):
-        if not force: assert self.active_tokens is None, "need to call .update_embeddings() after optimizer step"
-        if active is None:
-                active, inverse = torch.unique(indices, return_inverse=True, sorted=True)
-                self.active_tokens = active.cpu().to(torch.long)
-        else:   self.active_tokens = active
+    @torch.no_grad()
+    def activate(self, indices):
+        prev_active = self.active
+        self.active = torch.unique(indices).long()
+        assert len(self.active) <= self.active_vocab, f"OhMai found {len(self.active)} > active_vocab"
 
-        n = len(self.active_tokens)
-        assert n <= self.active_vocab, f"OhMai found {n} > active_vocab"
+        # Kiểm tra xem có phần tử nào của prev_active nào không có trong self.active không?
+        unuse_mask    = ~torch.isin(prev_active, self.active)
+        unuse_tokens  = prev_active[unuse_mask]
+        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).squeeze(-1)
+        unuse_embeds  = self.active_weight[unuse_indices]
+        reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).squeeze(-1)
 
-        with torch.no_grad():  # load active tokens' embeddings to GPU
-            self.update_stream.synchronize() # Finish update_embeddings first
-            self.active_weight.data[:n] = self.weight[self.active_tokens]
+        # Kiểm tra xem có phần tử nào của self.active nào có trong prev_active không?
+        reuse_mask  = torch.isin(self.active, prev_active)
+        reuse, neww = self.active[reuse_mask], self.active[~reuse_mask]
+        self.active = torch.cat([reuse, neww])
+
+        # Tạo inverse indices
+        n = self.active.max().item() + 1
+        inverse_map = torch.full((n,), -1, dtype=torch.long, device=indices.device)
+        inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
+        inverse = inverse_map[indices]
+
+        self.update_stream.synchronize()
+        x = self.weight[neww.cpu()].to(device=self.active_weight.device)
+        x = torch.cat([self.active_weight.data[reuse_indices], x])
+        self.active_weight.data[ : len(self.active) ] = x
+        # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
+        with torch.cuda.stream(self.update_stream):
+            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds.cpu().to(self.weight.dtype)
         return inverse
 
 
-    def update_embeddings(self):  
-        assert self.active_weight.grad is not None # => grad đã chảy tới
-
-        # Sử dụng stream để async transfer
-        with torch.cuda.stream(self.update_stream):
-            v = self.active_weight[:len(self.active_tokens)]
-            self.weight[self.active_tokens] = v.cpu().to(self.weight.dtype)
-
-        self.active_tokens = None # clear inactive data
+    def update_embeddings(self):
+        self.update_stream.synchronize()
+        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu().to(self.weight.dtype)
 
 
-    def forward(self, indices, active=None, inverse=None, force=False):
-        inverse = self.activate(indices, active, inverse, force)
-        x = OhMaiEmbFunction.apply(self.active_weight, inverse)
-        return x
+    def forward(self, indices):
+        inverse = self.activate(indices)
+        return OhMaiEmbFunction.apply(self.active_weight, inverse)
 
 
 ########################
@@ -83,7 +96,7 @@ class OhMaiEmbedding(nn.Module):
 ########################
 
 if __name__ == "__main__":
-    # import os, sys; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # extend path to `..`
+    # import os, sys; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # extend path to real `..`
     vocab, dim, ctx = 6400, 128, 32
  
     torch.manual_seed(1981)
@@ -123,5 +136,5 @@ if __name__ == "__main__":
         losses = [ f"{l:.4f}" for l in losses ]
         print(f"Optimizer step {i}, losses {', '.join(losses)}")
 
-        e0.update_embeddings()
+    e0.update_embeddings()
     # END FOR

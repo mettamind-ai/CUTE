@@ -106,7 +106,7 @@ WIN  = torch.arange(CTX)
 def get_batch():
     idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
     x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.
-    return x.pin_memory().to("cuda", dtype=torch.int16, non_blocking=True)
+    return x.pin_memory().to("cuda", dtype=torch.long, non_blocking=True)
 batch = get_batch()
 
 
@@ -234,7 +234,6 @@ while step < args.steps and lossv > args.minloss:
 
     muon_optim.step()
     adam_optim.step()
-    model.update_embeddings()
     muon_optim.zero_grad()
     adam_optim.zero_grad()
  
@@ -256,4 +255,5 @@ while step < args.steps and lossv > args.minloss:
         time0 = time.time()
         logger.log(log_dict, step=step)
     # END of Training Loop
+model.update_embeddings()
 if not args.T: logger.finish()
