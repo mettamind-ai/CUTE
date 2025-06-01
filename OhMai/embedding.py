@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+''' bản thuần pytorch
 import torch
 from torch import nn, Tensor
 
@@ -14,6 +15,94 @@ class OhMaiEmbFunction(torch.autograd.Function):
         grad_weight = torch.zeros_like(embeddings)
         grad_weight.index_add_(0, indices, grad_output)
         return grad_weight, None
+'''
+
+import torch, triton
+import triton.language as tl
+from torch import nn, Tensor
+
+@triton.jit
+def embedding_forward_kernel(
+    embeds_ptr, tokens_ptr,     # trỏ tới token_ids cần lấy embedding values
+    output_ptr,                 # x0, hay embeddings của batch hiện tại
+    vocab, hidim,               # vocab size x hidden dim = kích thước embedding matrix
+    BLOCK_SIZE: tl.constexpr,   # kích thước khối đang xử lý
+):
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+
+    # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
+    tok_mask  =  tok_offsets < vocab  # token < vocab size
+    feat_mask = feat_offsets < hidim  # feat  < hidden dim
+    emb_mask  = tok_mask[:, None] & feat_mask[None, :]
+
+    tok_indexes = tl.load(tokens_ptr + tok_offsets, mask=tok_mask)
+    emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
+    out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
+
+    emb = embeds_ptr + emb_offsets   # emb_ là sparse
+    out = output_ptr + out_offsets   # out_ là continuous
+
+    v = tl.load(emb, mask=emb_mask)
+    tl.store(out, v, mask=emb_mask)
+
+
+@triton.jit
+def embedding_backward_kernel(
+    grad_output_ptr, grad_weight_ptr, # grad_weight là embeddings_grad
+    tokens_ptr, vocab, hidim,
+    BLOCK_SIZE : tl.constexpr,
+):
+    tok_offsets  = tl.program_id(0)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    feat_offsets = tl.program_id(1)*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+
+    # Đảm bảo không load và store embedding vượt ngoài khuôn khổ vocab x hidim
+    tok_mask  =  tok_offsets < vocab  # token < vocab size
+    feat_mask = feat_offsets < hidim  # feat  < hidden dim
+    emb_mask  = tok_mask[:, None] & feat_mask[None, :]
+
+    tok_indexes = tl.load(tokens_ptr + tok_offsets, mask=tok_mask)
+    emb_offsets = tok_indexes[:, None]*hidim + feat_offsets[None, :] # vị trí trong embedding matrix
+    out_offsets = tok_offsets[:, None]*hidim + feat_offsets[None, :] # vị trí trong x0
+
+    output = grad_output_ptr + out_offsets
+    weight = grad_weight_ptr + emb_offsets
+
+    v  = tl.load(output, mask=emb_mask)
+    v += tl.load(weight, mask=emb_mask)
+    tl.store(weight, v,  mask=emb_mask)
+    # tl.atomic_add(grad_weight_ptr + emb_offsets, grad_output, mask=emb_mask)
+    # https://github.com/triton-lang/triton/commit/236f6b54ce337db009ea573915022dafdbf61b82
+    # atomic_add chỉ hỗ trợ float32, khi triton được update sẽ dùng lại được
+
+
+class OhMaiEmbFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
+        vocab, hidim = indices.numel(), embeddings.shape[1]
+        output = torch.empty(vocab, hidim, device=indices.device, dtype=embeddings.dtype,)
+
+        blsz = triton.next_power_of_2(min(128, hidim))
+        grid = ( triton.cdiv(vocab, blsz), triton.cdiv(hidim, blsz), )
+
+        embedding_forward_kernel[grid](embeddings, indices, output, vocab, hidim, blsz)
+        ctx.save_for_backward(indices, embeddings)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        indices, embeddings = ctx.saved_tensors
+        vocab, hidim = indices.numel(), embeddings.shape[1]
+
+        grad_output = grad_output.contiguous()
+        grad_weight = torch.zeros_like(embeddings) # tốn ở chỗ này
+
+        blsz = triton.next_power_of_2(min(128, hidim))
+        grid = ( triton.cdiv(vocab, blsz), triton.cdiv(hidim, blsz), )
+
+        embedding_backward_kernel[grid](grad_output, grad_weight, indices, vocab, hidim, blsz)
+        return grad_weight, None
+
 
 # NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
 # https://docs.pytorch.org/docs/stable/torch.compiler_fine_grain_apis.html#torch-compiler-disable
@@ -30,7 +119,7 @@ class OhMaiEmbedding(nn.Module):
         self.vocab = vocab
         self.hidim = hidim
 
-        # Pinned Memory → GPU Memory   vs   CPU Memory → Staging Buffer → GPU Memory
+        # Pinned Memory → GPU Memory _vs_ CPU Memory → Staging Buffer → GPU Memory
         self.weight = torch.randn(vocab, hidim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
@@ -60,12 +149,12 @@ class OhMaiEmbedding(nn.Module):
 
         # Kiểm tra xem có phần tử nào của prev_active nào không có trong self.active không?
         unuse_mask    = ~torch.isin(prev_active, self.active)
-        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).squeeze(-1)
+        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
 
         # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
         unuse_tokens  = prev_active[unuse_mask]  # clone đê tạo 1 bản copy
         unuse_embeds  = self.active_weight.data[unuse_indices].clone()
-        reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).squeeze(-1)
+        reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).flatten()
 
         # Kiểm tra xem có phần tử nào của self.active nào có trong prev_active không?
         reuse_mask  = torch.isin(self.active, prev_active)
@@ -79,7 +168,7 @@ class OhMaiEmbedding(nn.Module):
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds.cpu()
+            self.weight[unuse_tokens.cpu()] = unuse_embeds.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
