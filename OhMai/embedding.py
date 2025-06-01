@@ -5,14 +5,14 @@ from torch import nn, Tensor
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
-        ctx.save_for_backward(indices, embeddings)
+        ctx.save_for_backward(embeddings, indices)
         return embeddings[indices]
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        indices, embeddings = ctx.saved_tensors
+        embeddings, indices = ctx.saved_tensors
         grad_weight = torch.zeros_like(embeddings)
-        grad_weight[indices] = grad_output
+        grad_weight.index_add_(0, indices, grad_output)
         return grad_weight, None
 
 # NOTE: Disable compile graph để có thể sửa đổi active_weight tuỳ theo data batch
@@ -52,6 +52,8 @@ class OhMaiEmbedding(nn.Module):
 
     @torch.no_grad()
     def activate(self, indices):
+        ''' phần code dưới tối thiểu hoá việc phải vận chuyển data giữa CPU <=> GPU
+        vẫn có thể tối ưu hơn để tránh 2 phép .clone() nhưng code sẽ xấu đi nhiều'''
         prev_active = self.active
         self.active = torch.unique(indices).long()
         assert len(self.active) <= self.active_vocab, f"OhMai found {len(self.active)} > active_vocab"
