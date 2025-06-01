@@ -61,7 +61,9 @@
 - [x] ~~smooth để giảm thiểu outliers => hadamard transform từ quest và qllmt~~ <= rất chậm
 
 🌸__DOING__🌸
-- [ ] MoE https://huggingface.co/allenai/OLMoE-1B-7B-0125
+- [ ] MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
+  ![](https://pbs.twimg.com/media/GsWKFUqbgAAlQWv?format=jpg)
+
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
