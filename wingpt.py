@@ -49,46 +49,11 @@ class ReLuSquareMLP(nn.Module):
         self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
-    def forward(self, x:Tensor, te):
+    def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square() 
         y = self.fc2_proj(y)
-        if te is not None: y = y*te
-        return y.to(x.dtype)
-
-
-
-####################################
-##  LIMe Layer-Integrated Memory  ##
-####################################
-
-# https://github.com/corl-team/lime/blob/main/src/lm/lime.py
-class StaticRouter(nn.Module):
-    def __init__(self, num_kv_heads, layer_id):
-        super().__init__()
-        self.R = num_kv_heads
-        self.L = layer_id + 1
-        self.fan_in = self.L * self.R
-
-        with torch.no_grad():
-            bound = math.sqrt(3 / self.fan_in)
-            w = torch.zeros(self.R, self.fan_in).uniform_(-bound, bound)
-            w[:, -self.R :] = torch.eye(self.R)
-            self.static_weights = nn.Parameter(w)
-
-    def extra_repr(self) -> str: return f"n_repr={self.fan_in}, heads={self.R}"
-    
-    def forward(self, stacked_last_hiddens): # stacked_last_hiddens: (L H) (B T 2 Hd)
-        return self.static_weights.mm(stacked_last_hiddens)
-
-
-class Layer0Router(nn.Module):
-    def __init__(self, num_heads: int):
-        super().__init__()
-        self.num_heads = num_heads
-
-    def forward(self, stacked_last_hiddens):
-        return stacked_last_hiddens[: self.num_heads]
+        return y
 
 
 #####################################
@@ -127,7 +92,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, long=False, layer_id=0):
+            seq_len:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim=hidden_size=embedding=feature=representation
 
         self.num_heads = num_heads
@@ -147,7 +112,6 @@ class CausalSelfAttention(nn.Module):
             self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
             self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self. o_proj.weight.zero_() # zero init
-        # self.lime_router = StaticRouter(num_kv_heads, layer_id) if layer_id > 0 else Layer0Router(num_heads)
 
         if long:
             self.rope   = False
@@ -173,13 +137,6 @@ class CausalSelfAttention(nn.Module):
         q = q.contiguous().view(T, H,   D)
         k = k.contiguous().view(T, Hkv, D)
         v = v.contiguous().view(T, Hkv, D)
-
-        ''' https://github.com/corl-team/lime/blob/main/src/lm/lime.py#L127
-        # routing KV-cache to each head from all previous layers and heads
-        kv_states = self.lime_router(kv_buffer)
-        kv_states = kv_states.view(num_kv_heads, B, T, 2 * Hd).permute(1, 0, 2, 3)
-        k_states, v_states = ( kv_states[..., :Hd], kv_states[..., Hd:],)  # B H T (2 Hd) -> B H T Hd, B H T Hd
-        '''
 
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)
@@ -220,14 +177,12 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
             head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 2, 5, 8, 11 ...
 
-    def forward(self, x, x0, te, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
 
-        ## per layer token emb trộn sau block
-        # if te is not None: x += te_lambdas[2] * te  # trộn trước block
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = x + self.mlp(norm(x), te)
+        x = x + self.mlp(norm(x))
         return x
 
 
@@ -238,17 +193,17 @@ class Future(nn.Module):
         self.mlp = ReLuSquareMLP(dim, 2*dim) # nhẹ 2/3 MLP bình thường
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim, long=True)
 
-        self.proj = nn.Linear(2*dim, dim, bias=False)
-        with torch.no_grad(): self.proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
+        self.xx0_proj = nn.Linear(2*dim, dim, bias=False)
+        with torch.no_grad():
+            self.xx0_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
-    def forward(self, x, x0, te, ve, tl, vl, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, tl, vl, cu_seqlens, max_seqlen, rotary):
         # trộn feat của last layer với token embed gốc (x0)
-        x = torch.cat((x, x0), dim=-1)
-        x = self.proj(x) # mlp mixer
+        xx0 = torch.cat((x, x0), dim=-1)
+        x = self.xx0_proj(xx0) # mlp mixer
         x = norm(x)
-        # if te is not None: x += tl[2] * te  #~~trộn per layer te trước block~~
         x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen, rotary)
-        x = x + self.mlp(norm(x), te)         #  trộn per layer te sau block
+        x = x + self.mlp(norm(x))
         return norm(x)
 
 
@@ -257,7 +212,7 @@ class WinGPT(nn.Module):
         return self.future_ratio > 0.009
 
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int,
-        max_seq_len:int, head_dim=128, ve=3, te=1, future_percent=0, active_vocab=None):
+        max_seq_len:int, head_dim=128, future_percent=0, active_vocab=None):
 
         self.ohmai = ( active_vocab is not None )
         Embedding = OhMaiEmbedding if self.ohmai else nn.Embedding
@@ -275,30 +230,18 @@ class WinGPT(nn.Module):
 
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
-
-        if ve is None: ve = int(n_blks*0.5)
-        if ve > n_blks: ve = n_blks
-        if te > n_blks: te = n_blks
-
-        self.ve, self.te = ve, te
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        # fused embeddings
-        self.embeddings = Embedding(vocab_size, dim*te + self.kv_dim*self.ve, active_vocab)
+        self.ve = n_blks // 2
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
-          torch.ones(n_blks),  # skip_weights khởi tạo là 1 cho tất cả layers
-          *[torch.tensor([1.0, 0.0, 0.0]) for _ in range(n_blks)], # token emb mix
-          *[torch.tensor([0.5, 0.5     ]) for _ in range(n_blks)], # value emb mix
+          *[torch.tensor([1.0, 0.0 ]) for _ in range(n_blks)], # token emb mix
+          *[torch.tensor([0.5, 0.5 ]) for _ in range(n_blks)], # value emb mix
         ]))
-
-        self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
-        print("WinGPT.skip_from", self.skip_from)
 
         self.lm_head = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.lm_head.weight.zero_()
-        # x = torch.zeros_like(self.lm_head.weight, requires_grad=True, dtype=torch.float8_e4m3fn)
-        # self.lm_head.weight = nn.Parameter(x)
 
 
     def update_embeddings(self):
@@ -309,50 +252,34 @@ class WinGPT(nn.Module):
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
-
-        t_embs = embs[..., : self.dim*self.te ]
-        t_embs = list(t_embs.chunk(self.te, dim=-1))
-
-        x = x0 = norm(t_embs[0])
-        # assert t_embs[-1].size(-1) == self.dim
+        x = x0 = norm(embs[..., : self.dim ])
 
         v_embs = embs[..., -self.kv_dim*self.ve : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        ## ve[0],1,2 ... ve[0],1,2 u-shape
-        if len(v_embs) < self.n_layers - 3:
-            skips = [None]*(self.n_layers - 3 - len(v_embs))
-            v_embs += skips + v_embs[:3]
-            assert len(v_embs) == self.n_layers
+        skips = [None]*(self.n_layers - 2*len(v_embs))
+        v_embs = v_embs + skips + v_embs
+        assert len(v_embs) == self.n_layers
 
-        ## Độn None cho đầy v_embs, t_embs
+        ## Độn None cho đầy v_embs
         v_embs += [None]*(n_blks - len(v_embs))
-        t_embs += [None]*(n_blks - len(t_embs))
-        assert len(v_embs) == len(t_embs) == n_blks
+        assert len(v_embs) == n_blks
 
-        skip_weights = self.scalars[ :n_blks]
-        te_lambdas   = self.scalars[1*n_blks : 4*n_blks].view(-1, 3)
-        ve_lambdas   = self.scalars[4*n_blks : 6*n_blks].view(-1, 2)
+        te_lambdas   = self.scalars[0*n_blks : 2*n_blks].view(-1, 2)
+        ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
-        layer_outputs = []
-        for i in range(self.n_layers):
-            if i in self.skip_from:
-                k = self.skip_from[i]
-                x += skip_weights[k] * layer_outputs[k]
-            
-            def fwd(blk, x0, te, ve, tl, vl, c, m): return lambda x: blk(x, x0, te, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.blocks[i], t_embs[0], t_embs[i], v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
-
+        for i in range(self.n_layers):            
+            def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
+            f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-            layer_outputs.append(x)
-        return norm(x), t_embs, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
+        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 ###################
 ## Loss function ##
 ###################
 
 def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
-    x, te, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
+    x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target.flatten(), model.lm_head)
 
     if not model.has_future(): return loss
@@ -360,10 +287,9 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
     assert model.n_layers + 1 == len(model.blocks)
     future_loss, _ = _loss_method(
-        model.blocks[-1](x, te[0], te[-1], ve[-1], tl[-1], vl[-1], c, m, model.rotary), # đã norm
+        model.blocks[-1](x, x0, ve[-1], tl[-1], vl[-1], c, m, model.rotary), # output đã norm
         future.flatten(), model.lm_head, # tied với main task head 
     )
-    # import gc; del layer_outputs, t, v, l, s; gc.collect(); torch.cuda.empty_cache() # no use
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
@@ -410,7 +336,7 @@ if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
 
-    sseed = 1982
+    seed = 1982
     seq_len = 1024
     vocab_size = 2048
     dim, n_layers = 256, 8
@@ -418,14 +344,12 @@ if __name__ == "__main__":
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     # Khởi tạo model 1 dùng LigerEmbedding
-    torch.manual_seed(sseed)
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
-        ve=3, te=2, future_percent=20).cuda()
+    torch.manual_seed(seed)
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20).cuda()
     
     # Khởi tạo model 2 dùng OhMaiEmbedding
-    torch.manual_seed(sseed)
-    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, 
-        ve=3, te=2, future_percent=20, active_vocab=vocab_size//2).cuda()
+    torch.manual_seed(seed)
+    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20, active_vocab=vocab_size//2).cuda()
 
     # Đảm bảo toàn bộ tham số của 2 model là như nhau
     def check_params():

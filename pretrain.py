@@ -26,8 +26,6 @@ parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in 
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-parser.add_argument("--ve", type=int, default=None)         # số value embeds được bổ xung 
-parser.add_argument("--te", type=int, default=1)            # số token embeds 
 for x in "T C XS S L M".split():
     parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
@@ -47,35 +45,27 @@ tokens_per_batch = args.bs*1024
 
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(
-        future_percent=args.future,
-        ve=args.ve, dim=2048, n_layers=27,
-        te=args.te, num_heads=8, num_kv_heads=4,
+        dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=args.ohmai,
+        future_percent=args.future, active_vocab=args.ohmai,
     )
 elif args.M: # (M)edium ~ 666m
     model = WinGPT(
-        future_percent=args.future,
-        ve=args.ve, dim=1664, n_layers=26,
-        te=args.te, num_heads=8, num_kv_heads=4,
+        dim=1664, n_layers=26, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=args.ohmai,
+        future_percent=args.future, active_vocab=args.ohmai,
     )
 elif args.S: # (S)mall ~ 333m
     model = WinGPT(
-        future_percent=args.future,
-        ve=args.ve, dim=1280, n_layers=22,
-        te=args.te, num_heads=8, num_kv_heads=4,
+        dim=1280, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=args.ohmai,
+        future_percent=args.future, active_vocab=args.ohmai,
     )
 else:        # (XS)mall ~ 100m
     model = WinGPT(
-        future_percent=args.future,
-        ve=args.ve, dim=768, n_layers=16,
-        te=args.te, num_heads=8, num_kv_heads=4,
+        dim=768, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        active_vocab=args.ohmai,
+        future_percent=args.future, active_vocab=args.ohmai,
     )
 model = model.cuda()
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
