@@ -21,3 +21,6 @@ https://stanford-cs336.github.io/spring2025-lectures/?trace=var%2Ftraces%2Flectu
 
 |<img src="https://pbs.twimg.com/media/GsWiTOXaMAAsjhn?format=jpg">|<img src="https://pbs.twimg.com/media/GsWin8PawAA8s9A?format=jpg">|
 |-|-|
+|![](https://pbs.twimg.com/media/GsWjPvna4AAMwgA?format=jpg)|![](https://pbs.twimg.com/media/GsWk1s2bsAAbdGp?format=jpg&name=large)|
+|![]()|![]()|
+|![]()|![]()|
