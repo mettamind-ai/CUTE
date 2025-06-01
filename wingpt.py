@@ -412,7 +412,7 @@ if __name__ == "__main__":
 
     sseed = 1982
     seq_len = 1024
-    vocab_size = 512
+    vocab_size = 2048
     dim, n_layers = 256, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
