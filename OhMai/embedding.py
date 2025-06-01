@@ -70,23 +70,23 @@ class OhMaiEmbedding(nn.Module):
         reuse, neww = self.active[reuse_mask], self.active[~reuse_mask]
         self.active = torch.cat([reuse, neww])
 
-        # Tạo inverse indices
-        self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
-        inverse = self.inverse_map[indices]
-
         self.update_stream.synchronize()
         x = self.weight[neww.cpu()].to(device=self.active_weight.device)
         x = torch.cat([self.active_weight.data[reuse_indices], x])
         self.active_weight.data[ : len(self.active) ] = x
+
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds.cpu().to(self.weight.dtype)
-        return inverse
+            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds
+
+        # Tạo inverse indices và trả về
+        self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
+        return self.inverse_map[indices]
 
 
     def update_embeddings(self):
         self.update_stream.synchronize()
-        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[self.active_indices].cpu().to(self.weight.dtype)
+        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
 
 
     def forward(self, indices):
