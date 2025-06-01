@@ -153,13 +153,13 @@ class OhMaiEmbedding(nn.Module):
         unuse_embeds  = self.active_weight.data[unuse_indices].clone()
 
         # Cập nhật self.active chỉ ở những phần tử mới trong curr_active
-        pad_size = len(curr_active) - len(prev_active)
+        pad_size = len(curr_active) - len(self.active)
         self.active = torch.nn.functional.pad(self.active, (0, pad_size), value=-1)
+        assert len(self.active) == len(curr_active)
 
-        tmp = torch.nonzero(~torch.isin(curr_active, prev_active), as_tuple=False).flatten()
-        new_tokens  = curr_active[tmp]
-
+        new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
+        assert len(new_token_indices) == len(new_tokens), f"{len(new_token_indices)} != {len(new_tokens)}"
         self.active[new_token_indices] = new_tokens
 
         # Update new token embeddings
