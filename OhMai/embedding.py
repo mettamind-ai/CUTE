@@ -152,8 +152,8 @@ class OhMaiEmbedding(nn.Module):
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
 
         # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
-        unuse_tokens  = prev_active[unuse_mask]  # clone đê tạo 1 bản copy
-        unuse_embeds  = self.active_weight.data[unuse_indices].clone()
+        unuse_tokens  = prev_active[unuse_mask]
+        unuse_embeds  = self.active_weight.data[unuse_indices].clone().detach()
         reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).flatten()
 
         # Kiểm tra xem có phần tử nào của self.active nào có trong prev_active không?
@@ -161,7 +161,7 @@ class OhMaiEmbedding(nn.Module):
         reuse, neww = self.active[reuse_mask], self.active[~reuse_mask]
         self.active = torch.cat([reuse, neww])
 
-        reuse = self.active_weight.data[reuse_indices].clone()
+        reuse = self.active_weight.data[reuse_indices].clone().detach()
         self.update_stream.synchronize() # đồng bộ hoá lần update trước
         newww = self.weight[neww.cpu()].to(device=self.active_weight.device)
         self.active_weight.data[ : len(self.active) ] = torch.cat([reuse, newww])

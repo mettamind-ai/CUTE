@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=32000)
-parser.add_argument("--ohmai", type=int, default=2048)
+parser.add_argument("--ohmai", type=int, default=None)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj|head` => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
@@ -234,7 +234,6 @@ while step < args.steps and lossv > args.minloss:
 
     muon_optim.step()
     adam_optim.step()
-    model.update_embeddings()
     muon_optim.zero_grad()
     adam_optim.zero_grad()
  
