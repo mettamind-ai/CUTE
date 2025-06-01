@@ -469,25 +469,25 @@ if __name__ == "__main__":
     model.train()
     ohmai.train()
 
-    ## Generate sequences with batch dimension
-    input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
-    target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
-    future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
-    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
-
     for step in range(10):
+        ## Generate sequences with batch dimension
+        input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
+        target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
+        future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
+        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+
         optim.zero_grad()
         aptim.zero_grad()
+
+        ## Đảm bảo 2 cách lấy embedding là giống nhau
+        a = ohmai.embeddings(input_seq)
+        b = ohmai.embeddings.weight[input_seq.cpu().long()]
+        assert torch.allclose(a.bfloat16().cpu(), b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
 
         loss_fn = simple_loss_fn
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  
-        ## Đảm bảo 2 cách lấy embedding là giống nhau
-        # a = ohmai.embeddings(input_seq)
-        # b = ohmai.embeddings.weight[input_seq.cpu().long()]
-        # if not torch.allclose(a.bfloat16().cpu(), b, atol=1e-5): print(a, b)
-
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
 
@@ -495,8 +495,8 @@ if __name__ == "__main__":
         loss_model.backward()
         optim.step()
         aptim.step()
+        ohmai.update_embeddings() # đảm bảo embeddings đã được cập nhật
 
-    ohmai.update_embeddings() # đảm bảo embeddings đã được cập nhật
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
     assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"

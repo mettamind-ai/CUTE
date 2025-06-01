@@ -234,6 +234,7 @@ while step < args.steps and lossv > args.minloss:
 
     muon_optim.step()
     adam_optim.step()
+    model.update_embeddings()
     muon_optim.zero_grad()
     adam_optim.zero_grad()
  
