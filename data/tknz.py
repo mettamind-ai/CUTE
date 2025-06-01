@@ -22,7 +22,7 @@ for i in range(2):
 		text = data["text"]
 		x = vocab.tokenize(text)
 		if x is not None:
-			tids += x..tolist() + [et]
+			tids += x.tolist() + [et]
 
 # Convert tids to numpy array and save to data.bin
 tids_array = np.array(tids, dtype=np.int16)
