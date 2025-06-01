@@ -117,3 +117,9 @@
 - [x] thử lưu weight ở fp32 xem có giúp cải thiện loss? NO!, làm chậm đi
 - [x] int8_mm trả về fp32 để tiện bf16 sr và lưu activations ở int8 + row_scale
 
+- [x] ~~lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale?~~ <= phức tạp, convert qua lại nhiều lần
+  - không khả thi với row scale vì khi bwd input phải transpose
+  - với tile scale thì kernel hiện tại đang chậm, ko hơn đc bf16 là mấy
+- [x] ~~int4 mixed mm ko nhanh hơn mấy + vỡ loss~~
+- Tích hợp qwen 3
+  <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">

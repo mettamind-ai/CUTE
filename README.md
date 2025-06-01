@@ -58,17 +58,10 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
-- [x] ~~smooth để giảm thiểu outliers => hadamard transform~~ chậm quá trình
-  - tham khảo HT từ quest và qllmt
-- [x] ~~lưu `activations` (đầu ra của mỗi layer) ở INT8 + row_scale?~~
-  - không khả thi với row scale vì khi bwd input phải transpose
-  - với tile scale thì kernel hiện tại đang chậm, ko hơn đc bf16 là mấy
-- [x] ~~int4 mixed mm ko nhanh hơn mấy + vỡ loss~~
+- [x] ~~smooth để giảm thiểu outliers => hadamard transform từ quest và qllmt~~ <= rất chậm
 
 🌸__DOING__🌸
-- [ ] Tích hợp qwen 3
-  <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">
-
+- [ ] MoE https://huggingface.co/allenai/OLMoE-1B-7B-0125
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2

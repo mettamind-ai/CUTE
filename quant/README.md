@@ -15,3 +15,4 @@ LoRA, freezed, inference thì:
 | `float8_e4m3fn` | 4 bits        | 3 bits                   | Trung bình                   | Cao                      | Trọng số và kích hoạt (truyền xuôi)  |
 
 
+https://huggingface.co/allenai/OLMoE-1B-7B-0125

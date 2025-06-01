@@ -1,3 +1,104 @@
+# 32k full vocab vs 3.2k ohmai
+
+PHÂN CHIA PARAMS VÀO DTYPES:
+* 130 INT8 Mixed Weights 88.7% 542,703,616
+* 3 BF16/ FP32 Weights 11.3% 69,222,504
+INT8: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj']
+
+PHÂN CHIA PARAMS VÀO OPTIMIZERS:
+* Adam: 11.3% 69,222,504
+* Muon: 88.7% 542,703,616
+ TOTAL: 100.0% 611,926,120
+Adam: ['embeddings.active_weight', 'lm_head', 'scalars']
+Muon: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj']
+>>> torch.compile(lossf) <<<
+
+CHUẨN BỊ HUẤN LUYỆN:
+* GPU(s) 1
+* compile? True
+* future? 0.0
+* simple_loss_fn
+* 32k seq/step
+
+wandb: Currently logged in as: tiendung to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.19.11
+wandb: Run data is saved locally in /tmp/wandb/run-20250601_132301-l6dxsiug
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run woven-disco-1409
+wandb: ⭐️ View project at https://wandb.ai/tiendung/2
+wandb: 🚀 View run at https://wandb.ai/tiendung/2/runs/l6dxsiug
+  0%|              | 1/1000 [01:38<27:16:46, 98.30s/it, loss=10.4, lr=0.0006]>>> First Step Took 753 Seconds <<<
+100%|██████████████| 1000/1000 [18:13<00:00,  1.00it/s, loss=1.62, lr=0.0002]wandb:                                                                       
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▁▅███████████████████████████████▇▆▅▄▃▃▂
+wandb:                     loss █▅▄▄▃▃▃▂▂▃▃▂▂▂▂▂▂▂▂▂▂▂▁▁▂▁▁▁▂▁▂▂▂▂▁▂▁▂▂▁
+wandb:     max_memory_allocated ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                  muon_lr ▁▇▇████████████████████████████████▆▄▃▃▁
+wandb: num_tokens_seen_millions ▁▁▂▂▂▃▃▃▃▃▃▃▃▃▄▄▄▄▄▄▄▅▅▅▅▆▆▆▆▆▆▆▇▇▇▇▇███
+wandb:        tokens_per_second ▁███████████████████████████████████████
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 2e-05
+wandb:                     loss 1.61773
+wandb:     max_memory_allocated 12976196608
+wandb:                  muon_lr 0.0002
+wandb: num_tokens_seen_millions 32.768
+wandb:        tokens_per_second 32790.9786
+wandb:
+wandb: 🚀 View run woven-disco-1409 at: https://wandb.ai/tiendung/2/runs/l6dxsiug
+
+
+PHÂN CHIA PARAMS VÀO DTYPES:
+* 130 INT8 Mixed Weights 71.8% 542,703,616
+* 3 BF16/ FP32 Weights 28.2% 212,992,104
+INT8: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj']
+
+PHÂN CHIA PARAMS VÀO OPTIMIZERS:
+* Adam: 28.2% 212,992,104
+* Muon: 71.8% 542,703,616
+ TOTAL: 100.0% 755,695,720
+Adam: ['embeddings', 'lm_head', 'scalars']
+Muon: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj']
+>>> torch.compile(lossf) <<<
+
+CHUẨN BỊ HUẤN LUYỆN:
+* GPU(s) 1
+* compile? True
+* future? 0.0
+* simple_loss_fn
+* 32k seq/step
+
+wandb: Currently logged in as: tiendung to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.19.11
+wandb: Run data is saved locally in /tmp/wandb/run-20250601_125336-o9h0bk56
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run ethereal-moon-1407
+wandb: ⭐️ View project at https://wandb.ai/tiendung/2
+wandb: 🚀 View run at https://wandb.ai/tiendung/2/runs/o9h0bk56
+  0%|              | 1/1000 [01:31<25:23:13, 91.49s/it, loss=10.4, lr=0.0006]>>> First Step Took 689 Seconds <<<
+100%|██████████████| 1000/1000 [17:57<00:00,  1.01it/s, loss=1.62, lr=0.0002]wandb:                                                                       
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▅▇████████████████████████████▇▇▅▄▄▃▃▃▃▁
+wandb:                     loss █▇▆▆▆▅▅▄▄▃▄▃▂▃▃▂▂▂▃▃▂▂▂▃▂▂▂▁▂▁▂▃▁▃▂▁▂▁▂▁
+wandb:     max_memory_allocated ▁▂▂▃▃▃▃▇▇▇▇▇▇███████████████████████████
+wandb:                  muon_lr ▂███████████████████████████████▇▅▅▄▄▃▃▁
+wandb: num_tokens_seen_millions ▁▁▁▁▂▂▂▂▂▂▂▃▃▃▃▃▄▄▄▄▅▅▆▆▆▆▆▇▇▇▇▇▇▇██████
+wandb:        tokens_per_second █▇▄▃▂▂▂▂▂▂▂▂▂▁▂▁▂▁▂▁▂▂▂▁▁▁▂▁▁▁▁▁▁▂▂▁▂▂▂▁
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 2e-05
+wandb:                     loss 1.61744
+wandb:     max_memory_allocated 17913653248
+wandb:                  muon_lr 0.0002
+wandb: num_tokens_seen_millions 32.768
+wandb:        tokens_per_second 33156.33899
+wandb:
+wandb: 🚀 View run ethereal-moon-1407 at: https://wandb.ai/tiendung/2/runs/o9h0bk56
+
+--
+
 ### all ve, max te (full vocab active embbeddings)
 ```
 PHÂN CHIA PARAMS VÀO OPTIMIZERS:
