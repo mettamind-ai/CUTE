@@ -156,14 +156,12 @@ class OhMaiEmbedding(nn.Module):
         pad_size = len(curr_active) - len(prev_active)
         self.active = torch.nn.functional.pad(self.active, (0, pad_size), value=-1)
 
-        new_mask = ~torch.isin(self.active, curr_active)
-        new_token_indices = torch.nonzero(new_mask, as_tuple=False).flatten()
+        tmp = torch.nonzero(~torch.isin(curr_active, prev_active), as_tuple=False).flatten()
+        new_tokens  = curr_active[tmp]
 
-        mask = ~torch.isin(curr_active, prev_active)
-        new_token_indices = torch.nonzero(mask, as_tuple=False).flatten()
-        new_tokens  = curr_active[new_token_indices]
+        new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
         self.active[new_token_indices] = new_tokens
-        
+
         # Update new token embeddings
         self.update_stream.synchronize() # đồng bộ hoá lần update trước
         new_embs = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
