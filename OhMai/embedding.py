@@ -77,7 +77,7 @@ class OhMaiEmbedding(nn.Module):
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds
+            self.weight[unuse_tokens.cpu().to(torch.long)] = unuse_embeds.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
