@@ -43,6 +43,9 @@ class OhMaiEmbedding(nn.Module):
         self.active = torch.tensor([], dtype=torch.long, device='cuda')
         self.active.requires_grad_(False)
 
+        self.inverse_map = torch.full((vocab,), -1, dtype=torch.long, device='cuda')
+        self.inverse_map.requires_grad_(False)
+
         # Khởi tạo CUDA stream cho async transfer
         self.update_stream = torch.cuda.Stream()
 
@@ -55,9 +58,11 @@ class OhMaiEmbedding(nn.Module):
 
         # Kiểm tra xem có phần tử nào của prev_active nào không có trong self.active không?
         unuse_mask    = ~torch.isin(prev_active, self.active)
-        unuse_tokens  = prev_active[unuse_mask]
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).squeeze(-1)
-        unuse_embeds  = self.active_weight[unuse_indices]
+
+        # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
+        unuse_tokens  = prev_active[unuse_mask]  # clone đê tạo 1 bản copy
+        unuse_embeds  = self.active_weight.data[unuse_indices].clone()
         reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).squeeze(-1)
 
         # Kiểm tra xem có phần tử nào của self.active nào có trong prev_active không?
@@ -66,10 +71,8 @@ class OhMaiEmbedding(nn.Module):
         self.active = torch.cat([reuse, neww])
 
         # Tạo inverse indices
-        n = self.active.max().item() + 1
-        inverse_map = torch.full((n,), -1, dtype=torch.long, device=indices.device)
-        inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
-        inverse = inverse_map[indices]
+        self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
+        inverse = self.inverse_map[indices]
 
         self.update_stream.synchronize()
         x = self.weight[neww.cpu()].to(device=self.active_weight.device)
@@ -83,7 +86,7 @@ class OhMaiEmbedding(nn.Module):
 
     def update_embeddings(self):
         self.update_stream.synchronize()
-        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu().to(self.weight.dtype)
+        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[self.active_indices].cpu().to(self.weight.dtype)
 
 
     def forward(self, indices):
