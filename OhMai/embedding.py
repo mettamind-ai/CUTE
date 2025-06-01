@@ -141,30 +141,33 @@ class OhMaiEmbedding(nn.Module):
 
     @torch.no_grad()
     def activate(self, indices):
-        ''' phần code dưới tối thiểu hoá việc phải vận chuyển data giữa CPU <=> GPU
-        vẫn có thể tối ưu hơn để tránh 2 phép .clone() nhưng code sẽ xấu đi nhiều'''
-        prev_active = self.active
-        self.active = torch.unique(indices).long()
-        assert len(self.active) <= self.active_vocab, f"OhMai found {len(self.active)} > active_vocab"
-
-        # Kiểm tra xem có phần tử nào của prev_active nào không có trong self.active không?
-        unuse_mask    = ~torch.isin(prev_active, self.active)
-        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
+        prev_active = self.active.clone()
+        curr_active = torch.unique(indices).long()
+        assert len(curr_active) <= self.active_vocab, f"OhMai found {len(curr_active)} > active_vocab"
 
         # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
+        unuse_mask    = ~torch.isin(prev_active, curr_active)
         unuse_tokens  = prev_active[unuse_mask]
-        unuse_embeds  = self.active_weight.data[unuse_indices].clone().detach()
-        reuse_indices = torch.nonzero(~unuse_mask, as_tuple=False).flatten()
 
-        # Kiểm tra xem có phần tử nào của self.active nào có trong prev_active không?
-        reuse_mask  = torch.isin(self.active, prev_active)
-        reuse, neww = self.active[reuse_mask], self.active[~reuse_mask]
-        self.active = torch.cat([reuse, neww])
+        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
+        unuse_embeds  = self.active_weight.data[unuse_indices].clone()
 
-        reuse = self.active_weight.data[reuse_indices].clone().detach()
+        # Cập nhật self.active chỉ ở những phần tử mới trong curr_active
+        pad_size = len(curr_active) - len(prev_active)
+        self.active = torch.nn.functional.pad(self.active, (0, pad_size), value=-1)
+
+        new_mask = ~torch.isin(self.active, curr_active)
+        new_token_indices = torch.nonzero(new_mask, as_tuple=False).flatten()
+
+        mask = ~torch.isin(curr_active, prev_active)
+        new_token_indices = torch.nonzero(mask, as_tuple=False).flatten()
+        new_tokens  = curr_active[new_token_indices]
+        self.active[new_token_indices] = new_tokens
+        
+        # Update new token embeddings
         self.update_stream.synchronize() # đồng bộ hoá lần update trước
-        newww = self.weight[neww.cpu()].to(device=self.active_weight.device)
-        self.active_weight.data[ : len(self.active) ] = torch.cat([reuse, newww])
+        new_embs = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
+        self.active_weight.data[ new_token_indices ] = new_embs
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
