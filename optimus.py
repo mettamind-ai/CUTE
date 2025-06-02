@@ -147,7 +147,6 @@ class Int8MixedLinear(torch.autograd.Function):
         # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
         A, B  = inp, weight._data.T
         A, As = quantize_int8(A, dim=1, sr=False)
-        # print(A, As)#; input()
         B, Bs = quantize_int8(B, dim=0, sr=True)  # rounding ma trận nhỏ có
         return scaled_mm(A, B, As, Bs,)
 

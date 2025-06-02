@@ -304,7 +304,7 @@ def fused_linear_cross_entropy_forward(
     ''' Phần code dưới đây thực hiện 2 phép nhân ma trận với weight.t() và weight
 => Cần convert 2 ma trận này thành int8 + col scale trước để dùng lại nhiều lần trong vòng lặp'''
     wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)  # dim=0 là col scale
-    # w,  wT_col_scale = quantize_int8(weight    , dim=0, sr=True)  # rounding để đạt độ chính xác cao
+    w,   w_col_scale = quantize_int8(weight    , dim=0, sr=True)  # rounding để đạt độ chính xác cao
 
     for chunk_id in range(num_chunks):
         start_idx = chunk_id * chunk_size
@@ -314,7 +314,7 @@ def fused_linear_cross_entropy_forward(
 
         # when doing matmul, use the original precision
         # logits_chunk = _input_chunk @ weight.t()  # chunk_size x V
-        X, X_row_scale = quantize_int8(_input_chunk, dim=1, sr=True)
+        X, X_row_scale = quantize_int8(_input_chunk, dim=1, sr=False)
         logits_chunk = scaled_mm(X, wT, X_row_scale, wT_col_scale,)
 
         n_rows = logits_chunk.shape[0]
@@ -345,7 +345,10 @@ def fused_linear_cross_entropy_forward(
 
         loss_1d[start_idx:end_idx] = loss_1d_slice
         grad_logits_chunk = logits_chunk  # chunk_size x V
-        grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
+
+        # grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
+        X, X_row_scale = quantize_int8(grad_logits_chunk, dim=1, sr=True) # tăng độ CX
+        grad_input[start_idx:end_idx] = scaled_mm(X, w, X_row_scale, w_col_scale,)
 
         if grad_weight is not None:
             # In an autocast without bias, differing logits_chunk data types will cause error.
