@@ -61,10 +61,18 @@ class OhMaiHead(nn.Module):
         # Get new hot tokens based on frequency
         new_hot_tokens = torch.topk(self.running_freq, self.hot_size).indices
         if torch.equal(new_hot_tokens, self.hot_tokens): return self.hot_tokens
+
+        old_hot = self.hot_tokens
         self.hot_tokens = new_hot_tokens
+
+        old_to_sync = old_hot[~torch.isin(old_hot, new_hot_tokens)]
+        indices_to_sync = torch.isin(self.active[:self.hot_size], old_to_sync)
+
+        # Selective sync
+        sync_indices = indices_to_sync.nonzero().flatten()
+        self.weight[old_to_sync.cpu()] = self.active_weight[sync_indices].cpu()
         
         # Update active_weight
-        self.update_async_weight()  # sync with cpu weight first
         self.active[:self.hot_size] = self.hot_tokens
         self.active_weight.data[:self.hot_size] = self.weight[self.hot_tokens.cpu()].cuda()
 
