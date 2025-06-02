@@ -256,28 +256,22 @@ MAX_FUSED_SIZE = 65536 // 2
 
 from optimus import quantize_int8, scaled_mm # sử dụng phép nhân INT8 Mixed
 def fused_linear_cross_entropy_forward(
-    _input,
-    weight,
-    target,
-    ce_weight=None,
-    ignore_index=-100,
-    lse_square_scale=0.0,
-    label_smoothing=0.0,
-    softcap=None,
+    _input, weight, target, ce_weight=None,
+    ignore_index=-100, lse_square_scale=0.0,
+    label_smoothing=0.0, softcap=None,
 ):
     device = _input.device
     # inputs have shape: BT x H
     # materialized activations will have shape: BT x V
     # the increase in memory = BT x V
-    # reduction can be achieved by partitioning the number of tokens BT into smaller chunks.
-    # for ex: if we were to achieve the same memory consumption as BT x H, then the chunk size should be:
-    # inc_factor = (V+H-1)//H, chunk_size = (BT + inc_factor - 1)//inc_factor
+    # If we were to achieve the same memory consumption as BT x H, then the chunk size should be:
+    # inc_factor = (V + H - 1) // H; chunk_size = (BT + inc_factor - 1) // inc_factor
     # for ex: BT = 4096*4, V = 32000, H = 4096 ==> inc_factor = 8, chunk_size = 2048
     BT, H = _input.shape
     V = weight.shape[0]
     BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(V))
 
-    inc_factor = triton.cdiv(V, H)  # (V + H - 1) // H
+    inc_factor = triton.cdiv(V, H)
     chunk_size = triton.next_power_of_2(triton.cdiv(BT, inc_factor))  # (BT + inc_factor - 1) // inc_factor
     num_chunks = triton.cdiv(BT, chunk_size)  # (BT + chunk_size - 1) // chunk_size
 
@@ -306,17 +300,24 @@ def fused_linear_cross_entropy_forward(
         if ce_weight.stride(-1) != 1:
             ce_weight = ce_weight.contiguous()
 
+
+    ''' Phần code dưới đây thực hiện 2 phép nhân ma trận với weight.t() và weight
+=> Cần convert 2 ma trận này thành int8 + col scale trước để dùng lại nhiều lần trong vòng lặp'''
+    wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)  # dim=0 là col scale
+    # w,  wT_col_scale = quantize_int8(weight    , dim=0, sr=True)  # rounding để đạt độ chính xác cao
+
     for chunk_id in range(num_chunks):
         start_idx = chunk_id * chunk_size
         end_idx = min((chunk_id + 1) * chunk_size, BT)
         _input_chunk = _input[start_idx:end_idx]  # chunk_size x H
-
-        # when doing matmul, use the original precision
-        logits_chunk = _input_chunk @ weight.t()  # chunk_size x V
         target_chunk = target[start_idx:end_idx]  # chunk_size,
 
+        # when doing matmul, use the original precision
+        # logits_chunk = _input_chunk @ weight.t()  # chunk_size x V
+        X, X_row_scale = quantize_int8(_input_chunk, dim=1, sr=True)
+        logits_chunk = scaled_mm(X, wT, X_row_scale, wT_col_scale,)
+
         n_rows = logits_chunk.shape[0]
-        # unreduced loss
         loss_1d_slice = loss_1d[start_idx:end_idx]  # chunk_size,
 
         # ensure _input and target are contiguous
@@ -394,15 +395,9 @@ class LigerFusedLinearCrossEntropyFunction(torch.autograd.Function):
     @staticmethod
     @amp_custom_fwd
     def forward(
-        ctx,
-        _input,
-        weight,
-        target,
-        ce_weight=None,
-        ignore_index=-100,
-        lse_square_scale=0.0,
-        label_smoothing=0.0,
-        softcap=None,
+        ctx, _input, weight, target, ce_weight=None,
+        ignore_index=-100, lse_square_scale=0.0,
+        label_smoothing=0.0, softcap=None,
     ):
         """
 Ref https://github.com/mgmalek/efficient_cross_entropy
