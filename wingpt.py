@@ -9,7 +9,7 @@ try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; F
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
-from optimus import Int8MixedLinear, quantize_int8
+from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 from OhMai.embedding import OhMaiEmbedding
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -293,10 +293,9 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
-from liger_kernel import LigerFusedLinearCrossEntropyFunction
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
+        return FusedLinearCrossEntropy.apply(hidden, head.weight, target)
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
