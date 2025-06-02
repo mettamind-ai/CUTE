@@ -57,7 +57,7 @@ class OhMaiHead(nn.Module):
     @torch.no_grad
     def get_hot_tokens(self):
         self.steps_count += 1
-        if self.steps_count % 20 != 0: return self.hot_tokens
+        if self.steps_count % 30 != 0: return self.hot_tokens
 
         # Get new hot tokens based on frequency
         new_hot_tokens = torch.topk(self.running_freq, self.hot_size).indices
