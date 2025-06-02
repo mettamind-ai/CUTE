@@ -15,7 +15,35 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
   - [x] chỉ update những tokens ko có trong batch và 
   - [x] chỉ load những tokens không có sẵn trong vram
 
-- [x] OhMaiHead <= chunked cross entropy loss
+- [x] OhMaiHead
+  - [x] Fused linear + chunked cross entropy loss
+  - [ ] Sử dụng freq based sample softmax
+  ```py playground/683d5a3ef829ed36a76977b1
+# L2 norm từ pretrained
+pretrained_norm = model.lm_head.weight.norm(dim=1)  # ← đây là L2
+
+# Kết hợp với dataset freq
+combined_score = alpha * dataset_freq + (1-alpha) * pretrained_norm
+'''
+- Nếu finetune dataset khác biệt nhiều với pretrained data thì chọn α cao (0.7-0.8) để ưu tiên frequency từ dataset. 
+- Nếu dataset tương tự hoặc chỉ là mở rộng thì chọn α thấp (0.3-0.5) để giữ lại kiến thức pretrained. 
+- α = 0.5 là điểm xuất phát an toàn để thử nghiệm.
+- α = 0.65 để Finetune thêm tiếng Việt cho Qwen vì Qwen đã support tiếng Việt nhưng chưa mạnh
+  Cần boost Vietnamese tokens, Nhưng vẫn giữ multilingual capability.
+'''
+def sample_negative_tokens(batch_tokens, sample_probs, k=24000):
+    # Exclude batch tokens từ sampling
+    mask = torch.ones_like(sample_probs)
+    mask[batch_tokens] = 0
+    masked_probs = sample_probs * mask
+    masked_probs = masked_probs / masked_probs.sum()
+    # Sample k negative tokens
+    neg_tokens = torch.multinomial(masked_probs, k, replacement=False)
+    return neg_tokens
+
+# => 40960 head size,  ~8k active tokens, 1:4 positive/negative sampling
+# => 51200 head size, ~10k active tokens, 1:5 positive/negative sampling
+  ```
 
 - [ ] Trước mắt chỉ cần áp dụng phép nhân ma trận 8bit vào [lora.py](lora.py) là cũng đã save vram và speedup kha khá ...
 
@@ -23,7 +51,5 @@ Nếu biến nhân fast lora xài được INT8, sử dụng Muon optimizer, h�
   - https://github.com/IST-DASLab/DarwinLM Evolutionary Structured Pruning for Language 
   
 - [ ] Tìm hiểu các kỹ thuật PEFT khác nhau
-  - DORA của Nvidia
-  - ROSA
-    - github.com/IST-DASLab/PanzaMail#weight_lifting-step-2-local-fine-tuning-via-robust-adaptation-rosa
-    - https://github.com/IST-DASLab/RoSA combines low-rank (LoRA) and sparse finetuning.
+  - DORA của Nvidia (có trong torchtune)
+  - ROSA https://github.com/IST-DASLab/RoSA

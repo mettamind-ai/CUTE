@@ -10,7 +10,7 @@ except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; F
 print("FA3_ENABLED?", FA3_ENABLED)
 
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
-from OhMai.embedding import OhMaiEmbedding
+from OhMai import OhMaiEmbedding, OhMaiHead
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -240,13 +240,16 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_blks)], # value emb mix
         ]))
 
-        self.lm_head = nn.Linear(dim, vocab_size, bias=False)
-        with torch.no_grad(): self.lm_head.weight.zero_()
+        if self.ohmai:
+            self.lm_head = OhMaiHead(dim, vocab_size)
+        else:
+            self.lm_head = nn.Linear(dim, vocab_size, bias=False)
+            with torch.no_grad(): self.lm_head.weight.zero_()
 
 
-    def update_embeddings(self):
-        if isinstance(self.embeddings, OhMaiEmbedding):
-            self.embeddings.update_embeddings()
+    def update_async_weight(self):
+        if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
+        if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
 
     def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
@@ -295,7 +298,10 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        return FusedLinearCrossEntropy.apply(hidden, head.weight, target)
+        if isinstance(head, OhMaiHead):
+                inverse = head.activate(target)
+                return FusedLinearCrossEntropy.apply(hidden, head.active_weight, inverse)
+        else:   return FusedLinearCrossEntropy.apply(hidden, head.weight, target)
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
@@ -340,6 +346,9 @@ if __name__ == "__main__":
             if n2 == "embeddings.active_weight":
                 n2 = "embeddings.weight"
                 p2 = ohmai.embeddings.weight.cuda()
+            if n2 == "lm_head.active_weight":
+                n2 = "lm_head.weight"
+                p2 = ohmai.lm_head.weight.cuda()
             assert n1 == n2, f"{n1} != {n2}"
             assert torch.allclose(p1, p2), f"{n1} values are different"
     check_params()
@@ -373,37 +382,53 @@ if __name__ == "__main__":
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
     tok_emb_before = ohmai.embeddings.weight.data.clone()
+    head_before = ohmai.lm_head.weight.data.clone()
+
     model.train()
     ohmai.train()
 
     for step in range(10):
         ## Generate sequences with batch dimension
-        input_seq = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
-        target    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
-        future    = torch.randint(5, vocab_size//2, (seq_len,), dtype=torch.long).cuda()
+        vv = vocab_size//4
+        input_seq = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
+        target    = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
+        future    = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         optim.zero_grad()
         aptim.zero_grad()
 
         ## Đảm bảo 2 cách lấy embedding là giống nhau
-        a = ohmai.embeddings(input_seq)
+        xxxxx = model if step == 0 else ohmai
+        a = xxxxx.embeddings(input_seq).cpu()
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
-        assert torch.allclose(a.bfloat16().cpu(), b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
+        assert torch.allclose(a, b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
+
+        ## Đảm bảo 2 cách lấy head là giống nhau
+        a = xxxxx.lm_head.weight.cuda()[target]
+        inverse = ohmai.lm_head.activate(target)
+        b = ohmai.lm_head.active_weight[inverse]
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"
 
         loss_fn = fused_loss_fn
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
 
         loss_ohmai.backward()
         loss_model.backward()
         optim.step()
         aptim.step()
-        ohmai.update_embeddings() # đảm bảo embeddings đã được cập nhật
+
+        print(f"Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+        ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
 
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
     assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"
+
+    head_after = ohmai.lm_head.weight.data
+    diff = (head_before != head_after).sum().item()
+    assert diff > 0, f"Số lượng thay đổi {diff}\n{head_before}\n{head_after}"

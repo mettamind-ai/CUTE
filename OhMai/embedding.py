@@ -25,17 +25,16 @@ class OhMaiEmbedding(nn.Module):
 - Có cơ chế mapping để biết token_id ở `active_weight` index nào
 - Có thao tác để đổi active_vocab
     """
-    def __init__(self, vocab, hidim, active_vocab=None):
+    def __init__(self, vocab, dim, active_vocab=None):
         super().__init__()
         self.vocab = vocab
-        self.hidim = hidim
 
         # Pinned Memory → GPU Memory _vs_ CPU Memory → Staging Buffer → GPU Memory
-        self.weight = torch.randn(vocab, hidim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
+        self.weight = torch.randn(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
-        w = torch.empty(active_vocab, self.hidim, device="cuda", dtype=self.weight.dtype)
+        w = torch.empty(active_vocab, dim, device="cuda", dtype=self.weight.dtype)
 
         self.active_weight = nn.Parameter(w)
         self.active_vocab = active_vocab
@@ -55,12 +54,12 @@ class OhMaiEmbedding(nn.Module):
         curr_active = torch.unique(indices).long()
         assert len(curr_active) <= self.active_vocab, f"OhMai found {len(curr_active)} > active_vocab"
 
-        # Dùng unuse_tokens và unuse_embeds để update vào weight trên CPU
+        # Dùng unuse_tokens và unuse_weights để update vào weight trên CPU
         unuse_mask    = ~torch.isin(self.active, curr_active)
         unuse_tokens  = self.active[unuse_mask]
 
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
-        unuse_embeds  = self.active_weight.data[unuse_indices].clone()
+        unuse_weights  = self.active_weight.data[unuse_indices].clone()
 
         # Cập nhật self.active chỉ ở những phần tử mới trong curr_active
         pad_size = len(curr_active) - len(self.active)
@@ -74,19 +73,19 @@ class OhMaiEmbedding(nn.Module):
 
         # Update new token embeddings
         self.update_stream.synchronize() # đồng bộ hoá lần update trước
-        new_embs = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
-        self.active_weight.data[ new_token_indices ] = new_embs
+        new_weights = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
+        self.active_weight.data[ new_token_indices ] = new_weights
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu()] = unuse_embeds.cpu()
+            self.weight[unuse_tokens.cpu()] = unuse_weights.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
 
 
-    def update_embeddings(self):
+    def update_async_weight(self):
         self.update_stream.synchronize()
         self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
 
