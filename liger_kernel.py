@@ -349,7 +349,7 @@ def fused_linear_cross_entropy_forward(
             A, B  = logits_chunk.t(), _input_chunk
             A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
-            grad_weight =+ scaled_mm(A, B, As.to(_input_chunk.dtype), Bs,)
+            grad_weight = grad_weight + scaled_mm(A, B, As.to(_input_chunk.dtype), Bs,)
 
 
     loss, z_loss = torch.sum(loss_1d), None
