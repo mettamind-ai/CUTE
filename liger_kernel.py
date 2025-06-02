@@ -235,7 +235,6 @@ def liger_cross_entropy_kernel(
 MAX_FUSED_SIZE = 65536 // 2
 from optimus import quantize_int8, scaled_mm # sử dụng phép nhân INT8 Mixed
 
-@torch.compile
 def fused_linear_cross_entropy_forward(
     _input, weight, target, ce_weight=None,
     ignore_index=-100, lse_square_scale=0.0,
