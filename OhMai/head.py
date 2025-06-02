@@ -46,6 +46,28 @@ class OhMaiHead(nn.Module):
         # Khởi tạo CUDA stream cho async transfer
         self.update_stream = torch.cuda.Stream()
 
+        ## Hot tokens config playground/683d5a3ef829ed36a76977b1
+        self.hot_size = self.active_vocab // 2  # ~16k hot tokens
+        self.is_hot = torch.zeros(vocab, dtype=torch.bool, device='cuda')
+        self.is_hot[:self.hot_size] = True  # nhặt bừa các tokens đầu
+        self.steps_count = 0
+
+
+    @torch.no_grad
+    def get_hot_tokens(self):
+        self.steps_count += 1
+        if self.steps_count % 10 != 1: return self.hot_tokens
+
+        # Get new hot tokens based on frequency
+        new_hot_indices = torch.topk(self.running_freq, self.hot_size).indices
+        
+        # Update is_hot mask
+        self.is_hot.fill_(False)
+        self.is_hot[new_hot_indices] = True
+
+        self.hot_tokens = torch.nonzero(self.is_hot).flatten()
+        return self.hot_tokens
+
 
     @torch.no_grad
     def get_active_tokens(self, indices):
@@ -54,18 +76,22 @@ class OhMaiHead(nn.Module):
         self.total_tokens += counts.sum()
         empirical_freq = self.running_freq / self.total_tokens
 
-        combined_score = self.alpha * self.running_freq + (1-self.alpha) * self.pretrained_norm     
+        combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm     
         sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
         sample_probs = sample_probs / sample_probs .sum()
 
+        # essential_tokens = combine hot + batch tokens (unique)
+        essential_tokens = torch.unique(torch.cat([self.get_hot_tokens(), tokens]))
+
         mask = torch.ones_like(sample_probs)
-        mask[tokens] = 0
+        mask[essential_tokens] = 0
 
         masked_probs = sample_probs * mask
         masked_probs = masked_probs / masked_probs.sum()
-        
-        neg_tokens = torch.multinomial(masked_probs, self.active_vocab - len(tokens), replacement=False)
-        return torch.cat([ tokens, neg_tokens ])
+
+        need_neg = self.active_vocab - len(essential_tokens)
+        neg_tokens = torch.multinomial(masked_probs, need_neg, replacement=False)
+        return torch.cat([ essential_tokens, neg_tokens ])
 
 
     @torch.no_grad()
