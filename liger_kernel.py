@@ -166,7 +166,7 @@ def liger_cross_entropy_kernel(
             # special handle dx_y
             X_block = tl.where(X_offsets != y, X_block, X_block - (1 - label_smoothing))
 
-            # reduction == "mean":
+            # reduction == "mean"
             X_block = X_block / n_non_ignore
 
         else:
@@ -186,7 +186,7 @@ def liger_cross_entropy_kernel(
             # derivative of z-loss
             dz_loss = 2 * lse_square_scale * lse * softmax_X
 
-            # reduction == "mean":
+            # reduction == "mean"
             dloss_ori = dloss_ori / sum_non_ignore_weight
             dloss_smooth = dloss_smooth / sum_non_ignore_weight
 
@@ -205,23 +205,9 @@ def liger_cross_entropy_kernel(
     # https://github.com/triton-lang/triton/blob/ba42a5c68fd0505f8c42f4202d53be0f8d9a5fe0/python/triton/ops/cross_entropy.py#L34
     tl.debug_barrier()
 
-    # 5. Calculate the loss
-    # loss = log (softmax(X_y)) = log ((e ^ (X_y - max(X)) / sum(e ^ (X - max(X))))
-    #      = (X_y - max(X)) - log(sum(e ^ (X - max(X))))
-    #      =  X_y - m - log d = X_y - lse
-    # sum(e ^ (X - max(X))) must >= 1 because the max term is e ^ 0 = 1
-    # So we can safely calculate log (softmax(X_y)) without overflow
     loss = lse - ori_X_y
     if HAS_WEIGHT: loss = weight_y * loss
 
-    # Original loss = H(q, p),  with label smoothing regularization = H(q', p) and (label_smoothing / V) = eps
-    # H(q', p) = (1 - label_smoothing) * H(q, p) + label_smoothing * H(u, p)
-    #          = (1 - label_smoothing) * H(q, p) + eps * sum(logsoftmax(x_i))
-    # By using m (global max of xi) and d (sum of e^(xi-m)), we can simplify as:
-    #          = (1 - label_smoothing) * H(q, p) + (sum(-eps * x_i) + label_smoothing * (m + logd))
-    # Refer to H(q', p) in section 7 of the paper: https://arxiv.org/pdf/1512.00567
-    # pytorch: https://github.com/pytorch/pytorch/blob/2981534f54d49fa3a9755c9b0855e7929c2527f0/aten/src/ATen/native/LossNLL.cpp#L516
-    # See full derivation at https://github.com/linkedin/Liger-Kernel/pull/198#issuecomment-2333753087
     if label_smoothing > 0:
         if HAS_WEIGHT:  smooth_loss = scaled_x_sum + eps * lse * weight_sum
         else:           smooth_loss = scaled_x_sum + label_smoothing * lse
@@ -232,7 +218,6 @@ def liger_cross_entropy_kernel(
     z_loss = lse_square_scale * lse * lse
 
     # Normalize the loss by the number of non-ignored elements if reduction is "mean"
-    # reduction == "mean"
     if HAS_WEIGHT:  loss = loss / sum_non_ignore_weight
     else:           loss = loss / n_non_ignore
 
