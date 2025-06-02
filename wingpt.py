@@ -295,7 +295,7 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
 
 import math
 def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head, chunk_size=2048):
+    def _loss_method(hidden, target, head, chunk_size=4096):
         total_tokens = hidden.size(0)  # hidden đã được flatten
         num_chunks = math.ceil(total_tokens / chunk_size)
         total_loss = None
@@ -307,7 +307,7 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
             
             logits_chunk = checkpoint(head, hidden[start_idx:end_idx], use_reentrant=False,)                
             logits_chunk = logits_chunk.view(-1, logits_chunk.size(-1))
-            logits_chunk = 15 * logits_chunk * torch.rsqrt(logits_chunk.square() + 15*15)
+            # logits_chunk = 15 * logits_chunk * torch.rsqrt(logits_chunk.square() + 15*15)
             
             chunk_loss = F.cross_entropy(logits_chunk.float(), target[start_idx:end_idx].long(),)
             if total_loss is None: total_loss = chunk_loss

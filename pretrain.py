@@ -180,7 +180,6 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 ## LOSS FUNCTION & PREPARE ##
 #############################
-
 from wingpt import simple_loss_fn, fused_loss_fn
 if args.C:
     lossf = simple_loss_fn

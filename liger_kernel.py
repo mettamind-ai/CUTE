@@ -1,6 +1,6 @@
 ''' Modded from https://github.com/linkedin/Liger-Kernel
 - Remove bias and cleanup code
-- Fix chunk size to 1024*8 (in chunked cross entropy)
+- Fix chunk size to 1024*4 (in chunked cross entropy)
 - Add int8 mm in fwd to gain 0.9% speedup :D
 '''
 import functools
@@ -244,7 +244,7 @@ def fused_linear_cross_entropy_forward(
     BT, H = _input.shape
     V = weight.shape[0]
 
-    chunk_size = 1024*8
+    chunk_size = 1024*4
     num_chunks = triton.cdiv(BT, chunk_size)
 
     grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
