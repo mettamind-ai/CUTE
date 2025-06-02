@@ -59,8 +59,9 @@ class OhMaiHead(nn.Module):
         if self.steps_count % 20 != 0: return self.hot_tokens
 
         # Get new hot tokens based on frequency
-        self.hot_tokens = torch.topk(self.running_freq, self.hot_size).indices
+        new_hot_tokens = torch.topk(self.running_freq, self.hot_size).indices
         if torch.equal(new_hot_tokens, self.hot_tokens): return self.hot_tokens
+        self.hot_tokens = new_hot_tokens
         
         # Update active_weight
         self.update_async_weight()  # sync with cpu weight first
