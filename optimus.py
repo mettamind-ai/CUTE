@@ -374,10 +374,10 @@ def liger_cross_entropy_kernel(
         smooth_loss = scaled_x_sum + label_smoothing * lse
         loss = loss * (1 - label_smoothing) + smooth_loss
 
-    z_loss = lse_square_scale * lse * lse  # An auxiliary loss, z_loss
-    # Normalize the loss by the number of non-ignored elements if reduction is "mean"
-    loss = loss / n_non_ignore
-    loss += z_loss / n_non_ignore
+    loss = loss / n_non_ignore  # Normalize the loss, mean reduction
+    if lse_square_scale > 0:
+        z_loss = lse_square_scale * lse * lse  # An auxiliary loss, z_loss
+        loss += z_loss / n_non_ignore
     tl.store(loss_ptr, loss)
 
 
