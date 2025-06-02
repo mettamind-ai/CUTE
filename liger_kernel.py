@@ -261,19 +261,12 @@ def fused_linear_cross_entropy_forward(
     label_smoothing=0.0, softcap=None,
 ):
     device = _input.device
-    # inputs have shape: BT x H
-    # materialized activations will have shape: BT x V
-    # the increase in memory = BT x V
-    # If we were to achieve the same memory consumption as BT x H, then the chunk size should be:
-    # inc_factor = (V + H - 1) // H; chunk_size = (BT + inc_factor - 1) // inc_factor
-    # for ex: BT = 4096*4, V = 32000, H = 4096 ==> inc_factor = 8, chunk_size = 2048
     BT, H = _input.shape
     V = weight.shape[0]
     BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(V))
 
-    inc_factor = triton.cdiv(V, H)
-    chunk_size = triton.next_power_of_2(triton.cdiv(BT, inc_factor))  # (BT + inc_factor - 1) // inc_factor
-    num_chunks = triton.cdiv(BT, chunk_size)  # (BT + chunk_size - 1) // chunk_size
+    chunk_size = 1024*8
+    num_chunks = triton.cdiv(BT, chunk_size)
 
     grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
     grad_input = torch.zeros_like(_input, device=device)
@@ -351,9 +344,11 @@ def fused_linear_cross_entropy_forward(
         grad_input[start_idx:end_idx] = scaled_mm(X, w, X_row_scale, w_col_scale,)
 
         if grad_weight is not None:
-            # In an autocast without bias, differing logits_chunk data types will cause error.
             mat1 = logits_chunk.t().to(_input_chunk.dtype)
             torch.addmm(input=grad_weight, mat1=mat1, mat2=_input_chunk, out=grad_weight, alpha=1.0, beta=1.0,)
+            # torch.addmm thực hiện phép tính: out = beta * input + alpha * (mat1 @ mat2) => tương đương
+            # grad_weight += logits_chunk.t() @ _input_chunk
+
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
