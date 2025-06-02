@@ -65,17 +65,20 @@ class OhMaiHead(nn.Module):
         old_hot = self.hot_tokens
         self.hot_tokens = new_hot_tokens
 
-        old_to_sync = old_hot[~torch.isin(old_hot, new_hot_tokens)]
-        indices_to_sync = torch.isin(self.active[:self.hot_size], old_to_sync)
+        # Find which positions changed
+        position_changed = (new_hot_tokens != old_hot)
+        changed_indices = position_changed.nonzero().flatten()
 
-        # Selective sync
-        sync_indices = indices_to_sync.nonzero().flatten()
-        self.weight[old_to_sync.cpu()] = self.active_weight[sync_indices].cpu()
+        if len(changed_indices) > 0:
+            # Sync old tokens at changed positions
+            with torch.cuda.stream(self.update_stream):
+                self.weight[old_hot[changed_indices].cpu()] = self.active_weight[changed_indices].cpu()
+            
+            # Update only changed positions
+            new_changed = new_hot_tokens[changed_indices]
+            self.active[changed_indices] = new_changed
+            self.active_weight.data[changed_indices] = self.weight[new_changed.cpu()].cuda()
         
-        # Update active_weight
-        self.active[:self.hot_size] = self.hot_tokens
-        self.active_weight.data[:self.hot_size] = self.weight[self.hot_tokens.cpu()].cuda()
-
         return self.hot_tokens
 
 
