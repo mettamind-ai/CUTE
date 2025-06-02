@@ -253,8 +253,8 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
-
 from optimus import quantize_int8, scaled_mm # sử dụng phép nhân INT8 Mixed
+
 def fused_linear_cross_entropy_forward(
     _input, weight, target, ce_weight=None,
     ignore_index=-100, lse_square_scale=0.0,
@@ -263,7 +263,6 @@ def fused_linear_cross_entropy_forward(
     device = _input.device
     BT, H = _input.shape
     V = weight.shape[0]
-    BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(V))
 
     chunk_size = 1024*8
     num_chunks = triton.cdiv(BT, chunk_size)
@@ -299,18 +298,14 @@ def fused_linear_cross_entropy_forward(
     for chunk_id in range(num_chunks):
         start_idx = chunk_id * chunk_size
         end_idx = min((chunk_id + 1) * chunk_size, BT)
-        _input_chunk = _input[start_idx:end_idx]  # chunk_size x H
-        target_chunk = target[start_idx:end_idx]  # chunk_size,
+        _input_chunk = _input[start_idx:end_idx]
+        target_chunk = target[start_idx:end_idx]
 
-        # logits_chunk = _input_chunk @ weight.t()  # chunk_size x V
+        # logits_chunk = _input_chunk @ weight.t()
         logits_chunk = scaled_mm(X[start_idx:end_idx], wT, X_row_scale[start_idx:end_idx], wT_col_scale,)
 
         n_rows = logits_chunk.shape[0]
         loss_1d_slice = loss_1d[start_idx:end_idx]  # chunk_size,
-
-        # ensure _input and target are contiguous
-        logits_chunk = logits_chunk.contiguous()
-        target_chunk = target_chunk.contiguous()
 
         # Here we calculate the gradient of logits_chunk in place so we can save memory.
         liger_cross_entropy_kernel[(n_rows,)](
@@ -327,26 +322,16 @@ def fused_linear_cross_entropy_forward(
             softcap=softcap,
             HAS_WEIGHT=True if ce_weight is not None else False,
             HAS_SOFTCAPPING=True if softcap is not None else False,
-            BLOCK_SIZE=BLOCK_SIZE,
+            BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if not is_hip() else 16,
         )
 
         loss_1d[start_idx:end_idx] = loss_1d_slice
         grad_logits_chunk = logits_chunk  # chunk_size x V
-
         grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
-        ## sr=True làm chậm đi quá trình mà đoạn này bắt buộc phải có => không xài đc.
-        # X, X_row_scale = quantize_int8(grad_logits_chunk, dim=1, sr=True) # tăng độ CX
-        # grad_input[start_idx:end_idx] = scaled_mm(X, w, X_row_scale, w_col_scale,)
 
         if grad_weight is not None:
-            # torch.addmm(input=grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk, out=grad_weight)
-            # => grad_weight += logits_chunk.t() @ _input_chunk
-            A, B  = logits_chunk.t(), _input_chunk
-            A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
-            B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
-            grad_weight = grad_weight + scaled_mm(A, B, As.to(_input_chunk.dtype), Bs,)
-
+            torch.addmm(grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk)
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
@@ -355,35 +340,20 @@ def fused_linear_cross_entropy_forward(
 def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight):
     # If cross entropy is the last layer, grad_output is 1.0. Skip the mul to save time
     if not torch.equal(grad_output, torch.tensor(1.0, device=grad_output.device)):
-        # We use a Triton kernel instead of a PyTorch operation because modifying inputs in-place
-        # for gradient storage and backward multiple times causes anomalies with PyTorch but not with Triton.
         BT, H = grad_input.shape
-        n_rows = BT
-        BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(H))
+        BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(H))
 
-        element_mul_kernel[(n_rows,)](
-            grad_input,
-            grad_input.stride(-2),
-            grad_output,
-            H,
-            BLOCK_SIZE=BLOCK_SIZE,
-            num_warps=32 if not is_hip() else 16,
+        element_mul_kernel[(BT,)](
+            grad_input, grad_input.stride(-2), grad_output, H,
+            BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
         )
-
         # handle grad_weight
         if grad_weight is not None:
             V, H = grad_weight.shape
-            n_rows = V
-
-            element_mul_kernel[(n_rows,)](
-                grad_weight,
-                grad_weight.stride(-2),
-                grad_output,
-                H,
-                BLOCK_SIZE=BLOCK_SIZE,
-                num_warps=32 if not is_hip() else 16,
+            element_mul_kernel[(V,)](
+                grad_weight, grad_weight.stride(-2), grad_output, H,
+                BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
             )
-
     return grad_input, grad_weight
 
 
