@@ -48,24 +48,24 @@ class OhMaiHead(nn.Module):
 
         ## Hot tokens config playground/683d5a3ef829ed36a76977b1
         self.hot_size = self.active_vocab // 2  # ~16k hot tokens
-        self.is_hot = torch.zeros(vocab, dtype=torch.bool, device='cuda')
-        self.is_hot[:self.hot_size] = True  # nhặt bừa các tokens đầu
+        self.hot_tokens = torch.arange(self.hot_size, device='cuda')
+        self.hot_tokens.requires_grad_(False)  # Không cần gradient
         self.steps_count = 0
 
 
     @torch.no_grad
     def get_hot_tokens(self):
         self.steps_count += 1
-        if self.steps_count % 10 != 1: return self.hot_tokens
+        if self.steps_count % 20 != 0: return self.hot_tokens
 
         # Get new hot tokens based on frequency
-        new_hot_indices = torch.topk(self.running_freq, self.hot_size).indices
+        self.hot_tokens = torch.topk(self.running_freq, self.hot_size).indices
         
-        # Update is_hot mask
-        self.is_hot.fill_(False)
-        self.is_hot[new_hot_indices] = True
+        # Update active_weight
+        self.update_async_weight()  # sync with cpu weight first
+        self.active[:self.hot_size] = self.hot_tokens
+        self.active_weight.data[:self.hot_size] = self.weight[self.hot_tokens.cpu()].cuda()
 
-        self.hot_tokens = torch.nonzero(self.is_hot).flatten()
         return self.hot_tokens
 
 
@@ -96,17 +96,26 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad()
     def activate(self, indices):
-        curr_active   = self.get_active_tokens(indices)
-        unuse_mask    = ~torch.isin(self.active, curr_active)
-        unuse_tokens  = self.active[unuse_mask]
+        curr_active = self.get_active_tokens(indices)
+
+        # Hot tokens (0 → hot_size) giữ nguyên, không swap
+        # Chỉ xử lý cold zone (hot_size → active_vocab)        
+        cold_start, cold_end = self.hot_size, self.active_vocab
+        
+        # Current cold tokens
+        cold_curr = curr_active[cold_start:cold_end]
+        cold_prev = self.active[cold_start:cold_end]
+        
+        # Find cold tokens to swap out  
+        unuse_mask = ~torch.isin(cold_prev, cold_curr)
+        unuse_indices = torch.nonzero(unuse_mask).flatten() + cold_start
+        unuse_tokens = self.active[unuse_indices]
+        
+        # Update active array (only cold part)
+        self.active[cold_start:cold_end] = cold_curr
 
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
         unuse_weights = self.active_weight.data[unuse_indices].clone()
-
-        # Cập nhật self.active chỉ ở những phần tử mới trong curr_active
-        pad_size = len(curr_active) - len(self.active)
-        self.active = torch.nn.functional.pad(self.active, (0, pad_size), value=-1)
-        assert len(self.active) == len(curr_active)
 
         new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()

@@ -247,7 +247,7 @@ class WinGPT(nn.Module):
             with torch.no_grad(): self.lm_head.weight.zero_()
 
 
-    def update_async_weight(self):
+    def update_async_weights(self):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
@@ -423,7 +423,7 @@ if __name__ == "__main__":
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
-        ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
+        ohmai.update_async_weights() # đảm bảo async weights (embeddings/head) đã được cập nhật
 
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
