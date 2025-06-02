@@ -9,7 +9,8 @@ from optimus import Int8MixedLinear
 import torch
 from torch import nn
 
-MAX_ACTIVE_VOCAB = 32768 # 32768 tối ưu cho speed, 51200 cân bằng speed 1:5 pos/neg ratio
+# 32768 tối ưu cho speed, 51200 cân bằng speed 1:5 pos/neg ratio
+MAX_ACTIVE_VOCAB = 32768 
 
 @torch.compiler.disable
 class OhMaiHead(nn.Module):
@@ -47,7 +48,7 @@ class OhMaiHead(nn.Module):
         self.update_stream = torch.cuda.Stream()
 
         ## Hot tokens config playground/683d5a3ef829ed36a76977b1
-        self.hot_size = self.active_vocab // 2  # ~16k hot tokens
+        self.hot_size = self.active_vocab//2  + 1024*4 # 20k
         self.hot_tokens = torch.arange(self.hot_size, device='cuda')
         self.hot_tokens.requires_grad_(False)  # Không cần gradient
         self.steps_count = 0
