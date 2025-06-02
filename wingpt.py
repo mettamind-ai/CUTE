@@ -293,30 +293,6 @@ def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seq
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
-import math
-def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head, chunk_size=4096):
-        total_tokens = hidden.size(0)  # hidden đã được flatten
-        num_chunks = math.ceil(total_tokens / chunk_size)
-        total_loss = None
-        
-        for i in range(num_chunks):
-            start_idx = i * chunk_size
-            end_idx = (i + 1) * chunk_size
-            if end_idx > total_tokens: end_idx = total_tokens
-            
-            # logits_chunk = checkpoint(head, hidden[start_idx:end_idx], use_reentrant=False,)                
-            # logits_chunk = logits_chunk.view(-1, logits_chunk.size(-1))
-            # logits_chunk = 15 * logits_chunk * torch.rsqrt(logits_chunk.square() + 15*15)
-            logits_chunk = head(hidden[start_idx:end_idx])                
-
-            chunk_loss = F.cross_entropy(logits_chunk.float(), target[start_idx:end_idx].long(),)
-            if total_loss is None: total_loss = chunk_loss
-            else: total_loss += chunk_loss
-        return total_loss / num_chunks, None
-    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
-
-
 from liger_kernel import LigerFusedLinearCrossEntropyFunction
 def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
@@ -416,7 +392,7 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a.bfloat16().cpu(), b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
 
-        loss_fn = [simple_loss_fn, fused_loss_fn][ step % 2 ]
+        loss_fn = fused_loss_fn
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  
