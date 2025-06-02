@@ -1,4 +1,8 @@
-# Code from https://github.com/linkedin/Liger-Kernel
+''' Modded from https://github.com/linkedin/Liger-Kernel
+- Remove bias and cleanup code
+- Fix chunk size to 1024*8 (in chunked cross entropy)
+- Add int8 mm in fwd to gain 4.7% speedup
+'''
 import functools
 import torch, triton
 import triton.language as tl
