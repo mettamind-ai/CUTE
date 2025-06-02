@@ -71,7 +71,7 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad
     def get_active_tokens(self, indices):
-        tokens, counts = torch.unique(indices, return_counts=True)
+        batch_tokens, counts = torch.unique(indices, return_counts=True)
         self.running_freq[tokens] += counts
         self.total_tokens += counts.sum()
         empirical_freq = self.running_freq / self.total_tokens
@@ -81,17 +81,22 @@ class OhMaiHead(nn.Module):
         sample_probs = sample_probs / sample_probs .sum()
 
         # essential_tokens = combine hot + batch tokens (unique)
-        essential_tokens = torch.unique(torch.cat([self.get_hot_tokens(), tokens]))
+        hot_tokens = self.get_hot_tokens()
+        batch_cold = batch_tokens[~torch.isin(batch_tokens, hot_tokens)]
+        essential = torch.cat([hot_tokens, batch_cold])
 
         mask = torch.ones_like(sample_probs)
-        mask[essential_tokens] = 0
+        mask[essential] = 0
 
         masked_probs = sample_probs * mask
         masked_probs = masked_probs / masked_probs.sum()
 
-        need_neg = self.active_vocab - len(essential_tokens)
+        need_neg = self.active_vocab - len(essential)
         neg_tokens = torch.multinomial(masked_probs, need_neg, replacement=False)
-        return torch.cat([ essential_tokens, neg_tokens ])
+
+        # IMPORTANT: Return hot tokens FIRST
+        return torch.cat([hot_tokens, batch_cold, neg_tokens])
+
 
 
     @torch.no_grad()
@@ -119,6 +124,7 @@ class OhMaiHead(nn.Module):
 
         new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
+
         assert len(new_token_indices) == len(new_tokens), f"{len(new_token_indices)} != {len(new_tokens)}"
         self.active[new_token_indices] = new_tokens
 
