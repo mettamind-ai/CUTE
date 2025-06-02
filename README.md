@@ -58,18 +58,11 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
-- [x] ~~smooth để giảm thiểu outliers => hadamard transform từ quest và qllmt~~ <= rất chậm
-- [x] Fused Linear Chunked Cross Entropy Loss is the best! Tích hợp vào optimus.py
-- [x] Mẹo tính mutiple exits loss từ torchtune
-  - https://github.com/pytorch/torchtune/blob/main/torchtune/modules/early_exit_loss.py
-  ```py
-  # Stack tất cả hidden states: [e(xits), b(atch), s(seqlen), d(im)]
-  hidden_states_stacked = torch.stack(hidden_states)
-  # Tính logits một lần cho tất cả: [e, b, s, out_dim]
-  logits_early = model.unembed(hidden_states_stacked)
-  ```
 
 🌸__DOING__🌸
+- [ ] Hoàn thiện OhMaiHead
+- [ ] https://github.com/mobiusml/gemlite tìm hiểu quant matmul kernel, có cái nào dùng được cho finetune?
+
 - [ ] Các phương pháp huấn luyện hiệu quả
   - Dùng LoRA để dup 2 block liên tiếp ... 
   - MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
@@ -77,7 +70,7 @@
   - DORA https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html
     - https://github.com/AnswerDotAI/fsdp_qlora (dora code)
     ![](https://pbs.twimg.com/media/GsXH99jboAAehqe?format=jpg)
-- [ ] Kết hợp DORA + ROSA ...
+  - [ ] Kết hợp DORA + ROSA ...
 
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast

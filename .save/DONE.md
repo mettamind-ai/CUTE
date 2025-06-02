@@ -123,3 +123,16 @@
 - [x] ~~int4 mixed mm ko nhanh hơn mấy + vỡ loss~~
 - Tích hợp qwen 3
   <img src="https://pbs.twimg.com/media/GsNBJ7VXEAAIErD?format=jpg" width="50%">
+
+- [x] ~~smooth để giảm thiểu outliers => hadamard transform từ quest và qllmt~~ <= rất chậm
+- [x] Fused Linear Chunked Cross Entropy Loss is the best! Tích hợp vào optimus.py
+- [x] Mẹo tính mutiple exits loss từ torchtune
+  - https://github.com/pytorch/torchtune/blob/main/torchtune/modules/early_exit_loss.py
+  ```py
+  # Stack tất cả hidden states: [e(xits), b(atch), s(seqlen), d(im)]
+  hidden_states_stacked = torch.stack(hidden_states)
+  # Tính logits một lần cho tất cả: [e, b, s, out_dim]
+  logits_early = model.unembed(hidden_states_stacked)
+  ```
+- [x] OhMaiHead bản thử nghiẹm
+
