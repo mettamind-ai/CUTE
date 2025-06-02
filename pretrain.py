@@ -182,10 +182,10 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 
 # from wingpt import simple_loss_fn as lossf
-# if args.C: lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
-
 from wingpt import fused_loss_fn as lossf
-if args.C: model = torch.compile(model); print(">>> torch.compile(model) <<<")
+if args.C:
+    model = torch.compile(model); print(">>> torch.compile(model) <<<")
+    lossf = torch.compile(lossf); print(">>> torch.compile(lossf) <<<")
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
