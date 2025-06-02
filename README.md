@@ -61,8 +61,14 @@
 - [x] ~~smooth để giảm thiểu outliers => hadamard transform từ quest và qllmt~~ <= rất chậm
 
 🌸__DOING__🌸
-- [ ] MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
-  ![](https://pbs.twimg.com/media/GsWKFUqbgAAlQWv?format=jpg)
+- [ ] Các phương pháp huấn luyện hiệu quả
+  - Dùng LoRA để dup 2 block liên tiếp ... 
+  - MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
+  - ROSA https://github.com/IST-DASLab/RoSA combines low-rank (LoRA) and sparse finetuning
+  - DORA https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html
+    - https://github.com/AnswerDotAI/fsdp_qlora (dora code)
+    ![](https://pbs.twimg.com/media/GsXH99jboAAehqe?format=jpg)
+- [ ] Kết hợp DORA + ROSA ...
 
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast

@@ -316,6 +316,13 @@ def simple_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
     return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
 
 
+from liger_kernel import LigerFusedLinearCrossEntropyFunction
+def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
+    def _loss_method(hidden, target, head):
+        return LigerFusedLinearCrossEntropyFunction.apply(hidden, head.weight, target)
+    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
+
+
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
         mask[-1] = True
@@ -408,7 +415,7 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a.bfloat16().cpu(), b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
 
-        loss_fn = simple_loss_fn
+        loss_fn = [simple_loss_fn, fused_loss_fn][ step % 2 ]
         loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
         loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
  
