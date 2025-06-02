@@ -48,7 +48,6 @@ def liger_cross_entropy_kernel(
     Y_stride,
     weight_ptr,
     loss_ptr,
-    z_loss_ptr,
     loss_stride,
     n_cols,
     n_non_ignore,
@@ -59,7 +58,6 @@ def liger_cross_entropy_kernel(
     label_smoothing: tl.constexpr,
     # reduction: tl.constexpr,  # set it as constexpr since reduction is always known at compile time
     softcap,
-    RETURN_Z_LOSS: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     HAS_WEIGHT: tl.constexpr,
     HAS_SOFTCAPPING: tl.constexpr,
@@ -75,7 +73,6 @@ def liger_cross_entropy_kernel(
     Y_stride (int): The stride of the target tensor.
     weight_ptr: Pointer to weight tensor.
     loss_ptr: Pointer to tensor to store the loss.
-    z_loss_ptr: Pointer to tensor to store the z loss. No operation if RETURN_Z_LOSS is 0.
     loss_stride (int): The stride of the loss tensor.
     n_cols (int): The number of columns in the input tensor.
     n_non_ignore (float): The number of non-ignored elements in the batch.
@@ -86,7 +83,6 @@ def liger_cross_entropy_kernel(
     lse_square_scale (float): The scaler of (logsumexp(_input)) ^ 2 adding to the loss for the stability of training.
     reduction (str): The string for the reduction to apply, ONLY SUPPORT "mean" for now
     softcap (float): The upper threshold for scaling logits to the range (-softcap, +softcap).
-    RETURN_Z_LOSS (int): The boolean value to decide whether storing z loss to z_loss_ptr or not. It must be 0 or 1.
     BLOCK_SIZE (int): The block size for Triton operations.
     HAS_WEIGHT (bool): The boolean value to determine whether assigning weight to each of the classes.
     HAS_SOFTCAPPING (bool): The boolean value to determine whether applying soft-capping or not.
@@ -111,8 +107,6 @@ def liger_cross_entropy_kernel(
         return
 
     loss_ptr += program_id * loss_stride
-    if RETURN_Z_LOSS: z_loss_ptr += program_id * loss_stride
-
     if HAS_WEIGHT: weight_y = tl.load(weight_ptr + y).cast(tl.float32)
 
     # Online softmax: 2 loads + 1 store (compared with 3 loads + 1 store for the safe softmax)
@@ -253,11 +247,9 @@ def liger_cross_entropy_kernel(
 
     # TODO: Implement weighted z_loss. Currently, z_loss is not scaled by weight.
     z_loss = z_loss / n_non_ignore
+
     loss += z_loss
-
     tl.store(loss_ptr, loss)
-    if RETURN_Z_LOSS: tl.store(z_loss_ptr, z_loss)
-
 
 
 MAX_FUSED_SIZE = 65536 // 2
@@ -268,17 +260,12 @@ def fused_linear_cross_entropy_forward(
     weight,
     target,
     ce_weight=None,
-    bias=None,
     ignore_index=-100,
     lse_square_scale=0.0,
     label_smoothing=0.0,
-    # reduction="mean",
     softcap=None,
-    return_z_loss=False,
 ):
-    assert isinstance(return_z_loss, bool), f"return_z_loss must be True or False. Got: {return_z_loss}"
     device = _input.device
-
     # inputs have shape: BT x H
     # materialized activations will have shape: BT x V
     # the increase in memory = BT x V
@@ -296,11 +283,9 @@ def fused_linear_cross_entropy_forward(
 
     grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
     grad_input = torch.zeros_like(_input, device=device)
-    grad_bias = torch.zeros_like(bias, device=device) if bias is not None else None
 
     # we use fp32 for loss accumulator
     loss_1d = torch.zeros(BT, dtype=torch.float32, device=device)
-    z_loss_1d = torch.zeros(BT, dtype=_input.dtype, device=_input.device) if return_z_loss else None
 
     # TODO: evaluate how CUDA synchronization caused by .item() affects the speed
     target_mask = target != ignore_index
@@ -328,15 +313,11 @@ def fused_linear_cross_entropy_forward(
 
         # when doing matmul, use the original precision
         logits_chunk = _input_chunk @ weight.t()  # chunk_size x V
-        if bias is not None: logits_chunk = logits_chunk + bias
-
         target_chunk = target[start_idx:end_idx]  # chunk_size,
 
         n_rows = logits_chunk.shape[0]
-
         # unreduced loss
         loss_1d_slice = loss_1d[start_idx:end_idx]  # chunk_size,
-        z_loss_1d_slice = z_loss_1d[start_idx:end_idx] if return_z_loss else None
 
         # ensure _input and target are contiguous
         logits_chunk = logits_chunk.contiguous()
@@ -344,24 +325,17 @@ def fused_linear_cross_entropy_forward(
 
         # Here we calculate the gradient of logits_chunk in place so we can save memory.
         liger_cross_entropy_kernel[(n_rows,)](
-            X_ptr=logits_chunk,
-            X_stride=logits_chunk.stride(-2),
-            Y_ptr=target_chunk,
-            Y_stride=target_chunk.stride(-1),  # always 1
-            weight_ptr=ce_weight,
-            loss_ptr=loss_1d_slice,
-            z_loss_ptr=z_loss_1d_slice,
+            X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2),
+            Y_ptr=target_chunk, Y_stride=target_chunk.stride(-1),  # always 1
+            weight_ptr=ce_weight, loss_ptr=loss_1d_slice,
             loss_stride=loss_1d_slice.stride(-1),  # always 1
-            n_cols=V,
-            n_non_ignore=total_n_non_ignore,
+            n_cols=V, n_non_ignore=total_n_non_ignore,
             sum_non_ignore_weight=total_sum_non_ignore_ce_weight,
             weight_sum=ce_weight_sum,
             ignore_index=ignore_index,
             lse_square_scale=lse_square_scale,
             label_smoothing=label_smoothing,
-            # reduction=reduction,
             softcap=softcap,
-            RETURN_Z_LOSS=return_z_loss,
             HAS_WEIGHT=True if ce_weight is not None else False,
             HAS_SOFTCAPPING=True if softcap is not None else False,
             BLOCK_SIZE=BLOCK_SIZE,
@@ -369,36 +343,19 @@ def fused_linear_cross_entropy_forward(
         )
 
         loss_1d[start_idx:end_idx] = loss_1d_slice
-        if return_z_loss: z_loss_1d[start_idx:end_idx] = z_loss_1d_slice
-
         grad_logits_chunk = logits_chunk  # chunk_size x V
         grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
 
-        mat1 = logits_chunk.t().to(_input_chunk.dtype)
         if grad_weight is not None:
-            torch.addmm(
-                input=grad_weight,
-                mat1=mat1,  # In an autocast without bias, differing logits_chunk data types will cause error.
-                mat2=_input_chunk,
-                out=grad_weight,
-                alpha=1.0,
-                beta=1.0,
-            )
+            # In an autocast without bias, differing logits_chunk data types will cause error.
+            mat1 = logits_chunk.t().to(_input_chunk.dtype)
+            torch.addmm(input=grad_weight, mat1=mat1, mat2=_input_chunk, out=grad_weight, alpha=1.0, beta=1.0,)
 
-        if bias is not None:
-            torch.add(
-                input=grad_bias,
-                other=logits_chunk.sum(dim=0),
-                out=grad_bias,
-                alpha=1.0,
-            )
-
-    loss = torch.sum(loss_1d)
-    z_loss = torch.sum(z_loss_1d) if return_z_loss else None
-    return loss, z_loss, grad_input, grad_weight, grad_bias
+    loss, z_loss = torch.sum(loss_1d), None
+    return loss, z_loss, grad_input, grad_weight
 
 
-def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight, grad_bias):
+def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight):
     # If cross entropy is the last layer, grad_output is 1.0. Skip the mul to save time
     if not torch.equal(grad_output, torch.tensor(1.0, device=grad_output.device)):
         # We use a Triton kernel instead of a PyTorch operation because modifying inputs in-place
@@ -430,19 +387,7 @@ def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight, gr
                 num_warps=32 if not is_hip() else 16,
             )
 
-        if grad_bias is not None:
-            V = grad_bias.shape[0]
-            n_rows = V
-
-            element_mul_kernel[(n_rows,)](
-                grad_bias,
-                grad_bias.stride(-1),
-                grad_output,
-                1,
-                BLOCK_SIZE=BLOCK_SIZE,
-                num_warps=32 if not is_hip() else 16,
-            )
-    return grad_input, grad_weight, grad_bias
+    return grad_input, grad_weight
 
 
 class LigerFusedLinearCrossEntropyFunction(torch.autograd.Function):
@@ -453,64 +398,33 @@ class LigerFusedLinearCrossEntropyFunction(torch.autograd.Function):
         _input,
         weight,
         target,
-        bias=None,
         ce_weight=None,
         ignore_index=-100,
         lse_square_scale=0.0,
         label_smoothing=0.0,
-        # reduction="mean",
         softcap=None,
-        return_z_loss: bool = False,
     ):
         """
-Fusing the last linear layer with cross-entropy loss
-    Reference: https://github.com/mgmalek/efficient_cross_entropy
-
+Ref https://github.com/mgmalek/efficient_cross_entropy
 Xử lý forward và backward pass của linear layer cuối cùng với cross-entropy loss bằng cách 
 tránh tạo ra tensor logits lớn. Vì Cross Entropy Loss là layer cuối, TA CÓ THỂ TÍNH 
 GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass.
-
-_input: (B*T, H) - B: batch size, T: sequence length, H: hidden dimension
-target: (B*T) - mỗi giá trị trong khoảng [0, V-1]
-weight: (V, H) - V: số lượng classes
-bias: (V) - V: số lượng classes
-ce_weight: trọng số cho từng class. Nếu có, phải là Tensor kích thước V với dtype float
-ignore_index: index bỏ qua trong target
-label_smoothing: mức độ làm mượt khi tính loss, 0.0 = không làm mượt
-reduction: cách reduce loss
         """
-
-        ## grad input và grad weight đã được tính ngay trong forward => nice!
-        loss, z_loss, grad_input, grad_weight, grad_bias = fused_linear_cross_entropy_forward(
-            _input=_input,
-            weight=weight,
-            target=target,
-            bias=bias,
-            ce_weight=ce_weight,
-            ignore_index=ignore_index,
-            lse_square_scale=lse_square_scale,
-            label_smoothing=label_smoothing,
-            # reduction=reduction,
-            softcap=softcap,
-            return_z_loss=return_z_loss,
+        loss, z_loss, grad_input, grad_weight = fused_linear_cross_entropy_forward(
+            _input=_input, weight=weight, target=target, ce_weight=ce_weight,
+            ignore_index=ignore_index, lse_square_scale=lse_square_scale,
+            label_smoothing=label_smoothing, softcap=softcap,
         )
         # downcast to dtype and store for backward
-        ctx.save_for_backward(
-            grad_input.detach(),
-            grad_weight.detach() if grad_weight is not None else None,
-            grad_bias.detach() if bias is not None else None,
-        )
-        ctx.return_z_loss = return_z_loss
+        if grad_weight is not None: grad_weight = grad_weight.detach()
+        ctx.save_for_backward(grad_input.detach(), grad_weight)
         return loss, z_loss
 
 
     @staticmethod
     @amp_custom_bwd
-    def backward(ctx, grad_output, grad_output2):
-        if ctx.return_z_loss: del grad_output2  # z_loss is only for logging
-        grad_input, grad_weight, grad_bias = ctx.saved_tensors
-        grad_input, grad_weight, grad_bias = fused_linear_cross_entropy_backward(
-            grad_output, grad_input, grad_weight, grad_bias
-        )
-        return (grad_input, grad_weight, None, grad_bias,
-            None, None, None, None, None, None, None,)
+    def backward(ctx, grad_out, grad_out2):
+        del grad_out2  # z_loss is only for logging
+        grad_in, grad_w = ctx.saved_tensors
+        grad_in, grad_w = fused_linear_cross_entropy_backward(grad_out, grad_in, grad_w,)
+        return (grad_in, grad_w, None, None, None, None, None, None, None, None, None,)
