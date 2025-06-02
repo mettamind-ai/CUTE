@@ -1,5 +1,5 @@
 ''' Modded from https://github.com/linkedin/Liger-Kernel
-- Remove bias and cleanup code
+- Remove bias, softcap, ce_weight and cleanup to make code clearer
 - Fix chunk size to 1024*4 (in chunked cross entropy)
 - Add int8 mm in fwd to gain 0.9% speedup :D
 '''
@@ -29,34 +29,18 @@ def element_mul_kernel(X_ptr, X_stride, value_ptr, n_cols, BLOCK_SIZE: tl.conste
         tl.store(pointer, tl.load(pointer, mask=mask)*value, mask=mask)
         col_offsets += BLOCK_SIZE
 
-def test_element_mul_kernel():
-    # Tạo dữ liệu test
-    n_rows, n_cols = 3, 5
-    X = torch.ones((n_rows, n_cols), device='cuda')
-    v = torch.tensor([2.0], device='cuda')  # Giá trị nhân
-    element_mul_kernel[(n_rows,)](X, X.stride(0), v, n_cols, BLOCK_SIZE=2)
-    expected = torch.ones_like(X) * v.item()
-    assert torch.allclose(X, expected), "test_element_mul_kernel failed: Results don't match expected output"
-    print("test_element_mul_kernel passed! All elements are correctly multiplied by 2.0")
-
-if __name__ == "__main__":
-    test_element_mul_kernel()
-
 
 # https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/ops/cross_entropy.py
 @triton.jit
 def liger_cross_entropy_kernel(
     X_ptr, X_stride,
     Y_ptr, Y_stride,
-    weight_ptr,
     loss_ptr, loss_stride,
     n_cols, n_non_ignore,
-    sum_non_ignore_weight,
-    weight_sum, ignore_index,
+    ignore_index,
     lse_square_scale: tl.constexpr,
     label_smoothing: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
-    HAS_WEIGHT: tl.constexpr,
 ):
     """
     This kernel computes both cross entropy loss and the gradient of the input.
@@ -65,15 +49,11 @@ def liger_cross_entropy_kernel(
     Parameters:
     n_cols (int): The number of columns in the input tensor.
     n_non_ignore (float): The number of non-ignored elements in the batch.
-    sum_non_ignore_weight (float): The sum of non-ignored target's weights in the batch.
-    weight_sum (float): The sum of weight tensor.
     ignore_index (int): The index to ignore in the target.
     label_smoothing (float): The amount of smoothing when computing the loss, where 0.0 means no smoothing.
     lse_square_scale (float): The scaler of (logsumexp(_input)) ^ 2 adding to the loss for the stability of training.
     BLOCK_SIZE (int): The block size for Triton operations.
-    HAS_WEIGHT (bool): The boolean value to determine whether assigning weight to each of the classes.
     """
-
     # https://github.com/triton-lang/triton/issues/1058
     # If B*T*V is too large, program_id * stride will overflow out of int32, so we convert to int64
     program_id = tl.program_id(0).to(tl.int64)
@@ -93,11 +73,9 @@ def liger_cross_entropy_kernel(
         return
 
     loss_ptr += program_id * loss_stride
-    if HAS_WEIGHT: weight_y = tl.load(weight_ptr + y).cast(tl.float32)
 
     # Online softmax: 2 loads + 1 store (compared with 3 loads + 1 store for the safe softmax)
     # Refer to Algorithm 3 in the paper: https://arxiv.org/pdf/1805.02867
-
     # 3. [Online softmax] first pass: find max + sum
     m = float("-inf")  # m is the max value. use the notation from the paper
     d = 0.0  # d is the sum. use the notation from the paper
@@ -118,11 +96,7 @@ def liger_cross_entropy_kernel(
         block_max = tl.max(X_block)
         if label_smoothing > 0:
             # scale X beforehand to avoid overflow
-            if HAS_WEIGHT:
-                weight_block = tl.load(weight_ptr + X_offsets, mask=X_offsets < n_cols)
-                scaled_x_sum += tl.sum(tl.where(X_offsets < n_cols, -eps * X_block * weight_block, 0.0))
-            else:
-                scaled_x_sum += tl.sum(tl.where(X_offsets < n_cols, -eps * X_block, 0.0))
+            scaled_x_sum += tl.sum(tl.where(X_offsets < n_cols, -eps * X_block, 0.0))
 
         m_new = tl.maximum(m, block_max)
         d = d * tl.exp(m - m_new) + tl.sum(tl.exp(X_block - m_new))
@@ -138,86 +112,32 @@ def liger_cross_entropy_kernel(
             other=float("-inf"), # Ensure float32 precision for softmax calculation
         ).cast(tl.float32)
 
-        if not HAS_WEIGHT:
-            # softmax(x_i)
-            X_block = tl.exp(X_block - m) / d
-
-            # derivative of z-loss: 2 * lse_square_scale * lse * softmax(x_i)
-            X_block += 2 * lse_square_scale * lse * X_block
-
-            # smoothing term
-            X_block += -eps
-
-            # special handle dx_y
-            X_block = tl.where(X_offsets != y, X_block, X_block - (1 - label_smoothing))
-
-            # reduction == "mean"
-            X_block = X_block / n_non_ignore
-
-        else:
-            weight_block = tl.load(weight_ptr + X_offsets, mask=X_offsets < n_cols)
-            softmax_X = tl.exp(X_block - m) / d
-
-            # derivative of original_loss
-            dloss_ori = (1 - label_smoothing) * softmax_X
-
-            # specially handle dx_y
-            dloss_ori = tl.where(X_offsets != y, dloss_ori, dloss_ori - (1 - label_smoothing))
-            dloss_ori = dloss_ori * weight_y
-
-            # derivative of smooth_loss
-            dloss_smooth = eps * (-weight_block + softmax_X * weight_sum)
-
-            # derivative of z-loss
-            dz_loss = 2 * lse_square_scale * lse * softmax_X
-
-            # reduction == "mean"
-            dloss_ori = dloss_ori / sum_non_ignore_weight
-            dloss_smooth = dloss_smooth / sum_non_ignore_weight
-
-            # TODO: Currently, z_loss is not scaled by weight.
-            dz_loss = dz_loss / n_non_ignore
-
-            # derivative of total_loss
-            X_block = dloss_ori + dloss_smooth + dz_loss
-
+        X_block = tl.exp(X_block - m) / d  # softmax(x_i)
+        X_block += 2 * lse_square_scale * lse * X_block        
+        X_block += -eps  # smoothing term
+        X_block = tl.where(X_offsets != y, X_block, X_block - (1 - label_smoothing))
+        X_block = X_block / n_non_ignore  # reduction == "mean"
         tl.store(X_ptr + X_offsets, X_block, mask=X_offsets < n_cols)
 
-    # We need tl.debug_barrier() to ensure the new result of X_ptr is written as mentioned in
-    # https://github.com/triton-lang/triton/blob/ba42a5c68fd0505f8c42f4202d53be0f8d9a5fe0/python/triton/ops/cross_entropy.py#L34
+    # We need tl.debug_barrier() to ensure the new result of X_ptr is written
     tl.debug_barrier()
 
     loss = lse - ori_X_y
-    if HAS_WEIGHT: loss = weight_y * loss
-
     if label_smoothing > 0:
-        if HAS_WEIGHT:  smooth_loss = scaled_x_sum + eps * lse * weight_sum
-        else:           smooth_loss = scaled_x_sum + label_smoothing * lse
+        smooth_loss = scaled_x_sum + label_smoothing * lse
         loss = loss * (1 - label_smoothing) + smooth_loss
 
-    # An auxiliary loss, z_loss
-    # Refer to Page14 Loss function section in the paper PaLM: https://www.jmlr.org/papers/v24/22-1144.html
-    z_loss = lse_square_scale * lse * lse
-
+    z_loss = lse_square_scale * lse * lse  # An auxiliary loss, z_loss
     # Normalize the loss by the number of non-ignored elements if reduction is "mean"
-    if HAS_WEIGHT:  loss = loss / sum_non_ignore_weight
-    else:           loss = loss / n_non_ignore
-
-    # TODO: Implement weighted z_loss. Currently, z_loss is not scaled by weight.
-    z_loss = z_loss / n_non_ignore
-
-    loss += z_loss
+    loss = loss / n_non_ignore
+    loss += z_loss / n_non_ignore
     tl.store(loss_ptr, loss)
 
 
 MAX_FUSED_SIZE = 65536 // 2
 from optimus import quantize_int8, scaled_mm # sử dụng phép nhân INT8 Mixed
 
-def fused_linear_cross_entropy_forward(
-    _input, weight, target, ce_weight=None,
-    ignore_index=-100, lse_square_scale=0.0,
-    label_smoothing=0.0
-):
+def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
     device = _input.device
     BT, H = _input.shape
     V = weight.shape[0]
@@ -234,21 +154,6 @@ def fused_linear_cross_entropy_forward(
     # TODO: evaluate how CUDA synchronization caused by .item() affects the speed
     target_mask = target != ignore_index
     total_n_non_ignore = target_mask.sum().item()
-
-    total_sum_non_ignore_ce_weight = total_n_non_ignore
-    ce_weight_sum = 0.0
-
-    if ce_weight is not None:
-        assert ce_weight.shape[0] == V, f"If given, weight has to be a Tensor of size V. Got: {ce_weight.shape}"
-        assert torch.is_floating_point(ce_weight), (
-            f"If given, weight has to be a Tensor of floating point dtype. Got: {ce_weight.dtype}"
-        )
-        total_sum_non_ignore_ce_weight = (
-            torch.gather(ce_weight, dim=0, index=target.masked_select(target_mask)).sum().item()
-        )
-        ce_weight_sum = ce_weight.sum().item()
-        if ce_weight.stride(-1) != 1: ce_weight = ce_weight.contiguous()
-
 
     X,   X_row_scale = quantize_int8(_input, dim=1, sr=False) 
     wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)
@@ -269,15 +174,12 @@ def fused_linear_cross_entropy_forward(
         liger_cross_entropy_kernel[(n_rows,)](
             X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2),
             Y_ptr=target_chunk, Y_stride=target_chunk.stride(-1),  # always 1
-            weight_ptr=ce_weight, loss_ptr=loss_1d_slice,
+            loss_ptr=loss_1d_slice,
             loss_stride=loss_1d_slice.stride(-1),  # always 1
             n_cols=V, n_non_ignore=total_n_non_ignore,
-            sum_non_ignore_weight=total_sum_non_ignore_ce_weight,
-            weight_sum=ce_weight_sum,
             ignore_index=ignore_index,
             lse_square_scale=lse_square_scale,
             label_smoothing=label_smoothing,
-            HAS_WEIGHT=True if ce_weight is not None else False,
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if not is_hip() else 16,
         )
@@ -314,11 +216,7 @@ def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight):
 class LigerFusedLinearCrossEntropyFunction(torch.autograd.Function):
     @staticmethod
     @amp_custom_fwd
-    def forward(
-        ctx, _input, weight, target, ce_weight=None,
-        ignore_index=-100, lse_square_scale=0.0,
-        label_smoothing=0.0
-    ):
+    def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         """
 Ref https://github.com/mgmalek/efficient_cross_entropy
 Xử lý forward và backward pass của linear layer cuối cùng với cross-entropy loss bằng cách 
@@ -326,7 +224,7 @@ tránh tạo ra tensor logits lớn. Vì Cross Entropy Loss là layer cuối, TA
 GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass.
         """
         loss, z_loss, grad_input, grad_weight = fused_linear_cross_entropy_forward(
-            _input=_input, weight=weight, target=target, ce_weight=ce_weight,
+            _input=_input, weight=weight, target=target,
             ignore_index=ignore_index, lse_square_scale=lse_square_scale,
             label_smoothing=label_smoothing
         )
