@@ -246,5 +246,5 @@ while step < args.steps and lossv > args.minloss:
         time0 = time.time()
         logger.log(log_dict, step=step)
     # END of Training Loop
-model.update_embeddings()
+model.update_async_weights()
 if not args.T: logger.finish()
