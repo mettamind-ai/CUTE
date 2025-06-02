@@ -29,11 +29,16 @@ Khi forward x qua mỗi layer, sẽ qua một cái gate subnet, calculate logits
 ---
 
 ## MatFormer
-- Matryoshka Former https://arxiv.org/html/2310.07707v2
-- FlexTron https://arxiv.org/html/2406.10260v1
-<!-- ![](https://arxiv.org/html/2406.10260v1/x1.png)
+- Matryoshka Former 
+  - https://alphaxiv.org/abs/2310.07707v2
+  -   https://arxiv.org/html/2310.07707v2
+- FlexTron
+  - https://alphaxiv.org/abs/2406.10260v1
+  -   https://arxiv.org/html/2406.10260v1
+
+![](https://arxiv.org/html/2406.10260v1/x1.png)
 > Elastic Multi-Head Attention (MHA)
- -->
+
 ![](https://arxiv.org/html/2310.07707v2/x2.png)
 
 Nested Feed Forward Network (FFN):
