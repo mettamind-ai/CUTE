@@ -1,3 +1,6 @@
+# Sự ảnh hưởng của head (big vs small) tới tốc độ pretraining 666m model
+![](head-00-crunch.png)
+ 
 # 32k full vocab vs 3.2k ohmai
 
 PHÂN CHIA PARAMS VÀO DTYPES:
