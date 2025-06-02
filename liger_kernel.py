@@ -42,21 +42,15 @@ if __name__ == "__main__":
 # https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/ops/cross_entropy.py
 @triton.jit
 def liger_cross_entropy_kernel(
-    X_ptr,
-    X_stride,
-    Y_ptr,
-    Y_stride,
+    X_ptr, X_stride,
+    Y_ptr, Y_stride,
     weight_ptr,
-    loss_ptr,
-    loss_stride,
-    n_cols,
-    n_non_ignore,
+    loss_ptr, loss_stride,
+    n_cols, n_non_ignore,
     sum_non_ignore_weight,
-    weight_sum,
-    ignore_index,
+    weight_sum, ignore_index,
     lse_square_scale: tl.constexpr,
     label_smoothing: tl.constexpr,
-    # reduction: tl.constexpr,  # set it as constexpr since reduction is always known at compile time
     softcap,
     BLOCK_SIZE: tl.constexpr,
     HAS_WEIGHT: tl.constexpr,
@@ -81,7 +75,6 @@ def liger_cross_entropy_kernel(
     ignore_index (int): The index to ignore in the target.
     label_smoothing (float): The amount of smoothing when computing the loss, where 0.0 means no smoothing.
     lse_square_scale (float): The scaler of (logsumexp(_input)) ^ 2 adding to the loss for the stability of training.
-    reduction (str): The string for the reduction to apply, ONLY SUPPORT "mean" for now
     softcap (float): The upper threshold for scaling logits to the range (-softcap, +softcap).
     BLOCK_SIZE (int): The block size for Triton operations.
     HAS_WEIGHT (bool): The boolean value to determine whether assigning weight to each of the classes.
@@ -127,9 +120,7 @@ def liger_cross_entropy_kernel(
     for i in range(0, n_cols, BLOCK_SIZE):
         X_offsets = i + tl.arange(0, BLOCK_SIZE)
         X_block = tl.load(
-            X_ptr + X_offsets,
-            mask=X_offsets < n_cols,
-            other=float("-inf"),
+            X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),
             # Ensure float32 precision for softmax calculation
         ).cast(tl.float32)
 
@@ -331,7 +322,7 @@ def fused_linear_cross_entropy_forward(
         grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
 
         if grad_weight is not None:
-            torch.addmm(grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk)
+            torch.addmm(grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk, out=grad_weight)
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
