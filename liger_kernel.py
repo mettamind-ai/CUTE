@@ -344,7 +344,7 @@ def fused_linear_cross_entropy_forward(
         # grad_input[start_idx:end_idx] = scaled_mm(X, w, X_row_scale, w_col_scale,)
 
         if grad_weight is not None:
-            torch.addmm(input=grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk, out=grad_weight)
+            # torch.addmm(input=grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk, out=grad_weight)
             # => grad_weight += logits_chunk.t() @ _input_chunk
             A, B  = logits_chunk.t(), _input_chunk
             A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
