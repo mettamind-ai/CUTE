@@ -338,22 +338,20 @@ def fused_linear_cross_entropy_forward(
 
 
 def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight):
-    # If cross entropy is the last layer, grad_output is 1.0. Skip the mul to save time
-    if not torch.equal(grad_output, torch.tensor(1.0, device=grad_output.device)):
-        BT, H = grad_input.shape
-        BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(H))
+    BT, H = grad_input.shape
+    BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(H))
 
-        element_mul_kernel[(BT,)](
-            grad_input, grad_input.stride(-2), grad_output, H,
+    element_mul_kernel[(BT,)](
+        grad_input, grad_input.stride(-2), grad_output, H,
+        BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
+    )
+    # handle grad_weight
+    if grad_weight is not None:
+        V, H = grad_weight.shape
+        element_mul_kernel[(V,)](
+            grad_weight, grad_weight.stride(-2), grad_output, H,
             BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
         )
-        # handle grad_weight
-        if grad_weight is not None:
-            V, H = grad_weight.shape
-            element_mul_kernel[(V,)](
-                grad_weight, grad_weight.stride(-2), grad_output, H,
-                BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
-            )
     return grad_input, grad_weight
 
 
@@ -387,5 +385,7 @@ GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target
     def backward(ctx, grad_out, grad_out2):
         del grad_out2  # z_loss is only for logging
         grad_in, grad_w = ctx.saved_tensors
-        grad_in, grad_w = fused_linear_cross_entropy_backward(grad_out, grad_in, grad_w,)
-        return (grad_in, grad_w, None, None, None, None, None, None, None, None, None,)
+        # If cross entropy is the last layer, grad_output is 1.0. Skip the mul to save time
+        if not torch.equal(grad_out, torch.tensor(1.0, device=grad_out.device)):
+            grad_in, grad_w = fused_linear_cross_entropy_backward(grad_out, grad_in, grad_w,)
+        return grad_in, grad_w, None, None, None, None, None, None, None, None, None
