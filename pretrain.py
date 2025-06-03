@@ -207,7 +207,7 @@ while step < args.steps and lossv > args.minloss:
     tokens, targets = batch[:-1], batch[1:]
     c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
 
-    loss = lossf(model, tokens, targets, future, c, m)
+    loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch
     loss.backward()
 
