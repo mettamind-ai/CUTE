@@ -42,7 +42,6 @@ class OhMaiHead(nn.Module):
         self.inverse_map.requires_grad_(False)
 
         # Khởi tạo CUDA stream cho async transfer
-        self.cpu2gpu = torch.cuda.Stream()
         self.gpu2cpu = torch.cuda.Stream()
 
 
@@ -89,9 +88,8 @@ class OhMaiHead(nn.Module):
         return self.inverse_map[indices]
 
     def update_new_tokens_weight(self):
-        with torch.cuda.stream(self.cpu2gpu): # nhớ dùng pin mem + non_blocking=True
-            self.active_weight.data[ self.new_token_indices ] = \
-            self.weight[ self.new_tokens.cpu() ].cuda(non_blocking=True)
+        self.active_weight.data[ self.new_token_indices ] = \
+        self.weight[ self.new_tokens.cpu() ].cuda(non_blocking=True)
 
     def update_async_weight(self):
         self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
