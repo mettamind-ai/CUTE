@@ -10,7 +10,7 @@ except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; F
 print("FA3_ENABLED?", FA3_ENABLED)
 
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
-from OhMai import OhMaiEmbedding, OhMaiHead
+from ohmai import OhMaiEmbedding, OhMaiHead
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
