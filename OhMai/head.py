@@ -83,20 +83,15 @@ class OhMaiHead(nn.Module):
         # Trả về sau khi đã đồng bộ active_weight
         return self.hot_tokens
 
-
     def update_new_tokens_weight(self):
         new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
         self.active_weight.data[ self.new_token_indices  ] = new_weights
 
-
     @torch.no_grad
     def get_active_tokens(self, indices):
-        counts_full = torch.bincount(indices, minlength=self.active_vocab)
-        batch_tokens = torch.nonzero(counts_full).squeeze(1)
-        counts = counts_full[batch_tokens]
-
-        self.running_freq[batch_tokens] += counts
-        self.total_tokens += counts.sum()
+        batch_tokens = torch.unique(indices)
+        # self.running_freq[batch_tokens] += counts
+        # self.total_tokens += counts.sum()
         empirical_freq = self.running_freq / self.total_tokens
 
         combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm     
