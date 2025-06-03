@@ -383,12 +383,9 @@ def liger_cross_entropy_kernel(
 
 MAX_FUSED_SIZE = 65536 // 2
 def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-    # we use fp32 for loss accumulator
+    # TODO: Chuẩn bị total_n_non_ignore để không phải .item() that affects the speed
+    total_n_non_ignore = ( target != ignore_index ).sum().item()
     loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
-
-    # TODO: evaluate how CUDA synchronization caused by .item() affects the speed
-    target_mask = target != ignore_index
-    total_n_non_ignore = target_mask.sum().item()
 
     logits = _input @ weight.t()
     V = weight.shape[0]

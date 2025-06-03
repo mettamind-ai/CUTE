@@ -16,12 +16,14 @@
 |`096G`_4x4090    |$1.28/hr | 324    | *253.12* | 310    |  242.18  |
 |`128G`_4x5090    |$1.96/hr | 432    |  220.41  | 524    |  267.34  |
 
-- [x] **Muon** 2-3x
+- [x] **Muon** 2.0x
 - [x] **int8** 1.5x
 - [x] **Arch** 1.5x @ 6k ctxlen (chưa đo lường)
-- [ ] **Super Token** 1.5x (better & denser representations in the hidden space)
+- [x] **OhMai** Nhúng + Head 1.3x
+- [ ] **MoE**  1.5x
+- [ ] **Super** Token 2.0x (better & denser representations in the hidden space)
 
-🌸__!!! TARGET 10x SPEEPUP !!!__🌸
+🌸__!!! TARGET x10 SPEEPUP !!!__🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
 - Muon is super good! vram = 1/4 + loss giảm sâu hơn adam

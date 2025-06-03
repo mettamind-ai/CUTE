@@ -65,4 +65,23 @@ MIXTURE OF EXPERTS
 (1) segmenting the experts into `mN` ones and activating `mK` from them; (2) isolating `K_s` experts as `shared ones`, aiming at **capturing common knowledge** and `mitigating redundancy in routed experts`. Starting from a modest scale with 2B parameters, we demonstrate that `DeepSeekMoE 2B achieves comparable performance with GShard 2.9B`, which has 1.5 times the expert parameters and computation. In addition, DeepSeekMoE 2B nearly **approaches the performance of its dense counterpart** with the same number of total parameters, which set the upper bound of MoE models. Subsequently, we `scale up DeepSeekMoE to 16B` parameters and show that it `achieves comparable performance with LLaMA2 7B`, with **only about 40% of computations**.
 ![](https://arxiv.org/html/2401.06066v1/x2.png)
 
-- https://github.com/microsoft/Tutel
+![](https://arxiv.org/html/2412.19437v2/x2.png)
+DeepSeek-V3 adheres to the settings of DeepSeek-V2
+
+![](https://arxiv.org/html/2412.19437v2/x6.png)
+DS-V3 FP8 Training: only the Linear operator is illustrated.
+
+Fprop (forward pass), Dgrad (activation backward pass), and Wgrad (weight backward pass), are executed in FP8. FP8 Wgrad GEMM **allows activations to be stored in FP8** for use in the backward pass. This significantly reduces memory consumption.
+
+Maintain the original precision (e.g., BF16 or FP32) for:
+- the embedding module,
+- the output head,
+- MoE gating modules,
+- normalization operators, and 
+- **attention operators**
+
+To further guarantee numerical stability, we store in higher precision:
+- the master weights,
+- weight gradients, and 
+- optimizer states.
+
