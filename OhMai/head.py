@@ -74,18 +74,25 @@ class OhMaiHead(nn.Module):
             # Sync old tokens at changed positions
             with torch.cuda.stream(self.update_stream):
                 self.weight[old_hot[changed_indices].cpu()] = self.active_weight[changed_indices].cpu()
-            
-            # Update only changed positions
+
+            # Đồng bộ GPU active_weight trước khi làm việc khác
             new_changed = new_hot_tokens[changed_indices]
             self.active[changed_indices] = new_changed
             self.active_weight.data[changed_indices] = self.weight[new_changed.cpu()].cuda()
-        
+
+        # Trả về sau khi đã đồng bộ active_weight
         return self.hot_tokens
 
+    def update_new_tokens_weight(self):
+        new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
+        self.active_weight.data[ self.new_token_indices  ] = new_weights
 
     @torch.no_grad
     def get_active_tokens(self, indices):
-        batch_tokens, counts = torch.unique(indices, return_counts=True)
+        counts_full = torch.bincount(indices, minlength=self.vocab_size)
+        batch_tokens = torch.nonzero(counts_full).squeeze(1)
+        counts = counts_full[batch_tokens]
+
         self.running_freq[batch_tokens] += counts
         self.total_tokens += counts.sum()
         empirical_freq = self.running_freq / self.total_tokens
@@ -150,9 +157,6 @@ class OhMaiHead(nn.Module):
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
 
-    def update_new_tokens_weight(self):
-        new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
-        self.active_weight.data[ self.new_token_indices  ] = new_weights
 
     def update_async_weight(self):
         # self.update_stream.synchronize()  # đồng bộ hoá lần update trước
