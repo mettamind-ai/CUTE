@@ -92,7 +92,7 @@ class OhMaiHead(nn.Module):
         batch_tokens = torch.unique(indices)
         # self.running_freq[batch_tokens] += counts
         # self.total_tokens += counts.sum()
-        empirical_freq = self.running_freq / self.total_tokens
+        # empirical_freq = self.running_freq / self.total_tokens
 
         combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm     
         sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
