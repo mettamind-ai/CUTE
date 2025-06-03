@@ -16,12 +16,12 @@
 |`096G`_4x4090    |$1.28/hr | 324    | *253.12* | 310    |  242.18  |
 |`128G`_4x5090    |$1.96/hr | 432    |  220.41  | 524    |  267.34  |
 
-- [x] **Muon** 2.0x
-- [x] **int8** 1.5x
-- [x] **Arch** 1.5x @ 6k ctxlen (chưa đo lường)
-- [x] **OhMai** Nhúng + Head 1.3x
-- [ ] **MoE**  1.5x
-- [ ] **Super** Token 2.0x (better & denser representations in the hidden space)
+- [x] **Muon**          2.0x
+- [x] **int8**          1.5x
+- [x] **Dense Arch**    1.5x @ 6k ctxlen (chưa đo lường)
+- [x] **OhMai**         1.3x
+- [ ] **Flexible MoE**  1.5x
+- [ ] **Super Token**   2.0x (better & denser representations in the hidden space)
 
 🌸__!!! TARGET x10 SPEEPUP !!!__🌸
 
@@ -32,13 +32,26 @@
 - `muon + torch.optim.AdamW(fused=True) + int8rd` chạy rất tốt
 - `value embeddings` + `multi exits` + `future prediction` should be good nhưng chưa thể hiện trên loss
 
----
+
+TODO
+----
 
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
 - [Dùng GPU xử lý data](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
-## PLANING
+
+## Tiny Monster Models
+- `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne)
+- `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
+- Bài toán bộ gõ thông minh:
+  - `auto-complete` + 
+  - `sửa lỗi chính tả` + 
+  - `convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
+- TTS cần 1 bộ tokenization khác thiên về phát âm
+- VLM đọc screenshots
+
+## Others
 - Canon https://github.com/fla-org/flash-linear-attention/pull/388
 - Gluon https://www.alphaxiv.org/abs/2505.13416
 - Scion https://github.com/LIONS-EPFL/scion
@@ -51,30 +64,18 @@
 - LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
   - giải quyết vấn đề representation collapse trong Transformers
 - tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
-## Build `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) Tiny Monster Models
-- `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
-- Bài toán bộ gõ thông minh:
-  - `auto-complete` + 
-  - `sửa lỗi chính tả` + 
-  - `convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
-- TTS cần 1 bộ tokenization khác thiên về phát âm
 
 ## [DONE](.save/DONE.md)
+- [x] Hoàn thiện OhMaiHead (dừng ở bản minimal)
 
-🌸__DOING__🌸
-- [ ] Hoàn thiện OhMaiHead
-- [ ] https://github.com/mobiusml/gemlite tìm hiểu quant matmul kernel, có cái nào dùng được cho finetune?
+## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision (2/4/8/16 bits) + Size + Text Token/Super Token
+Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
+linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
 - [ ] Các phương pháp huấn luyện hiệu quả
-  - Dùng LoRA để dup 2 block liên tiếp ... 
+  - Dùng LoRA để dup 1 thành 2 blocks liên tiếp ... 
   - MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
-  - ROSA https://github.com/IST-DASLab/RoSA combines low-rank (LoRA) and sparse finetuning
-  - DORA https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html
-    - https://github.com/AnswerDotAI/fsdp_qlora (dora code)
+  - [ROSA](https://github.com/IST-DASLab/RoSA) combines low-rank (LoRA) and sparse finetuning
+  - [DORA](https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html) (tham khảo torchtune)
     ![](https://pbs.twimg.com/media/GsXH99jboAAehqe?format=jpg)
   - [ ] Kết hợp DORA + ROSA ...
-
-- [ ] save/quant params + inference
-  - https://github.com/pytorch-labs/gpt-fast
-  - https://pytorch.org/blog/accelerating-generative-ai-2
-  - https://github.com/turboderp-org/exllamav3/blob/master/doc/exl3.md

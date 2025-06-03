@@ -4,9 +4,13 @@
 
 - [ ] Trước mắt chỉ cần áp dụng phép nhân ma trận 8bit vào [lora.py](lora.py) là cũng đã save vram và speedup kha khá ...
 
-- [ ] Áp dụng NAS trong việc tìm 1 cấu hình finetune linh hoạt / phù hợp với computing budget ...
+- [ ] https://github.com/mobiusml/gemlite tìm hiểu quant matmul kernel, có cái nào dùng được cho finetune?
+
+- [ ] save/quant params + inference
+  - https://github.com/pytorch-labs/gpt-fast
+  - https://pytorch.org/blog/accelerating-generative-ai-2
+  - https://github.com/turboderp-org/exllamav3/blob/master/doc/exl3.md
+
+- Áp dụng NAS trong việc tìm 1 cấu hình finetune linh hoạt / phù hợp với computing budget ...
   - https://github.com/IST-DASLab/DarwinLM Evolutionary Structured Pruning for Language 
-  
-- [ ] Tìm hiểu các kỹ thuật PEFT khác nhau
-  - DORA của Nvidia (có trong torchtune)
-  - ROSA https://github.com/IST-DASLab/RoSA
+  - kết hợp freeze / full / lora ...
