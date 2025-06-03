@@ -392,7 +392,7 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
 
     ## INT8 mm
     A, As = quantize_int8(_input, dim=1, sr=False) 
-    B, Bs = quantize_int8(weight.t(), dim=0, sr=True)
+    B, Bs = quantize_int8(weight.t(), dim=0, sr=False)
     logits = scaled_mm(A, B, As, Bs,)
 
     V = weight.shape[0]
@@ -405,10 +405,12 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
         BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
         num_warps=32 if not is_hip() else 16,
     )
-
     grad_input = logits @ weight
     if weight.requires_grad:
-        grad_weight = logits.t() @ _input
+        # grad_weight = logits.t() @ _input
+        A, As = quantize_int8(logits.t(), dim=1, sr=False) 
+        B, Bs = quantize_int8(_input.t(), dim=0, sr=False)
+        logits = scaled_mm(A, B, As, Bs,)
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
