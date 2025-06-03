@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 # 32k tối ưu cho speed, và vừa đủ 1:3 -> 1:4 pos/ng
-MAX_ACTIVE_VOCAB = 32*1024 
+MAX_ACTIVE_VOCAB = 40*1024 
 
 @torch.compiler.disable
 class OhMaiHead(nn.Module):
