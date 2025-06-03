@@ -114,7 +114,7 @@ class OhMaiHead(nn.Module):
         # neg_tokens = torch.topk(perturbed, need_neg).indices
 
         # Lấy ngẫu nhiên
-        perm = torch.randperm(self.vocab_size)
+        perm = torch.randperm(self.vocab_size, device="cuda")
         neg_tokens = perm[~torch.isin(perm, essential)][:need_neg]
 
         # IMPORTANT: Return hot tokens FIRST
