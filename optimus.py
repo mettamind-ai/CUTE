@@ -390,12 +390,9 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
     target_mask = target != ignore_index
     total_n_non_ignore = target_mask.sum().item()
 
-    ## INT8 mm
-    A, As = quantize_int8(_input, dim=1, sr=False) 
-    B, Bs = quantize_int8(weight.t(), dim=0, sr=False)
-    logits = scaled_mm(A, B, As, Bs,)
-
+    logits = _input @ weight.t()
     V = weight.shape[0]
+
     liger_cross_entropy_kernel[(logits.shape[0],)](
         X_ptr=logits, X_stride=logits.stride(-2),
         Y_ptr=target, Y_stride=target.stride(-1),          # always 1
@@ -407,10 +404,7 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
     )
     grad_input = logits @ weight
     if weight.requires_grad:
-        # grad_weight = logits.t() @ _input
-        A, As = quantize_int8(logits.t(), dim=1, sr=False) 
-        B, Bs = quantize_int8(_input.t(), dim=0, sr=False)
-        logits = scaled_mm(A, B, As, Bs,)
+        grad_weight = logits.t() @ _input
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
