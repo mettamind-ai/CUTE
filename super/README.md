@@ -48,6 +48,11 @@ LATENT
 ## Chồng chập mọi thú, đầu vào đa độ phân giải và tổng hợp dự đoán từ các lớp trung gian để tránh tấn công đối kháng
 https://www.alphaxiv.org/abs/2408.05446 sử dụng intermediate layer features như một dạng latent representations - những feature này ít bị ảnh hưởng bởi adversarial attacks so với final layer, cho phép tạo ra self-ensemble robust hơn.
 
+**Backbone được đóng băng**: Tác giả sử dụng mô hình pretrained (như ResNet152 trên ImageNet) và đóng băng toàn bộ backbone. Chỉ có layer đầu tiên (để nhận 12 kênh) và layer cuối cùng được fine-tune.
+
+**Linear probes độc lập**: Sau đó, họ huấn luyện riêng biệt các linear probes (head tuyến tính) trên activation của từng lớp trung gian. Tác giả mô tả: "we fix a trained network f : X → y and use its intermediate layer activations h₁(X), h₂(X), ··· , hₗ(X) to train separate trained linear probes (affine layers) that map the activation of the layer l into classification logits".
+
+---
 
 Trong LLM, latent representation biến đổi từ cụ thể → trừu tượng qua các layers:
 Ví dụ câu "Hôm nay là một ngày đẹp trời" trong BERT
@@ -107,3 +112,12 @@ Token → Router → Expert Visual (2048d)
 - Emergence từ self-organization, không forced architecture
 
 **Đề xuất nghiên cứu:** Phát triển "Self-Organizing Multimodal Transformer" với dynamic dimensions + hierarchical MoE cho Vietnamese AI advancement.
+
+## BTL
+- https://github.com/facebookresearch/blt
+- https://www.alphaxiv.org/abs/2412.09871
+![](https://pbs.twimg.com/media/Gshh4eaasAAfHL-?format=jpg)
+![](https://pbs.twimg.com/media/Gshkw6easAA7Dzy?format=jpg)
+![](https://pbs.twimg.com/media/GshlkjsbcAA70Th?format=png)
+![](https://pbs.twimg.com/media/GshqAiObAAAOkQq?format=jpg)
+![](https://pbs.twimg.com/media/GshsGeJasAMyBcr?format=jpg)

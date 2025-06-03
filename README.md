@@ -68,3 +68,4 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
 - [ ] Redo `Byte Latent Transformer`
+- Quant https://github.com/mit-han-lab/nunchaku
