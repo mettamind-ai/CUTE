@@ -390,8 +390,8 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
 
     num_chunks = triton.cdiv(BT, chunk_size)
 
-    # grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
-    # grad_input = torch.zeros_like(_input, device=device)
+    grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
+    grad_input = torch.zeros_like(_input, device=device)
 
     # we use fp32 for loss accumulator
     loss_1d = torch.zeros(BT, dtype=torch.float32, device=device)
@@ -400,8 +400,9 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
     target_mask = target != ignore_index
     total_n_non_ignore = target_mask.sum().item()
 
-    X,   X_row_scale = quantize_int8(_input, dim=1, sr=False) 
-    wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)
+    ## INT8 mm
+    # X,   X_row_scale = quantize_int8(_input, dim=1, sr=False) 
+    # wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)
 
     for chunk_id in range(num_chunks):
         start_idx = chunk_id * chunk_size
