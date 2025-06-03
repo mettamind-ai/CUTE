@@ -40,9 +40,7 @@ class OhMaiHead(nn.Module):
 
         self.inverse_map = torch.full((vocab,), -1, dtype=torch.long, device='cuda')
         self.inverse_map.requires_grad_(False)
-
-        # Khởi tạo CUDA stream cho async transfer
-        self.gpu2cpu = torch.cuda.Stream()
+        self.maistream = torch.cuda.Stream()
 
 
     @torch.no_grad
@@ -68,28 +66,28 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad()
     def activate(self, indices):
-        curr_active   = self.get_active_tokens(indices)
-        unuse_mask    = ~torch.isin(self.active, curr_active)
-        unuse_tokens  = self.active[unuse_mask]
+        with torch.cuda.stream(self.maistream):
+            curr_active   = self.get_active_tokens(indices)
+            unuse_mask    = ~torch.isin(self.active, curr_active)
+            unuse_tokens  = self.active[unuse_mask]
 
-        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
-        self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
-        self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
+            unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
+            self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
+            self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
 
-        assert len(self.new_token_indices) == len(self.new_tokens)
-        self.active[self.new_token_indices] = self.new_tokens
+            assert len(self.new_token_indices) == len(self.new_tokens)
+            self.active[self.new_token_indices] = self.new_tokens
 
-        # Sử dụng stream để async transfer unuse_weights from GPU to CPU
-        with torch.cuda.stream(self.gpu2cpu):
+            self.new_tokens = self.new_tokens.cpu()
             self.weight[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
 
-        # Tạo inverse indices và trả về
-        self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
-        return self.inverse_map[indices]
+            # Tạo inverse indices và trả về
+            self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
+            return self.inverse_map[indices]
 
     def update_new_tokens_weight(self):
         self.active_weight.data[ self.new_token_indices ] = \
-        self.weight[ self.new_tokens.cpu() ].cuda(non_blocking=True)
+        self.weight[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
 
     def update_async_weight(self):
         self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
