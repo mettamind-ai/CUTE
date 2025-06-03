@@ -252,13 +252,10 @@ class WinGPT(nn.Module):
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
 
-    def forward(self, input_seq, target, cu_seqlens, max_seqlen):
+    def forward(self, input_seq, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
-
-        if self.ohmai:  # tính inverse target và async offload GPU->CPU
-            target = self.lm_head.activate(target)
 
         v_embs = embs[..., -self.kv_dim*self.ve : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
@@ -283,7 +280,7 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
 
         # => Trước khi return để tính loss thì toàn bộ head's (active) weight đã được cập nhật !!!
-        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, target
+        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
 ###################
 ## Loss function ##
@@ -291,7 +288,10 @@ class WinGPT(nn.Module):
 
 import random
 def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
-    x, x0, ve, tl, vl, c, m, target = model(input_seq, target, cu_seqlens, max_seqlen) # x đã norm
+    if model.ohmai:  # tính inverse target và async offload GPU->CPU
+        target = model.lm_head.activate(target)
+
+    x, x0, ve, tl, vl, c, m = model(input_seq, target, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
