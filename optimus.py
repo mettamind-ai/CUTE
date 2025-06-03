@@ -382,7 +382,7 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
-chunk_size = 1024*64
+chunk_size = 1024*8
 def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
     device = _input.device
     BT, H = _input.shape
@@ -390,8 +390,8 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
 
     num_chunks = triton.cdiv(BT, chunk_size)
 
-    grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
-    grad_input = torch.zeros_like(_input, device=device)
+    # grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
+    # grad_input = torch.zeros_like(_input, device=device)
 
     # we use fp32 for loss accumulator
     loss_1d = torch.zeros(BT, dtype=torch.float32, device=device)
@@ -409,8 +409,8 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
         _input_chunk = _input[start_idx:end_idx]
         target_chunk = target[start_idx:end_idx]
 
-        # logits_chunk = _input_chunk @ weight.t()
-        logits_chunk = scaled_mm(X[start_idx:end_idx], wT, X_row_scale[start_idx:end_idx], wT_col_scale,)
+        logits_chunk = _input_chunk @ weight.t()
+        # logits_chunk = scaled_mm(X[start_idx:end_idx], wT, X_row_scale[start_idx:end_idx], wT_col_scale,)
 
         n_rows = logits_chunk.shape[0]
         loss_1d_slice = loss_1d[start_idx:end_idx]  # chunk_size,
@@ -418,13 +418,10 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
         # Here we calculate the gradient of logits_chunk in place so we can save memory.
         liger_cross_entropy_kernel[(n_rows,)](
             X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2),
-            Y_ptr=target_chunk, Y_stride=target_chunk.stride(-1),  # always 1
-            loss_ptr=loss_1d_slice,
-            loss_stride=loss_1d_slice.stride(-1),  # always 1
-            n_cols=V, n_non_ignore=total_n_non_ignore,
-            ignore_index=ignore_index,
-            lse_square_scale=lse_square_scale,
-            label_smoothing=label_smoothing,
+            Y_ptr=target_chunk, Y_stride=target_chunk.stride(-1),         # always 1
+            loss_ptr=loss_1d_slice, loss_stride=loss_1d_slice.stride(-1), # always 1
+            n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
+            lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if not is_hip() else 16,
         )
