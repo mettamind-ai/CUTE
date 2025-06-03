@@ -89,9 +89,9 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad
     def get_active_tokens(self, indices):
-        if self.steps_count % 7 != 0:
+        if self.steps_count % 5 != 0:
             batch_tokens = torch.unique(indices)
-        else:
+        else: # 5 steps update 1 lần
             batch_tokens, counts = torch.unique(indices, return_counts=True)
             self.running_freq[batch_tokens] += counts
             self.total_tokens += counts.sum()
@@ -99,24 +99,23 @@ class OhMaiHead(nn.Module):
 
             combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm     
             sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
-            self.sample_probs = sample_probs / sample_probs .sum()
+            self.sample_probs = sample_probs / sample_probs.sum()
 
         # essential_tokens = combine hot + batch tokens (unique)
         hot_tokens = self.get_hot_tokens()
         batch_cold = batch_tokens[~torch.isin(batch_tokens, hot_tokens)]
         essential = torch.cat([hot_tokens, batch_cold])
 
-        mask = torch.ones_like(self.sample_probs)
-        mask[essential] = 0
-
-        masked_probs = self.sample_probs * mask
-        masked_probs = masked_probs / masked_probs.sum()
-
+        ## Lấy mẫu neg_tokens nằm ngoài essential dựa trên sample_probs 
+        # Fastest approach - uniform noise
+        noise = torch.rand_like(self.sample_probs)
+        perturbed = self.sample_probs * noise
+        perturbed[essential] = 0
         need_neg = self.active_vocab - len(essential)
-        neg_tokens = torch.multinomial(masked_probs, need_neg, replacement=False)
+        neg_tokens = torch.topk(perturbed, need_neg).indices
 
         # IMPORTANT: Return hot tokens FIRST
-        return torch.cat([hot_tokens, batch_cold, neg_tokens])
+        return torch.cat([essential, neg_tokens])
 
 
 
