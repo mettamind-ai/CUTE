@@ -13,12 +13,8 @@ biển diễn cho input và ouput thì vẫn là tokens trong vocab (con chữ)
 để đảm bảo tính cross entropy loss như bình thường, 
 nhưng khi vào model mình có thể **map con chữ thành concept vector** ...
 
-## Byte Latent Transformer
-![](https://arxiv.org/html/2412.09871v1/extracted/6066458/assets/patching_types.png)
-![](https://arxiv.org/html/2412.09871v1/x4.png)
-![](https://arxiv.org/html/2412.09871v1/x5.png)
-![](https://arxiv.org/html/2412.09871v1/x3.png)
-<!-- ![](https://arxiv.org/html/2412.09871v1/extracted/6066458/assets/patching.png) -->
+---
+
 
 ## vec2vec: translate text embeddings across different spaces without any paired data or encoders
 - https://x.com/rishi_d_jha/status/1925212069168910340
@@ -37,3 +33,77 @@ nhưng khi vào model mình có thể **map con chữ thành concept vector** ..
 - https://github.com/snimu/blog/tree/main/contents/mixture-of-tokenizers
 - https://github.com/snimu/blog/blob/main/contents/mixture-of-tokenizers-math/article.md
 - https://github.com/snimu/blog/blob/main/contents/mot-scaling/article.md
+
+
+LATENT
+------
+
+## Byte Latent Transformer
+![](https://arxiv.org/html/2412.09871v1/extracted/6066458/assets/patching_types.png)
+![](https://arxiv.org/html/2412.09871v1/x4.png)
+![](https://arxiv.org/html/2412.09871v1/x5.png)
+![](https://arxiv.org/html/2412.09871v1/x3.png)
+<!-- ![](https://arxiv.org/html/2412.09871v1/extracted/6066458/assets/patching.png) -->
+
+## Chồng chập mọi thú, đầu vào đa độ phân giải và tổng hợp dự đoán từ các lớp trung gian để tránh tấn công đối kháng
+https://www.alphaxiv.org/abs/2408.05446 sử dụng intermediate layer features như một dạng latent representations - những feature này ít bị ảnh hưởng bởi adversarial attacks so với final layer, cho phép tạo ra self-ensemble robust hơn.
+
+
+Trong LLM, latent representation biến đổi từ cụ thể → trừu tượng qua các layers:
+Ví dụ câu "Hôm nay là một ngày đẹp trời" trong BERT
+
+- Layer đầu (1-4):
+  Token position, grammar, syntax
+  "đẹp" biết nó là tính từ, đứng trước "trời"
+
+- Layer giữa (5-8):
+  Semantic relationships, coreference
+  "đẹp trời" hiểu là weather condition
+
+- Layer cuối (9-12):
+  High-level reasoning, task-specific
+  Toàn bộ câu → sentiment positive, talking about weather
+
+Mỗi layer làm giàu thêm representation bằng attention mechanism - kết hợp thông tin từ các tokens khác.
+
+Với GPT:
+- layers cuối mạnh về NTP, nó vẫn phải hiểu toàn bộ câu nhưng
+  hiểu theo hướng what comes next hơn là what does this mean
+- "Các lớp giữa học cách văn bản tự xây dựng dần dần"
+- Các lớp đầu giống BERT?
+
+"Transformer Feed-Forward Layers Are Key-Value Memories" (Geva et al., 2021)
+"Locating and Editing Factual Knowledge in GPT" (Meng et al., 2022)
+
+---
+
+# Dynamic Latent Representation: Kiến Trúc Tự Tổ Chức cho Multimodal AI
+
+## Core Insight: "Tòa Tháp với Nền Móng Động"
+
+### 1. Vấn đề Multimodal
+- Input đa dạng (text/image/audio/video) cần không gian biểu diễn lớn
+- Paradox: Cả diversity (input) và abstraction (high-level) đều cần nhiều dimensions
+
+### 2. Kiến Trúc Đề Xuất: Dynamic Dimensional Allocation
+
+**Nguyên lý:** Mỗi token/concept tự quyết định không gian cần thiết
+- "chó" → 500 active dims
+- "democracy" → 2000 active dims  
+- Implement qua sparse activation hoặc attention gating
+
+### 3. MoE như Self-Organizing Pathway
+
+**Breakthrough:** MoE không chỉ là efficiency trick mà là cách token tự chọn representation
+```
+Token → Router → Expert Visual (2048d)
+                → Expert Abstract (3072d)
+                → Expert Factual (1024d)
+```
+
+### 4. Sinh học & Triết lý
+- Parallel với não: specialized circuits cho different concepts
+- Mỗi ý tưởng có "essence" riêng, cần xử lý riêng
+- Emergence từ self-organization, không forced architecture
+
+**Đề xuất nghiên cứu:** Phát triển "Self-Organizing Multimodal Transformer" với dynamic dimensions + hierarchical MoE cho Vietnamese AI advancement.

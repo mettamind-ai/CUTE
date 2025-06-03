@@ -67,5 +67,4 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-## Everything abt latent
-- [ ] Redo Byte Latent Transformer
+- [ ] Redo `Byte Latent Transformer`
