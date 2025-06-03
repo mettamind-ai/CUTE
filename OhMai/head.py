@@ -66,9 +66,8 @@ class OhMaiHead(nn.Module):
         old_hot = self.hot_tokens
         self.hot_tokens = new_hot_tokens
 
-        # Find which positions changed
-        position_changed = (new_hot_tokens != old_hot)
-        changed_indices = position_changed.nonzero().flatten()
+        # Find which positions changed indices
+        changed_indices = (new_hot_tokens != old_hot).nonzero().flatten()
 
         if len(changed_indices) > 0:
             # Sync old tokens at changed positions
@@ -84,8 +83,8 @@ class OhMaiHead(nn.Module):
         return self.hot_tokens
 
     def update_new_tokens_weight(self):
-        new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
-        self.active_weight.data[ self.new_token_indices  ] = new_weights
+        self.active_weight.data[ self.new_token_indices  ] =\
+        self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
 
     @torch.no_grad
     def get_active_tokens(self, indices):
@@ -101,11 +100,19 @@ class OhMaiHead(nn.Module):
             sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
             self.sample_probs = sample_probs / sample_probs.sum()
 
-        # essential_tokens = combine hot + batch tokens (unique)
+        ## essential_tokens = combine hot + batch tokens (unique)
         hot_tokens = self.get_hot_tokens()
         batch_cold = batch_tokens[~torch.isin(batch_tokens, hot_tokens)]
         essential = torch.cat([hot_tokens, batch_cold])
         need_neg = self.active_vocab - len(essential)
+
+        ## Lấy mẫu theo phân bố được tính trước
+        # mask = torch.ones_like(self.sample_probs)
+        # mask[essential] = 0
+        # masked_probs = self.sample_probs * mask
+        # masked_probs = masked_probs / masked_probs.sum()
+        # neg_tokens = torch.multinomial(masked_probs, need_neg, replacement=False)
+
 
         ## Lấy mẫu neg_tokens nằm ngoài essential dựa trên sample_probs 
         # noise = torch.rand_like(self.sample_probs)
@@ -113,13 +120,12 @@ class OhMaiHead(nn.Module):
         # perturbed[essential] = 0
         # neg_tokens = torch.topk(perturbed, need_neg).indices
 
-        # Lấy ngẫu nhiên
+        ## Lấy ngẫu nhiên (nhanh nhất)
         perm = torch.randperm(self.vocab_size, device="cuda")
         neg_tokens = perm[~torch.isin(perm, essential)][:need_neg]
 
         # IMPORTANT: Return hot tokens FIRST
         return torch.cat([essential, neg_tokens])
-
 
 
     @torch.no_grad()
@@ -142,9 +148,6 @@ class OhMaiHead(nn.Module):
         # Update active array (only cold part)
         self.active[cold_start:cold_end] = cold_curr
 
-        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
-        unuse_weights = self.active_weight.data[unuse_indices].clone()
-
         self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
 
@@ -153,7 +156,7 @@ class OhMaiHead(nn.Module):
 
         # Sử dụng stream để async transfer unuse_weights from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu()] = unuse_weights.cpu()
+            self.weight[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
