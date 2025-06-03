@@ -19,8 +19,7 @@ class OhMaiHead(nn.Module):
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
             self.active_vocab = MAX_ACTIVE_VOCAB
 
-        # Pinned Memory → GPU Memory _vs_ CPU Memory → Staging Buffer → GPU Memory
-        self.weight = torch.zeros(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
+        self.weight = torch.zeros(vocab, dim, device="cpu", dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         self.active = torch.arange(self.active_vocab, device='cuda')

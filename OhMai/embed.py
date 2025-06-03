@@ -28,8 +28,7 @@ class OhMaiEmbedding(nn.Module):
         super().__init__()
         self.vocab = vocab
 
-        # Pinned Memory → GPU Memory _vs_ CPU Memory → Staging Buffer → GPU Memory
-        self.weight = torch.randn(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
+        self.weight = torch.randn(vocab, dim, device="cpu", dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
@@ -72,7 +71,7 @@ class OhMaiEmbedding(nn.Module):
 
         # Update new token embeddings
         self.active_weight.data[ new_token_indices ] = \
-        self.weight[new_tokens.cpu()].to(device=self.active_weight.device, non_blocking=True)
+        self.weight[new_tokens.cpu()].pin_memory().cuda(non_blocking=True)
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
