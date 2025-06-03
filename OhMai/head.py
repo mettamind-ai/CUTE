@@ -151,9 +151,8 @@ class OhMaiHead(nn.Module):
         return self.inverse_map[indices]
 
     def update_new_tokens_weight(self):
-        with torch.cuda.stream(self.update_stream):
-            new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
-            self.active_weight.data[ self.new_token_indices  ] = new_weights
+        new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
+        self.active_weight.data[ self.new_token_indices  ] = new_weights
 
     def update_async_weight(self):
         # self.update_stream.synchronize()  # đồng bộ hoá lần update trước

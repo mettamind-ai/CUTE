@@ -271,10 +271,7 @@ class WinGPT(nn.Module):
         te_lambdas   = self.scalars[0*n_blks : 2*n_blks].view(-1, 2)
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
-        for i in range(self.n_layers):            
-            if self.ohmai and (i==self.n_layers//2):     # sau khi tính toán đc 1/2
-                self.lm_head.update_new_tokens_weight()  # thì async upload CPU->GPU
-
+        for i in range(self.n_layers):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
@@ -292,6 +289,10 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
         target = model.lm_head.activate(target)
 
     x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
+
+    if model.ohmai:  # tối cuối pipeline chắc chắn đã offload xong
+        model.lm_head.update_new_tokens_weight()  # thì upload lên
+
     loss, _ = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
