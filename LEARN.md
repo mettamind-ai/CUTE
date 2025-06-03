@@ -85,3 +85,13 @@ To further guarantee numerical stability, we store in higher precision:
 - weight gradients, and 
 - optimizer states.
 
+
+## OLMoE
+- https://arxiv.org/html/2409.02060v2
+- https://www.alphaxiv.org/abs/2409.02060
+
+![](https://arxiv.org/html/2409.02060v2/x4.png)
+
+![](https://arxiv.org/html/2409.02060v2/x6.png)
+**Figure 4**: MoE vs. Dense. We train a 1.3B parameter dense model and a 1.3B active, 6.9B total parameter MoE model, each on 128 H100 GPUs. Apart from MoE-related changes, we train both with the same configuration for 130B tokens. The MoE contains 64 experts out of which 8 are activated with an FFN dimension of 1,024, while the dense model has an FFN dimension of 8,192. Thus both have the same number of active parameters. Top: The MoE reaches the final dense performance with ∼3× fewer tokens (or FLOPs, as both have the same active parameters ignoring the trivial router parameters). Bottom: Due to some memory overhead, this equates to ∼2× faster training. More results, logs, and configurations: https://wandb.ai/ai2-llm/olmoe/reports/Plot-MoE-vs-Dense--Vmlldzo4OTM0Mjkx
+
