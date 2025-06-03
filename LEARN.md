@@ -60,9 +60,9 @@ Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
 MIXTURE OF EXPERTS
 ------------------
+
 - DS MoE https://arxiv.org/html/2401.06066v1
-- https://www.alphaxiv.org/abs/2401.06066
-
 (1) segmenting the experts into `mN` ones and activating `mK` from them; (2) isolating `K_s` experts as `shared ones`, aiming at **capturing common knowledge** and `mitigating redundancy in routed experts`. Starting from a modest scale with 2B parameters, we demonstrate that `DeepSeekMoE 2B achieves comparable performance with GShard 2.9B`, which has 1.5 times the expert parameters and computation. In addition, DeepSeekMoE 2B nearly **approaches the performance of its dense counterpart** with the same number of total parameters, which set the upper bound of MoE models. Subsequently, we `scale up DeepSeekMoE to 16B` parameters and show that it `achieves comparable performance with LLaMA2 7B`, with **only about 40% of computations**.
-
 ![](https://arxiv.org/html/2401.06066v1/x2.png)
+
+- https://github.com/microsoft/Tutel

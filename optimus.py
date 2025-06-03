@@ -382,12 +382,12 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
+chunk_size = 1024*64
 def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
     device = _input.device
     BT, H = _input.shape
     V = weight.shape[0]
 
-    chunk_size = 1024*4
     num_chunks = triton.cdiv(BT, chunk_size)
 
     grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
