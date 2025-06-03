@@ -140,8 +140,10 @@ class OhMaiHead(nn.Module):
         # Find cold tokens to swap out  
         unuse_mask = ~torch.isin(cold_prev, cold_curr)
         unuse_indices = torch.nonzero(unuse_mask).flatten() + cold_start
+
         unuse_tokens = self.active[unuse_indices].cpu()
-        
+        unuse_weight = self.active_weight.data[unuse_indices].clone()
+
         # Update active array (only cold part)
         self.active[cold_start:cold_end] = cold_curr
 
@@ -154,7 +156,7 @@ class OhMaiHead(nn.Module):
 
         # Sử dụng stream để async transfer unuse_weights from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens] = self.active_weight.data[unuse_indices].cpu()
+            self.weight[unuse_tokens] = self.unuse_weight.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
