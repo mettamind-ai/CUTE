@@ -89,7 +89,7 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad
     def get_active_tokens(self, indices):
-        if step % 7 != 0:
+        if self.steps_count % 7 != 0:
             batch_tokens = torch.unique(indices, return_counts=True)
         else:
             batch_tokens, counts = torch.unique(indices)
