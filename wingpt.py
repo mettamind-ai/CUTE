@@ -291,7 +291,7 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai:  # tính inverse target và async offload GPU->CPU
         target = model.lm_head.activate(target)
 
-    x, x0, ve, tl, vl, c, m = model(input_seq, target, cu_seqlens, max_seqlen) # x đã norm
+    x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
     loss, _ = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
