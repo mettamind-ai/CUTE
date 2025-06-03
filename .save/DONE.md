@@ -135,4 +135,22 @@
   logits_early = model.unembed(hidden_states_stacked)
   ```
 - [x] OhMaiHead bản thử nghiẹm
+- [x] Hoàn thiện OhMaiHead (dừng ở bản minimal)
+
+
+20250603
+--------
+## Others
+- Canon https://github.com/fla-org/flash-linear-attention/pull/388
+- Gluon https://www.alphaxiv.org/abs/2505.13416
+- Scion https://github.com/LIONS-EPFL/scion
+- GLM / UL2 learning objectives và multi purpose models
+- Học cách thu nhỏ model và NAS
+  - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
+  - NAS https://arxiv.org/abs/2411.19146
+  - Llama-Nemotron https://arxiv.org/abs/2505.00949
+- Cross-Layer Attention (CLA) -  sharing key and value heads between adjacent layers - https://arxiv.org/abs/2405.12981
+- LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
+  - giải quyết vấn đề representation collapse trong Transformers
+- tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
 

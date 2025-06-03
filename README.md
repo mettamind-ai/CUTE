@@ -51,24 +51,7 @@ TODO
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-## Others
-- Canon https://github.com/fla-org/flash-linear-attention/pull/388
-- Gluon https://www.alphaxiv.org/abs/2505.13416
-- Scion https://github.com/LIONS-EPFL/scion
-- GLM / UL2 learning objectives và multi purpose models
-- Học cách thu nhỏ model và NAS
-  - https://huggingface.co/nvidia/Llama-3_3-Nemotron-Super-49B-v1
-  - NAS https://arxiv.org/abs/2411.19146
-  - Llama-Nemotron https://arxiv.org/abs/2505.00949
-- Cross-Layer Attention (CLA) -  sharing key and value heads between adjacent layers - https://arxiv.org/abs/2405.12981
-- LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
-  - giải quyết vấn đề representation collapse trong Transformers
-- tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
-
-## [DONE](.save/DONE.md)
-- [x] Hoàn thiện OhMaiHead (dừng ở bản minimal)
-
-## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision (2/4/8/16 bits) + Size + Text Token/Super Token
+## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision (2/4/8/16 bits) + Size + Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
