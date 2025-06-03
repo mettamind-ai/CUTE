@@ -16,7 +16,7 @@ MAX_ACTIVE_VOCAB = 32*1024
 class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab):
         super().__init__()
-
+        self.vocab_size = vocab
         self.active_vocab = vocab // 2
 
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
