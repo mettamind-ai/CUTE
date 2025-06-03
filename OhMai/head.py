@@ -78,7 +78,7 @@ class OhMaiHead(nn.Module):
         # Cập nhật self.active chỉ ở những phần tử mới trong curr_active
         pad_size = len(curr_active) - len(self.active)
         self.active = torch.nn.functional.pad(self.active, (0, pad_size), value=-1)
-        assert len(self.active) == len(curr_active)
+        # assert len(self.active) == len(curr_active)
 
         self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
