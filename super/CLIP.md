@@ -12,14 +12,14 @@
 
 InternViT-300M-448px-Distill is a distilled variant of the teacher model, InternViT-6B-448px-V1.5, utilizing a cosine distillation loss. This model comprises 0.3B parameters, 24 layers, a hidden size of 1024, and 16 attention heads. Unlike the 6B version, the 0.3B variant employs standard LayerNorm [11] without QK-Norm [53]. To reduce distillation costs, we initialized this model using CLIP-ViT-Large-336px [195] where applicable, despite some architectural differences. After distillation, we integrated this model with an LLM and, following a similar procedure as described above, trained the vision encoder with dynamic high-resolution and the NTP loss. Then, we extracted the vision encoder and released it as InternViT-300M-448px. In this report, we further refined the InternViT-300M by incrementally pre-training the previous weights on a more diverse data mixture using the NTP loss, leading to the enhanced InternViT-300M-448px-V2.5.
 
-![](internvl-00-crunch.png)
+![](.save/internvl-00-crunch.png)
 
 ### VLM inputs
 ![](https://arxiv.org/html/2412.05271v4/x3.png)
 
 ### 3.2 Single Model Training Pipeline
 ![](https://arxiv.org/html/2412.05271v4/x4.png)
-![](internvl-01-crunch.png)
+![](.save/internvl-01-crunch.png)
 
 - **https://huggingface.co/OpenGVLab/InternViT-300M-448px-V2_5**
 - https://github.com/OpenGVLab/InternVL/blob/main/internvl_g/internvl/model/internvl_stage2_retrieval/modeling_intern_vit.py

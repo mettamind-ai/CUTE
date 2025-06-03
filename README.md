@@ -62,3 +62,10 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [DORA](https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html) (tham khảo torchtune)
     ![](https://pbs.twimg.com/media/GsXH99jboAAehqe?format=jpg)
   - [ ] Kết hợp DORA + ROSA ...
+
+- [ ] save/quant params + inference
+  - https://github.com/pytorch-labs/gpt-fast
+  - https://pytorch.org/blog/accelerating-generative-ai-2
+
+## Everything abt latent
+- [ ] Redo Byte Latent Transformer
