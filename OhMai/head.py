@@ -143,7 +143,7 @@ class OhMaiHead(nn.Module):
         # Find cold tokens to swap out  
         unuse_mask = ~torch.isin(cold_prev, cold_curr)
         unuse_indices = torch.nonzero(unuse_mask).flatten() + cold_start
-        unuse_tokens = self.active[unuse_indices]
+        unuse_tokens = self.active[unuse_indices].clone()
         
         # Update active array (only cold part)
         self.active[cold_start:cold_end] = cold_curr
