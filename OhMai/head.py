@@ -70,21 +70,18 @@ class OhMaiHead(nn.Module):
         changed_indices = (new_hot_tokens != old_hot).nonzero().flatten()
 
         if len(changed_indices) > 0:
-            # Sync old tokens at changed positions
-            with torch.cuda.stream(self.update_stream):
-                self.weight[old_hot[changed_indices].cpu()] = self.active_weight[changed_indices].cpu()
-
             # Đồng bộ GPU active_weight trước khi làm việc khác
             new_changed = new_hot_tokens[changed_indices]
             self.active[changed_indices] = new_changed
             self.active_weight.data[changed_indices] = self.weight[new_changed.cpu()].cuda()
 
+            # Sync old tokens at changed positions
+            with torch.cuda.stream(self.update_stream):
+                self.weight[old_hot[changed_indices].cpu()] = self.active_weight[changed_indices].cpu()
+
         # Trả về sau khi đã đồng bộ active_weight
         return self.hot_tokens
 
-    def update_new_tokens_weight(self):
-        self.active_weight.data[ self.new_token_indices  ] =\
-        self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
 
     @torch.no_grad
     def get_active_tokens(self, indices):
@@ -143,11 +140,12 @@ class OhMaiHead(nn.Module):
         # Find cold tokens to swap out  
         unuse_mask = ~torch.isin(cold_prev, cold_curr)
         unuse_indices = torch.nonzero(unuse_mask).flatten() + cold_start
-        unuse_tokens = self.active[unuse_indices].clone()
+        unuse_tokens = self.active[unuse_indices].cpu()
         
         # Update active array (only cold part)
         self.active[cold_start:cold_end] = cold_curr
 
+        # Dùng trong self.update_new_tokens_weight() gọi về sau
         self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
         self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
 
@@ -156,11 +154,16 @@ class OhMaiHead(nn.Module):
 
         # Sử dụng stream để async transfer unuse_weights from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
+            self.weight[unuse_tokens] = self.active_weight.data[unuse_indices].cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
+
+
+    def update_new_tokens_weight(self):
+        self.active_weight.data[ self.new_token_indices  ] =\
+        self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
 
 
     def update_async_weight(self):
