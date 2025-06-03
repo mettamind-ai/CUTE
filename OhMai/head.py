@@ -90,9 +90,9 @@ class OhMaiHead(nn.Module):
     @torch.no_grad
     def get_active_tokens(self, indices):
         if self.steps_count % 7 != 0:
-            batch_tokens = torch.unique(indices, return_counts=True)
+            batch_tokens = torch.unique(indices)
         else:
-            batch_tokens, counts = torch.unique(indices)
+            batch_tokens, counts = torch.unique(indices, return_counts=True)
             self.running_freq[batch_tokens] += counts
             self.total_tokens += counts.sum()
             empirical_freq = self.running_freq / self.total_tokens
