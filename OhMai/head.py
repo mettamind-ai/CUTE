@@ -89,7 +89,7 @@ class OhMaiHead(nn.Module):
 
     @torch.no_grad
     def get_active_tokens(self, indices):
-        if self.steps_count % 5 != 0:
+        if self.steps_count % 50000 != 0:
             batch_tokens = torch.unique(indices)
         else: # 5 steps update 1 lần
             batch_tokens, counts = torch.unique(indices, return_counts=True)
@@ -105,14 +105,17 @@ class OhMaiHead(nn.Module):
         hot_tokens = self.get_hot_tokens()
         batch_cold = batch_tokens[~torch.isin(batch_tokens, hot_tokens)]
         essential = torch.cat([hot_tokens, batch_cold])
+        need_neg = self.active_vocab - len(essential)
 
         ## Lấy mẫu neg_tokens nằm ngoài essential dựa trên sample_probs 
-        # Fastest approach - uniform noise
-        noise = torch.rand_like(self.sample_probs)
-        perturbed = self.sample_probs * noise
-        perturbed[essential] = 0
-        need_neg = self.active_vocab - len(essential)
-        neg_tokens = torch.topk(perturbed, need_neg).indices
+        # noise = torch.rand_like(self.sample_probs)
+        # perturbed = self.sample_probs * noise
+        # perturbed[essential] = 0
+        # neg_tokens = torch.topk(perturbed, need_neg).indices
+
+        # Lấy ngẫu nhiên
+        perm = torch.randperm(vocab_size)
+        neg_tokens = perm[~torch.isin(perm, essential)][:need_neg]
 
         # IMPORTANT: Return hot tokens FIRST
         return torch.cat([essential, neg_tokens])
