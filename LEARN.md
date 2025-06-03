@@ -29,15 +29,6 @@ Contrastrive / GAN / Mask / Generative (GLM / T5 / UL2)
 
 ---
 
-# INT8 SageBwd
-https://www.alphaxiv.org/abs/2505.11594
-
-Trong forward, SageBwd áp dụng `per-block quantization` cho Q, K, V và `per-token quantization` cho P. Đối với backward pass, phương pháp này quantize 4 trong 5 phép nhân ma trận xuống INT8, nhưng `giữ phép toán dOV^T ở FP16` để duy trì độ chính xác. Lý do là gradient của attention map rất nhạy cảm với quantization errors và có thể tích lũy lỗi qua các sequence dài. SageBwd nhanh hơn FlashAttention `1.67x`  RTX4090, với `end-to-end speedup khoảng 1.15` lần cho Llama models. Tuy nhiên, SageBwd có hạn chế trong pretraining tasks khi **tốc độ hội tụ chậm hơn so với BF16**. Các tác giả đề xuất tối ưu kernel implementation và `nghiên cứu thêm về ứng dụng low-bit attention trong pretraining`.
-
-SageBwd có tốc độ hội tụ chậm hơn BF16 trong pretraining vì **quantization errors tích lũy** ảnh hưởng đến chất lượng gradient. Khi quantize các phép nhân ma trận xuống INT8, độ chính xác của gradient bị giảm, dẫn đến việc model học chậm hơn. Sự khác biệt giữa pretraining và fine-tuning là ở mức độ thay đổi cần thiết. Pretraining yêu cầu model học toàn bộ kiến thức từ đầu, cần gradient chính xác để cập nhật trọng số hiệu quả. Trong khi đó, `fine-tuning` chỉ cần điều chỉnh nhỏ từ model đã có kiến thức sẵn, nên `ít nhạy cảm hơn với noise trong gradient`.
-
----
-
 # Others
 
 - optim scheduler: scaling laws for wd & bs in llm training
@@ -63,3 +54,15 @@ SageBwd có tốc độ hội tụ chậm hơn BF16 trong pretraining vì **quan
 - WSD Cycle https://github.com/marin-community/marin/blob/main/docs/reports/marin-8b-retro.md#wsd-cycle-change
 ![](https://github.com/marin-community/marin/raw/main/docs/images/tootsie-8b-retro-wsd-interval.png)
 - https://github.com/marin-community/marin/blob/main/docs/reports/index.md
+
+---
+
+
+MIXTURE OF EXPERTS
+------------------
+- DS MoE https://arxiv.org/html/2401.06066v1
+- https://www.alphaxiv.org/abs/2401.06066
+
+(1) segmenting the experts into `mN` ones and activating `mK` from them; (2) isolating `K_s` experts as `shared ones`, aiming at **capturing common knowledge** and `mitigating redundancy in routed experts`. Starting from a modest scale with 2B parameters, we demonstrate that `DeepSeekMoE 2B achieves comparable performance with GShard 2.9B`, which has 1.5 times the expert parameters and computation. In addition, DeepSeekMoE 2B nearly **approaches the performance of its dense counterpart** with the same number of total parameters, which set the upper bound of MoE models. Subsequently, we `scale up DeepSeekMoE to 16B` parameters and show that it `achieves comparable performance with LLaMA2 7B`, with **only about 40% of computations**.
+
+![](https://arxiv.org/html/2401.06066v1/x2.png)
