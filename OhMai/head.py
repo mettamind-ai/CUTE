@@ -156,7 +156,7 @@ class OhMaiHead(nn.Module):
 
         # Sử dụng stream để async transfer unuse_weights from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens] = self.unuse_weight.cpu()
+            self.weight[unuse_tokens] = unuse_weight.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
