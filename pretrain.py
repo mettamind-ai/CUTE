@@ -89,7 +89,7 @@ INT8: {names}""")
 ## Data loader ##
 #################
 data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
-CTX  = tokens_per_batch + 2
+CTX  = tokens_per_batch + 1
 N    = len(data) - CTX
 WIN  = torch.arange(CTX)
 
@@ -204,7 +204,7 @@ else: logger = wandb.init(dir="/tmp", config=args,)
 started_at = time.time()
 while step < args.steps and lossv > args.minloss:
 
-    tokens, targets, future = batch[:-2], batch[1:-1], batch[2:]
+    tokens, targets = batch[:-1], batch[1:]
     c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
 
     loss = lossf(model, tokens, targets, future, c, m)

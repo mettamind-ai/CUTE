@@ -247,15 +247,18 @@ class WinGPT(nn.Module):
             with torch.no_grad(): self.lm_head.weight.zero_()
 
 
-    def update_async_weights(self):
+    def update_async_weight(self):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
 
-    def forward(self, input_seq:Tensor, cu_seqlens, max_seqlen):
+    def forward(self, input_seq, target, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
+
+        if self.ohmai:  # tính inverse target và async offload GPU->CPU
+            target = self.lm_head.activate(target)
 
         v_embs = embs[..., -self.kv_dim*self.ve : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
@@ -272,37 +275,43 @@ class WinGPT(nn.Module):
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(self.n_layers):            
+            if self.ohmai and (i==self.n_layers//2):     # sau khi tính toán đc 1/2
+                self.lm_head.update_new_tokens_weight()  # thì async upload CPU->GPU
+
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
+
+        # => Trước khi return để tính loss thì toàn bộ head's (active) weight đã được cập nhật !!!
+        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, target
 
 ###################
 ## Loss function ##
 ###################
 
-def _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen):
-    x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
-    loss, _ = _loss_method(x, target.flatten(), model.lm_head)
+import random
+def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
+    x, x0, ve, tl, vl, c, m, target = model(input_seq, target, cu_seqlens, max_seqlen) # x đã norm
+    loss, _ = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
-    if torch.rand(1).item() > 0.5: return loss
+    if random.random() > 0.3: return loss
 
     assert model.n_layers + 1 == len(model.blocks)
+    future = F.pad(target[1:], (0, 1), value=-1)
+
     future_loss, _ = _loss_method(
         model.blocks[-1](x, x0, ve[-1], tl[-1], vl[-1], c, m, model.rotary), # output đã norm
-        future.flatten(), model.lm_head, # tied với main task head 
+        future, model.lm_head, # tied với main task head 
     )
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 
-def fused_loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
-        if isinstance(head, OhMaiHead):
-                inverse = head.activate(target)
-                return FusedLinearCrossEntropy.apply(hidden, head.active_weight, inverse)
-        else:   return FusedLinearCrossEntropy.apply(hidden, head.weight, target)
-    return _loss_fn(_loss_method, model, input_seq, target, future, cu_seqlens, max_seqlen)
+        w = head.active_weight if isinstance(head, OhMaiHead) else head.weight
+        return FusedLinearCrossEntropy.apply(hidden, w, target)
+    return _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen)
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
@@ -392,7 +401,6 @@ if __name__ == "__main__":
         vv = vocab_size//4
         input_seq = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
         target    = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
-        future    = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         optim.zero_grad()
@@ -411,8 +419,8 @@ if __name__ == "__main__":
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"
 
         loss_fn = fused_loss_fn
-        loss_ohmai = loss_fn(ohmai, input_seq, target, future, cu_seqlens, max_seqlen)
-        loss_model = loss_fn(model, input_seq, target, future, cu_seqlens, max_seqlen)
+        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
+        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
@@ -423,7 +431,7 @@ if __name__ == "__main__":
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
-        ohmai.update_async_weights() # đảm bảo async weights (embeddings/head) đã được cập nhật
+        ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
 
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()

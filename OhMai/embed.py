@@ -70,8 +70,8 @@ class OhMaiEmbedding(nn.Module):
         assert len(new_token_indices) == len(new_tokens), f"{len(new_token_indices)} != {len(new_tokens)}"
         self.active[new_token_indices] = new_tokens
 
-        # Update new token embeddings
-        self.update_stream.synchronize() # đồng bộ hoá lần update trước
+        # Update new token embeddings      # ko cần vì time đã đủ lâu?
+        # self.update_stream.synchronize() # đồng bộ hoá lần update trước
         new_weights = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
         self.active_weight.data[ new_token_indices ] = new_weights
 

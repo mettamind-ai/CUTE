@@ -136,16 +136,11 @@ class OhMaiHead(nn.Module):
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
         unuse_weights = self.active_weight.data[unuse_indices].clone()
 
-        new_tokens = curr_active[~torch.isin(curr_active, self.active)]
-        new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
+        self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
+        self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
 
-        assert len(new_token_indices) == len(new_tokens), f"{len(new_token_indices)} != {len(new_tokens)}"
-        self.active[new_token_indices] = new_tokens
-
-        # Update new token weights
-        self.update_stream.synchronize() # đồng bộ hoá lần update trước
-        new_weights = self.weight[new_tokens.cpu()].to(device=self.active_weight.device)
-        self.active_weight.data[ new_token_indices ] = new_weights
+        assert len(self.new_token_indices) == len(self.new_tokens)
+        self.active[self.new_token_indices] = self.new_tokens
 
         # Sử dụng stream để async transfer unuse_weights from GPU to CPU
         with torch.cuda.stream(self.update_stream):
@@ -155,6 +150,11 @@ class OhMaiHead(nn.Module):
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
 
+    def update_new_tokens_weight(self):
+        with torch.cuda.stream(self.update_stream):
+            new_weights = self.weight[ self.new_tokens.cpu() ].to(device=self.active_weight.device)
+            self.active_weight.data[ self.new_token_indices  ] = new_weights
+
     def update_async_weight(self):
-        self.update_stream.synchronize()
+        # self.update_stream.synchronize()  # đồng bộ hoá lần update trước
         self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
