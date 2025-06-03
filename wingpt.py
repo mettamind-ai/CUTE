@@ -413,15 +413,15 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
 
+        loss_fn = fused_loss_fn
+        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
+        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+
         ## Đảm bảo 2 cách lấy head là giống nhau
         a = xxxxx.lm_head.weight.cuda()[target]
         inverse = ohmai.lm_head.activate(target)
         b = ohmai.lm_head.active_weight[inverse]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"
-
-        loss_fn = fused_loss_fn
-        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
-        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
