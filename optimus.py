@@ -382,57 +382,33 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
-chunk_size = 1024*8
 def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-    device = _input.device
-    BT, H = _input.shape
-    V = weight.shape[0]
-
-    num_chunks = triton.cdiv(BT, chunk_size)
-
-    grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
-    grad_input = torch.zeros_like(_input, device=device)
-
     # we use fp32 for loss accumulator
-    loss_1d = torch.zeros(BT, dtype=torch.float32, device=device)
+    loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
 
     # TODO: evaluate how CUDA synchronization caused by .item() affects the speed
     target_mask = target != ignore_index
     total_n_non_ignore = target_mask.sum().item()
 
     ## INT8 mm
-    # X,   X_row_scale = quantize_int8(_input, dim=1, sr=False) 
-    # wT, wT_col_scale = quantize_int8(weight.t(), dim=0, sr=True)
+    A, As = quantize_int8(_input, dim=1, sr=False) 
+    B, Bs = quantize_int8(weight.t(), dim=0, sr=True)
+    logits = scaled_mm(A, B, As, Bs,)
 
-    for chunk_id in range(num_chunks):
-        start_idx = chunk_id * chunk_size
-        end_idx = min((chunk_id + 1) * chunk_size, BT)
-        _input_chunk = _input[start_idx:end_idx]
-        target_chunk = target[start_idx:end_idx]
+    V = weight.shape[0]
+    liger_cross_entropy_kernel[(logits.shape[0],)](
+        X_ptr=logits, X_stride=logits.stride(-2),
+        Y_ptr=target, Y_stride=target.stride(-1),          # always 1
+        loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
+        n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
+        lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
+        BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
+        num_warps=32 if not is_hip() else 16,
+    )
 
-        logits_chunk = _input_chunk @ weight.t()
-        # logits_chunk = scaled_mm(X[start_idx:end_idx], wT, X_row_scale[start_idx:end_idx], wT_col_scale,)
-
-        n_rows = logits_chunk.shape[0]
-        loss_1d_slice = loss_1d[start_idx:end_idx]  # chunk_size,
-
-        # Here we calculate the gradient of logits_chunk in place so we can save memory.
-        liger_cross_entropy_kernel[(n_rows,)](
-            X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2),
-            Y_ptr=target_chunk, Y_stride=target_chunk.stride(-1),         # always 1
-            loss_ptr=loss_1d_slice, loss_stride=loss_1d_slice.stride(-1), # always 1
-            n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
-            lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
-            BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
-            num_warps=32 if not is_hip() else 16,
-        )
-
-        loss_1d[start_idx:end_idx] = loss_1d_slice
-        grad_logits_chunk = logits_chunk  # chunk_size x V
-        grad_input[start_idx:end_idx] = grad_logits_chunk @ weight
-
-        if grad_weight is not None:
-            torch.addmm(grad_weight, mat1=logits_chunk.t().to(_input_chunk.dtype), mat2=_input_chunk, out=grad_weight)
+    grad_input = logits @ weight
+    if weight.requires_grad:
+        grad_weight = logits.t() @ _input
 
     loss, z_loss = torch.sum(loss_1d), None
     return loss, z_loss, grad_input, grad_weight
