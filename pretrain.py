@@ -182,8 +182,8 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 from wingpt import fused_loss_fn as lossf
 if args.C:
-    model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
-    print(">>> torch.compile(model) <<<")
+    model = torch.compile(model, mode="max-autotune", fullgraph=False)
+    print('''>>> torch.compile(model, mode="max-autotune", fullgraph=False) <<<''')
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
