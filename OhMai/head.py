@@ -94,7 +94,7 @@ class OhMaiHead(nn.Module):
         # self.total_tokens += counts.sum()
         # empirical_freq = self.running_freq / self.total_tokens
 
-        combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm     
+        combined_score = self.alpha * self.running_freq + (1-self.alpha) * self.pretrained_norm     
         sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
         sample_probs = sample_probs / sample_probs .sum()
 
