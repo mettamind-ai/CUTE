@@ -76,6 +76,10 @@ def _scaled_mm_kernel(
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape; _, N = B.shape
@@ -105,7 +109,7 @@ class Int8MixedLinear(torch.autograd.Function):
         A, B  = inp, weight._data.T
         A, As = quantize_int8(A, dim=1, sr=False)
         B, Bs = quantize_int8(B, dim=0, sr=True)  # rounding ma trận nhỏ có
-        return lib_ops.scaled_mm(A, B, As, Bs,)
+        return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -124,7 +128,7 @@ class Int8MixedLinear(torch.autograd.Function):
         A, B  = grad_output, weight
         A, As = quantize_int8(A, dim=1, sr=True) # rounding để đạt độ ...
         B, Bs = quantize_int8(B, dim=0, sr=True) # ... chính xác cao hơn
-        grad_input = lib_ops.scaled_mm(A, B, As, Bs,)
+        grad_input = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[1]:
             ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
@@ -132,7 +136,7 @@ class Int8MixedLinear(torch.autograd.Function):
             A, B  = grad_output.T, inp
             A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
-            grad_weight = lib_ops.scaled_mm(A, B, As, Bs,)
+            grad_weight = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias
