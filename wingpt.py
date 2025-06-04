@@ -299,7 +299,7 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     if random.random() > 0.3: return loss
 
     assert model.n_layers + 1 == len(model.blocks)
-    future = F.pad(target[1:], (0, 1), value=-1)
+    future = F.pad(target[1:], (0, 1), value=-100) # -100 == ignore
 
     future_loss, _ = _loss_method(
         model.blocks[-1](x, x0, ve[-1], tl[-1], vl[-1], c, m, model.rotary), # output đã norm

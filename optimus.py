@@ -2,19 +2,17 @@
 ''' TẬP HỢP CODE TỐI ƯU ĐỂ TRAIN LLM TRÊN GAMING GPU (30xx, 40xx, 50xx)
 INT8 Mixed Precision modded from github.com/gau-nernst/quantized-training
 Muon optimizer modded from github.com/nil0x9/flash-muon
-Fused CE modded from https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/ops/cross_entropy.py
+Fused CE modded from https://github.com/linkedin/Liger-Kernel
 '''
-
-import functools
-import torch, triton, os
+import functools, torch, triton, os
 import triton.language as tl
 
 from typing import NamedTuple
 import torch.nn.functional as F
 import torch.utils._pytree as pytree
 from torch import Tensor, nn
-aten = torch.ops.aten
 
+aten = torch.ops.aten
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
@@ -120,14 +118,8 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     _, N = B.shape
 
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
-    _scaled_mm_kernel[_grid](
-        A, B, C,
-        row_scale_A, col_scale_B,
-        M, N, K,
-        *A.stride(), *B.stride(), *C.stride(),
-    )
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
     return C
-
 
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
@@ -164,16 +156,6 @@ class Int8MixedLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None 
-        
-        ''' Tile scale, tốt nhất nhưng ko nhanh hơn bf16 là mấy
-        A, B = grad_output, weight
-        A, As = tile_quantize_int8(A, tile_shape=tile_shape, sr=True)
-        B, Bs = tile_quantize_int8(B, tile_shape=tile_shape, sr=True)
-        grad_input = scaled_mm(A, B, As, Bs,)
-        if ctx.needs_input_grad[1]:
-            IT, ITs = tile_quantize_int8(inp.T, tile_shape=tile_shape, sr=False)
-            grad_weight = scaled_mm(IT, A, ITs, As).T
-        # '''
 
         ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
         # grad_input = grad_output @ weight # phép nhân nguyên bản
@@ -184,57 +166,39 @@ class Int8MixedLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
-            ## Áp dụng INT8 matmul ở đây là lợi nhất; sr=False để tránh OOM
+            ## Áp dụng INT8 matmul ở đây là lợi nhất; sr=False để tránh OOM và max speed
             A, B  = grad_output.T, inp
             A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
             grad_weight = scaled_mm(A, B, As, Bs,)
-            ## Thử INT4 Matmul <= Speed tăng chút + vỡ đường loss
-            # A,  row_scale = quantize_int4(A)
-            # BT, col_scale = quantize_int4(B.T)
-            # grad_weight = scaled_int4_mm(A, BT.T, row_scale, col_scale.T,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias
 
 
-## Dùng lớp này để gói Linear weight, giúp torch.compile tối ưu hoá được graph
+## Dùng lớp này để gói Linear weight, giúp torch.compile build graph?
 class MixedPrecisionLinearWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
-    def __new__(cls, data: Tensor):
-        return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
-
+    def __new__(cls, data: Tensor): return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
     @torch._dynamo.disable
-    def __init__(self, data: Tensor):
-        self._data = data
-
-    def __tensor_flatten__(self):
-        return ["_data"], []
-
+    def __init__(self, data: Tensor): self._data = data
+    def __tensor_flatten__(self): return ["_data"], []
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["_data"])
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(data={self._data})"
-
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
+    def __repr__(self): return f"{self.__class__.__name__}(data={self._data})"
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         kwargs = kwargs or dict()
         if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)
         with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
-
-    # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
-    @classmethod
+    @classmethod # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
     def __torch_dispatch__(cls, func, types, args, kwargs):
         def unwrap(x: cls): return x._data
         out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
-        others = { 
-            aten.t.default, aten.detach.default, aten.empty_like.default, 
-            aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
-            aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default, 
-        }
+        others = { aten.t.default, aten.detach.default, aten.empty_like.default, 
+                   aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
+                   aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default,}
         if func is aten.copy_.default: return args[0] # original object
         elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
         else: return out # new unwrapped object
@@ -257,78 +221,54 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ###################################
 ##  Fused Chunked Cross Entropy  ##
 ###################################
+
 try: from triton.language.extra.libdevice import tanh
 except ModuleNotFoundError: from triton.language.extra.cuda.libdevice import tanh
 
-amp_custom_fwd = functools.partial(torch.amp.custom_fwd, device_type="cuda")
-amp_custom_bwd = functools.partial(torch.amp.custom_bwd, device_type="cuda")
-def is_hip() -> bool: return torch.version.hip is not None
-
 @triton.jit
 def liger_cross_entropy_kernel(
-    X_ptr, X_stride,
-    Y_ptr, Y_stride,
-    loss_ptr, loss_stride,
-    n_cols, n_non_ignore,
-    ignore_index,
-    lse_square_scale: tl.constexpr,
-    label_smoothing: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
+    X_ptr, X_stride,        # input tensor.
+    Y_ptr, Y_stride,        # đang tính LCE cho label Y này.
+    loss_ptr, loss_stride,  # loss của label.
+    n_cols,         #  (int): The number of columns in the input tensor.
+    n_non_ignore,   #  (float): The number of non-ignored elements in the batch.
+    ignore_index,   #  (int): The index to ignore in the target. (-100)
+    lse_square_scale: tl.constexpr,  # (float): The scaler of (logsumexp(_input))^2 adding to the loss for training stability
+    label_smoothing:  tl.constexpr,  # (float): 0.0 means no smoothing.
+    BLOCK_SIZE:       tl.constexpr,
 ):
+    """ This kernel computes both cross entropy loss and the gradient of the input. We only consider hard label + mean reduction.
+        Refer to https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html for the math.
+        - Online softmax: 2 loads + 1 store (compared with 3 loads + 1 store for the safe softmax)
+        Refer to Algorithm 3 in the paper: https://arxiv.org/pdf/1805.02867
+        - Label smoothing is a general case of normal cross entropy
+        See the full derivation at https://github.com/linkedin/Liger-Kernel/pull/198#issue-2503665310
     """
-    This kernel computes both cross entropy loss and the gradient of the input.
-    We only consider hard label + mean reduction for now. Please refer to https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html for the math.
-
-    Parameters:
-    n_cols (int): The number of columns in the input tensor.
-    n_non_ignore (float): The number of non-ignored elements in the batch.
-    ignore_index (int): The index to ignore in the target.
-    label_smoothing (float): The amount of smoothing when computing the loss, where 0.0 means no smoothing.
-    lse_square_scale (float): The scaler of (logsumexp(_input)) ^ 2 adding to the loss for the stability of training.
-    BLOCK_SIZE (int): The block size for Triton operations.
-    """
-    # https://github.com/triton-lang/triton/issues/1058
-    # If B*T*V is too large, program_id * stride will overflow out of int32, so we convert to int64
     program_id = tl.program_id(0).to(tl.int64)
-
-    # 1. Load Y_ptr first because if the target is ignore_index, we can return right away
-    Y_ptr += program_id * Y_stride
-    y = tl.load(Y_ptr)
-
-    # 2. locate the start index
     X_ptr += program_id * X_stride
+    Y_ptr += program_id * Y_stride
 
+    y = tl.load(Y_ptr)
     if y == ignore_index:
-        # set all X_ptr as 0
+        # Vì ignore nên grad == 0 => set all X_ptr as 0
         for i in range(0, n_cols, BLOCK_SIZE):
             X_offsets = i + tl.arange(0, BLOCK_SIZE)
             tl.store(X_ptr + X_offsets, 0.0, mask=X_offsets < n_cols)
-        return
+        return # loss đã đc set = 0 trước nên không cần gán
 
-    loss_ptr += program_id * loss_stride
-
-    # Online softmax: 2 loads + 1 store (compared with 3 loads + 1 store for the safe softmax)
-    # Refer to Algorithm 3 in the paper: https://arxiv.org/pdf/1805.02867
-    # 3. [Online softmax] first pass: find max + sum
-    m = float("-inf")  # m is the max value. use the notation from the paper
-    d = 0.0  # d is the sum. use the notation from the paper
+    m = float("-inf")                              # m is the max value. use the notation from the paper
+    d = 0.0                                        # d is the sum. use the notation from the paper
     ori_X_y = tl.load(X_ptr + y).cast(tl.float32)  # we need to store the original value of X_y for the loss calculation
 
-    # Label smoothing is a general case of normal cross entropy
-    # See the full derivation at https://github.com/linkedin/Liger-Kernel/pull/198#issue-2503665310
     scaled_x_sum = 0.0
     eps = label_smoothing / n_cols
 
     for i in range(0, n_cols, BLOCK_SIZE):
         X_offsets = i + tl.arange(0, BLOCK_SIZE)
-        X_block = tl.load(
-            X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),
-            # Ensure float32 precision for softmax calculation
-        ).cast(tl.float32)
+        X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),).cast(tl.float32)
 
         block_max = tl.max(X_block)
-        if label_smoothing > 0:
-            # scale X beforehand to avoid overflow
+        if label_smoothing > 0: # scale X beforehand to avoid overflow
             scaled_x_sum += tl.sum(tl.where(X_offsets < n_cols, -eps * X_block, 0.0))
 
         m_new = tl.maximum(m, block_max)
@@ -336,35 +276,33 @@ def liger_cross_entropy_kernel(
         m = m_new
 
     lse = m + tl.log(d)
-
     for i in range(0, n_cols, BLOCK_SIZE):
+
         X_offsets = i + tl.arange(0, BLOCK_SIZE)
-        X_block = tl.load(
-            X_ptr + X_offsets,
-            mask=X_offsets < n_cols,
-            other=float("-inf"), # Ensure float32 precision for softmax calculation
-        ).cast(tl.float32)
+        X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),).cast(tl.float32)
 
-        X_block = tl.exp(X_block - m) / d  # softmax(x_i)
-        X_block += 2 * lse_square_scale * lse * X_block        
-        X_block += -eps  # smoothing term
+        X_block = tl.exp(X_block - m) / d  ### softmax(x_i)
+        X_block += 2 * lse_square_scale * lse * X_block
+
+        X_block += -eps                    ### smoothing term
         X_block = tl.where(X_offsets != y, X_block, X_block - (1 - label_smoothing))
-        X_block = X_block / n_non_ignore  # reduction == "mean"
-        tl.store(X_ptr + X_offsets, X_block, mask=X_offsets < n_cols)
 
-    # We need tl.debug_barrier() to ensure the new result of X_ptr is written
-    tl.debug_barrier()
+        X_block = X_block / n_non_ignore   ### mean reduction
+        tl.store(X_ptr + X_offsets, X_block, mask=X_offsets < n_cols)
+    tl.debug_barrier()  # to ensure the new result of X_ptr is written
 
     loss = lse - ori_X_y
     if label_smoothing > 0:
         smooth_loss = scaled_x_sum + label_smoothing * lse
         loss = loss * (1 - label_smoothing) + smooth_loss
 
-    loss = loss / n_non_ignore  # Normalize the loss, mean reduction
+    loss = loss / n_non_ignore                  # Normalize the loss, mean reduction
     if lse_square_scale > 0:
-        z_loss = lse_square_scale * lse * lse  # An auxiliary loss, z_loss
-        loss += z_loss / n_non_ignore
-    tl.store(loss_ptr, loss)
+        z_loss = lse_square_scale * lse * lse   # z_loss is an auxiliary loss
+        loss += z_loss / n_non_ignore           # Normalize the z_loss, mean reduction
+
+    # Lưu loss value đơn (a float value) của target label
+    tl.store(loss_ptr + program_id * loss_stride, loss)
 
 
 MAX_FUSED_SIZE = 65536 // 2
@@ -376,6 +314,7 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
     logits = _input @ weight.t()
     V = weight.shape[0]
 
+    ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
     liger_cross_entropy_kernel[(logits.shape[0],)](
         X_ptr=logits, X_stride=logits.stride(-2),
         Y_ptr=target, Y_stride=target.stride(-1),          # always 1
@@ -383,8 +322,9 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
         n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
         lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
         BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
-        num_warps=32 if not is_hip() else 16,
+        num_warps=32 if torch.version.hip is None else 16,
     )
+
     grad_input = logits @ weight
     if weight.requires_grad:
         grad_weight = logits.t() @ _input
@@ -395,13 +335,12 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
-    @amp_custom_fwd
+    @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-        """
-Ref https://github.com/mgmalek/efficient_cross_entropy
-Xử lý forward và backward pass của linear layer cuối cùng với cross-entropy loss bằng cách 
-tránh tạo ra tensor logits lớn. Vì Cross Entropy Loss là layer cuối, TA CÓ THỂ TÍNH 
-GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass.
+        """ Ref https://github.com/mgmalek/efficient_cross_entropy
+        Xử lý forward và backward pass của linear layer cuối cùng với cross-entropy loss bằng cách 
+        tránh tạo ra tensor logits lớn. Vì Cross Entropy Loss là layer cuối, TA CÓ THỂ TÍNH 
+        GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass.
         """
         loss, z_loss, grad_input, grad_weight = fused_linear_cross_entropy_forward(
             _input=_input, weight=weight, target=target,
@@ -415,14 +354,15 @@ GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target
 
 
     @staticmethod
-    @amp_custom_bwd
     @torch.compile()
-    def backward(ctx, grad_out, z_loss_grad_out):
-        del z_loss_grad_out  # z_loss is only for logging
-        grad_in, grad_w = ctx.saved_tensors
-        grad_in = grad_in * grad_out
-        if grad_w is not None: grad_w = grad_w * grad_out
-        return grad_in, grad_w, None, None, None, None, None, None, None, None, None
+    @torch.amp.custom_bwd(device_type="cuda")
+    def backward(ctx, grad_output, z_loss_grad):
+        del z_loss_grad  # z_loss is only for logging
+        grad_input, grad_weight = ctx.saved_tensors
+        grad_input = grad_input * grad_output
+        if grad_weight is not None:
+            grad_weight = grad_weight * grad_output
+        return grad_input, grad_weight, None, None, None, None, None, None, None, None, None
 
 
 #################################################################
