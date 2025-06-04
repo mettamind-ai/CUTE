@@ -121,3 +121,9 @@ Token → Router → Expert Visual (2048d)
 ![](https://pbs.twimg.com/media/GshlkjsbcAA70Th?format=png)
 ![](https://pbs.twimg.com/media/GshqAiObAAAOkQq?format=jpg)
 ![](https://pbs.twimg.com/media/GshsGeJasAMyBcr?format=jpg)
+
+## EvaByte
+- https://asap-seminar.github.io/assets/slides/evabyte-0423.pdf
+- https://www.youtube.com/watch?v=z3Nhg9DQzdU
+- https://hkunlp.github.io/blog/2025/evabyte
+- https://github.com/OpenEvaByte/evabyte
