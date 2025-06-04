@@ -300,8 +300,8 @@ def liger_cross_entropy_kernel(
 
 MAX_FUSED_SIZE = 65536 // 2
 @torch.compiler.disable
-def lce_for_each_label(logits, target, loss_1d, V, n_non_ignore, ignore_index, lse_square_scale, label_smoothing):
-    ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
+def lce_for_each_label(logits, target, loss_1d, V, ignore_index, lse_square_scale, label_smoothing):
+    n_non_ignore = ( target != ignore_index ).sum().item() # .item() that affects the speed ???
     liger_cross_entropy_kernel[(logits.shape[0],)](
         X_ptr=logits, X_stride=logits.stride(-2),
         Y_ptr=target, Y_stride=target.stride(-1),          # always 1
@@ -318,10 +318,10 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-        n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
         logits = _input @ weight.t()
-        lce_for_each_label(logits, target, loss_1d, weight.shape[0], n_non_ignore, ignore_index, lse_square_scale, label_smoothing)
+        ## Tính cross entropy loss cho từng label một !!! => vocab càng lớn càng chậm
+        lce_for_each_label(logits, target, loss_1d, weight.shape[0], ignore_index, lse_square_scale, label_smoothing)
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
         ctx.save_for_backward(grad_input, grad_weight)
