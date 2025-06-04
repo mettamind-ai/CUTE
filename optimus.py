@@ -277,7 +277,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
 
         A, As = quantize_int8(_input, dim=1, sr=False)
-        B, Bs = quantize_int8(weight.t() , dim=0, sr=False)
+        B, Bs = quantize_int8(weight.t(), dim=0, sr=False)
         logits = scaled_mm(A, B, As, Bs,)
         
         V = weight.shape[0]
@@ -291,7 +291,13 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             num_warps=32 if torch.version.hip is None else 16,
         )
         grad_input  = ( logits     @ weight ).detach()
-        grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
+        # grad_weight = ( logits.t() @ _input ).detach()
+        if weight.requires_grad:
+                A, As = quantize_int8(logits.t(), dim=1, sr=False)
+                B, Bs = quantize_int8(_input, dim=0, sr=False)
+                grad_weight = scaled_mm(A, B, As, Bs,).detach()
+        else:   grad_weight = None
+
         ctx.save_for_backward(grad_input, grad_weight)
         return torch.sum(loss_1d)
 
