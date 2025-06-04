@@ -112,6 +112,7 @@ class CausalLaCTSwiGLUWithSlidingWindowAttn(nn.Module):
         self.lr_proj = nn.Linear(dim, 3 * self.nh, bias=False)
         self.base_lr_inv = kwargs.get('base_lr', 1e-2) + math.log(-math.expm1(-kwargs.get('base_lr', 1e-2)))
         
+        ## Khởi tạo 3 tham số w0, w1, w2
         dh = int(head_dim * kwargs.get('inter_multi', 1))
         for i, shape in enumerate([(dh, head_dim), (head_dim, dh), (dh, head_dim)]):
             setattr(self, f'w{i}', nn.Parameter(torch.randn(self.nh, *shape) / math.sqrt(shape[1])))
@@ -123,27 +124,31 @@ class CausalLaCTSwiGLUWithSlidingWindowAttn(nn.Module):
 
 
     def forward(self, x):
-        qkv = self.to_qkv(x)
-        tq, tk, tv = rearrange(F.silu(qkv), "b l (qkv h d) -> qkv (b h) l d", qkv=3, h=self.nh, d=self.hd)
-        tq, tk = l2_norm(tq), l2_norm(tk)
-        
         lr = F.softplus(self.lr_proj(x).float() + self.base_lr_inv)
         lr0, lr1, lr2 = rearrange(lr, "b l (h lrs) -> lrs (b h) l 1", lrs=3, h=self.nh)
         
         ws = [getattr(self, f'w{i}').repeat(x.shape[0], 1, 1) for i in range(3)]
         mom = rearrange(self.momentum_proj(x), 'b s (h d) -> (b h) s d', h=self.nh) if self.mom else None
-        
+
+        ## SHARED QKV cho cả 2 branches
+        qkv = self.to_qkv(x)
+    
+        ## BRANCH 1: TTT/LaCT (adaptive MLP)
+        tq, tk, tv = rearrange(F.silu(qkv), "b l (qkv h d) -> qkv (b h) l d", qkv=3, h=self.nh, d=self.hd)
+        tq, tk = l2_norm(tq), l2_norm(tk)
+
         to = block_causal_lact_swiglu(*ws, tq, tk, tv, lr0, lr1, lr2, mom, self.muon, self.cs)
         to = self.o_norm(to) * rearrange(F.silu(self.ttt_scale_proj(x)), 'b s (h d) -> (b h) s d', h=self.nh)
         to = rearrange(to, "(b h) l d -> b l (h d)", h=self.nh, b=x.shape[0])
         
+        ## BRANCH 2: Standard Attention  
         aq, ak, av = qkv.chunk(3, dim=-1)
         s, o = self.qk_scale.view(1, 1, -1, 2), self.qk_offset.view(1, 1, -1, 2)
         aq, ak = (aq * s[..., 0] + o[..., 0]).to(aq.dtype), (ak * s[..., 1] + o[..., 1]).to(ak.dtype)
-        
         aq, ak, av = [rearrange(t, '... (h d) -> ... h d', d=self.ahd) for t in [aq, ak, av]]
         ao = rearrange(flash_attn_func(aq, ak, av, causal=True, window_size=(self.ws-1, 0) if self.ws else (-1, -1)), '... h d -> ... (h d)')
         
+        ## COMBINE 2 BRANCHES
         return self.o_proj(ao + to)
 
 

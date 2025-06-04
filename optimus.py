@@ -238,22 +238,20 @@ def liger_cross_entropy_kernel(
         See the full derivation at https://github.com/linkedin/Liger-Kernel/pull/198#issue-2503665310
     """
     program_id = tl.program_id(0).to(tl.int64)
-    X_ptr += program_id * X_stride
-    Y_ptr += program_id * Y_stride
+    X_ptr     += program_id * X_stride
+    Y_ptr     += program_id * Y_stride
+    loss_ptr  += program_id * loss_stride
 
     y = tl.load(Y_ptr)
-    if y == ignore_index:
-        # Vì ignore nên grad == 0 => set all X_ptr as 0
+    if y == ignore_index: # grad == 0 => set all X_ptr as 0
         for i in range(0, n_cols, BLOCK_SIZE):
-            X_offsets = i + tl.arange(0, BLOCK_SIZE)
-            tl.store(X_ptr + X_offsets, 0.0, mask=X_offsets < n_cols)
+            offs  = i + tl.arange(0, BLOCK_SIZE)
+            tl.store(X_ptr + offs , 0.0, mask=offs  < n_cols)
         return # loss đã đc set = 0 trước nên không cần gán
 
     m = float("-inf")                              # m is the max value. use the notation from the paper
-    d = 0.0                                        # d is the sum. use the notation from the paper
+    d = scaled_x_sum = 0.0                         # d is the sum. use the notation from the paper
     ori_X_y = tl.load(X_ptr + y).cast(tl.float32)  # we need to store the original value of X_y for the loss calculation
-
-    scaled_x_sum = 0.0
     eps = label_smoothing / n_cols
 
     for i in range(0, n_cols, BLOCK_SIZE):
@@ -295,7 +293,7 @@ def liger_cross_entropy_kernel(
         loss += z_loss / n_non_ignore           # Normalize the z_loss, mean reduction
 
     # Lưu loss value đơn (a float value) của target label
-    tl.store(loss_ptr + program_id * loss_stride, loss)
+    tl.store(loss_ptr, loss)
 
 
 MAX_FUSED_SIZE = 65536 // 2
@@ -349,30 +347,21 @@ import torch, math
 import torch.distributed as dist
 from torch import Tensor
 
-@torch.compile(mode="max-autotune")
-def newtonschulz(G: Tensor, steps: int) -> Tensor:
-    # G: The gradient or momentum matrix to be orthogonalized.
-    assert G.ndim == 2
-    a, b, c = (3.4445, -4.7750,  2.0315)
+@torch.compile()
+def zeropower_via_newtonschulz5(G):
     X = G.bfloat16()
-    if G.size(-2) > G.size(-1): X = X.mT
-
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-
-    for _ in range(steps):
+    if G.size(-2) > G.size(-1): X = X.mT                # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7) # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    for a,b,c in [(4.0848,-6.8946,2.9270),(3.9505,-6.3029,2.6377),(3.7418,-5.5913,2.3037),(2.8769,-3.1427,1.2046),(2.8366,-3.0525,1.2012)]:
         A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
-
-    if G.size(-2) > G.size(-1): X = X.mT
-    return X
+        X = a*X + (b*A + c*A@A) @ X
+    return X.mT if G.size(-2) > G.size(-1) else X
 
 
 class Muon1GPU(torch.optim.Optimizer):
     ''' Viết lại Muon cho 1 GPU, bỏ distributed code cho dễ hiểu '''
-    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, ns_steps=5, **args):
-        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, ns=ns_steps))
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
+        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
     @torch.no_grad()
     @torch.compiler.disable
@@ -388,7 +377,7 @@ class Muon1GPU(torch.optim.Optimizer):
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.1 + momentum * 0.9
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                g = newtonschulz(g, steps=group['ns'])  # Trực giao Newton-Schulz
+                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
                 if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
