@@ -348,7 +348,6 @@ import torch, math
 import torch.distributed as dist
 from torch import Tensor
 
-@torch.compile()
 def newtonschulz(G: Tensor, steps: int) -> Tensor:
     # G: The gradient or momentum matrix to be orthogonalized.
     assert G.ndim == 2
@@ -374,6 +373,7 @@ class Muon1GPU(torch.optim.Optimizer):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, ns=ns_steps))
 
     @torch.no_grad()
+    @torch.compiler.disable
     def step(self):
         for group in self.param_groups:
             for p in group['params']:                   # với mỗi tham số p trong model
