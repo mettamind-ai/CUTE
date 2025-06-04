@@ -178,7 +178,6 @@ if args.C:
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
 * compile? {args.C}
-* future? {model.future_ratio}
 * {lossf.__name__}
 * {tokens_per_batch//1024}k seq/step
 """)

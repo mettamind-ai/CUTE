@@ -223,7 +223,7 @@ class WinGPT(nn.Module):
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
 
-    def forward(self, input_seq, cu_seqlens, max_seqlen):
+    def forward(self, input_seq, cu_seqlens, max_seqlen, target):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
@@ -242,33 +242,27 @@ class WinGPT(nn.Module):
         te_lambdas   = self.scalars[0*n_blks : 2*n_blks].view(-1, 2)
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
+        if self.ohmai: target = self.lm_head.activate(target)    ### offload head weight
         for i in range(self.n_layers):
-            # if i == self.n_layers // 2 and self.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
-            #     self.lm_head.update_new_tokens_weight()  # thì upload lên
-
+            if i == self.n_layers // 2 and self.ohmai:           ### tới giữa pipeline chắc chắn
+                self.lm_head.update_new_tokens_weight()          ### đã offload xong thì upload lên
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
 
-        # => Trước khi return để tính loss thì toàn bộ head's (active) weight đã được cập nhật !!!
-        return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
+        ### => Trước khi return để tính loss thì toàn bộ head's (active) weight đã được cập nhật !!!
+        return norm(x), target
 
 
-###################
-## Loss function ##
-###################
-
-def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
-    if model.ohmai: target = model.lm_head.activate(target)  ## offload head
-    x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
-    if model.ohmai: model.lm_head.update_new_tokens_weight()   ## upload head
-    return _loss_method(x, target, model.lm_head, n_non_ignore=0)
+##############################
+## Loss & utility functions ##
+##############################
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head, n_non_ignore):
-        w = head.active_weight if isinstance(head, OhMaiHead) else head.weight
-        return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore)
-    return _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen)
+    hidden, target = model(input_seq, cu_seqlens, max_seqlen, target) # hidden đã norm
+    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+    n_non_ignore = len(target)  # cần tính số lượng cụ target != -100 sau
+    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
