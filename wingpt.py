@@ -354,8 +354,7 @@ if __name__ == "__main__":
         aptim.zero_grad()
 
         ## Đảm bảo 2 cách lấy embedding là giống nhau
-        xxxxx = model if step == 1 else ohmai
-        a = xxxxx.embeddings(input_seq).cpu()
+        a = ohmai.embeddings(input_seq).cpu()
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
 
@@ -364,7 +363,7 @@ if __name__ == "__main__":
         loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
         ## Đảm bảo 2 cách lấy head là giống nhau
-        a = xxxxx.lm_head.weight.cuda()[target]
+        a = ohmai.lm_head.weight.cuda()[target]
         inverse = ohmai.lm_head.activate(target)
         b = ohmai.lm_head.active_weight[inverse]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"

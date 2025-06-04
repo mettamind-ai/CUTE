@@ -73,11 +73,11 @@ class OhMaiEmbedding(nn.Module):
 
         # Update new token embeddings
         self.active_weight.data[ new_token_indices ] = \
-        self.weight[new_tokens.cpu()].pin_memory().cuda(non_blocking=True)
+        self.weight.data[new_tokens.cpu()].pin_memory().cuda(non_blocking=True)
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight[unuse_tokens.cpu()] = unuse_weights.cpu()
+            self.weight.data[unuse_tokens.cpu()] = unuse_weights.cpu()
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
@@ -87,7 +87,7 @@ class OhMaiEmbedding(nn.Module):
     @torch.no_grad()
     @torch.compiler.disable
     def update_async_weight(self):
-        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
+        self.weight.data[self.active.cpu().to(torch.long)] = self.active_weight.data[:len(self.active)].cpu()
 
 
     def forward(self, indices):
@@ -111,7 +111,7 @@ class OhMaiHead(nn.Module):
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
             self.active_vocab = MAX_ACTIVE_VOCAB
 
-        self.weight = torch.zeros(vocab, dim, device="cpu", dtype=torch.bfloat16)
+        self.weight = torch.zeros(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         self.active = torch.arange(self.active_vocab, device='cuda')
@@ -184,11 +184,11 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
-        # with torch.cuda.stream(self.ohmai_stream):
-        self.active_weight.data[ self.new_token_indices ] = \
-            self.weight[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
+        with torch.cuda.stream(self.ohmai_stream):
+            self.active_weight.data[ self.new_token_indices ] = \
+                self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
 
     @torch.no_grad()
     @torch.compiler.disable
     def update_async_weight(self):
-        self.weight[ self.active.cpu().long() ] = self.active_weight[ : len(self.active) ].cpu()
+        self.weight.data[ self.active.cpu().long() ] = self.active_weight.data[ : len(self.active) ].cpu()
