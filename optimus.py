@@ -36,10 +36,10 @@ def _scaled_mm_kernel(
     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, GROUP_M: tl.constexpr = 8,
 ):
     pid = tl.program_id(0)
-    grid_m = tl.cdiv(M, BLOCK_M)
-    grid_n = tl.cdiv(N, BLOCK_N)
+    grid_m = (M + BLOCK_M - 1) // BLOCK_M
+    grid_n = (N + BLOCK_N - 1) // BLOCK_N
 
-    # Swizzle for better L2 cache usage
+    # re-order program ID for better L2 performance
     width = GROUP_M * grid_n
     group_id = pid // width
     group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
@@ -58,7 +58,8 @@ def _scaled_mm_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        acc += tl.dot(tl.load(A), tl.load(B))
+        a, b = tl.load(A), tl.load(B)
+        acc += tl.dot(a, b)
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 

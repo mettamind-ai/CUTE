@@ -175,10 +175,8 @@ while step < args.steps:
         if not args.T: logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
-    muon_optim.step()
-    adam_optim.step()
-    muon_optim.zero_grad()
-    adam_optim.zero_grad()
+    muon_optim.step(); muon_optim.zero_grad()
+    adam_optim.step(); adam_optim.zero_grad()
  
     if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
@@ -186,17 +184,14 @@ while step < args.steps:
     elif step == 1:
         print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time0 -= time.time() - time0 # điều chỉnh lại time0
-    pbar.update()
 
+    pbar.update()
     step += 1
+
     if step % log_interval == 0 and not args.T:
-        log_dict = dict(
-            max_memory_allocated=torch.cuda.max_memory_allocated(),
-            num_tokens_seen_millions=tokens_per_batch * step / 1e6,
-            tokens_per_second=tokens_per_batch * log_interval / (time.time() - time0),
-        )
+        logger.log(dict(max_vram=torch.cuda.max_memory_allocated(), tokens_seen=tokens_per_batch*step,
+                        tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-        logger.log(log_dict, step=step)
     # END of Training Loop
 model.update_async_weight()
 if not args.T: logger.finish()
