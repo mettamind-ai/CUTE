@@ -307,6 +307,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
     @staticmethod
+    @torch.compiler.disable
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         total_n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
@@ -331,8 +332,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @torch.compile()
     @torch.amp.custom_bwd(device_type="cuda")
-    def backward(ctx, grad_output, z_loss_grad):
-        del z_loss_grad  # z_loss is only for logging
+    def backward(ctx, grad_output):
         grad_input, grad_weight = ctx.saved_tensors
         grad_input = grad_input * grad_output
         if grad_weight is not None:

@@ -305,7 +305,6 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
-    @torch.compiler.disable
     def _loss_method(hidden, target, head):
         w = head.active_weight if isinstance(head, OhMaiHead) else head.weight
         return FusedLinearCrossEntropy.apply(hidden, w, target)
