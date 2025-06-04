@@ -186,33 +186,8 @@ class Block(nn.Module):
         return x
 
 
-class Future(nn.Module):
-    """ Dự đoán xa hơn 1 token, ideas from Multi-Token Prediction, DeepSeek và MiMo papers """
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128):
-        super().__init__()
-        self.mlp = ReLuSquareMLP(dim, 2*dim) # nhẹ 2/3 MLP bình thường
-        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim=head_dim, long=True)
-
-        self.xx0_proj = nn.Linear(2*dim, dim, bias=False)
-        with torch.no_grad():
-            self.xx0_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
-
-    def forward(self, x, x0, ve, tl, vl, cu_seqlens, max_seqlen, rotary):
-        # trộn feat của last layer với token embed gốc (x0)
-        xx0 = torch.cat((x, x0), dim=-1)
-        x = self.xx0_proj(xx0) # mlp mixer
-        x = norm(x)
-        x = x + self.attn(x, ve, vl, cu_seqlens, max_seqlen, rotary)
-        x = x + self.mlp(norm(x))
-        return norm(x)
-
-
 class WinGPT(nn.Module):
-    def has_future(self):
-        return self.future_ratio > 0.009
-
-    def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int,
-        max_seq_len:int, head_dim=128, future_percent=0, active_vocab=None):
+    def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int, max_seq_len:int, head_dim=128, active_vocab=None):
 
         self.ohmai = ( active_vocab is not None )
         Embedding = OhMaiEmbedding if self.ohmai else nn.Embedding
@@ -223,10 +198,6 @@ class WinGPT(nn.Module):
 
         self.n_layers = n_layers
         blocks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
-
-        self.future_ratio = future_percent / 100.0
-        if self.has_future():
-            blocks.append(Future(dim, num_heads//2, num_kv_heads//2, max_seq_len, head_dim))
 
         self.blocks = nn.ModuleList(blocks)
         n_blks = len(self.blocks)
@@ -272,8 +243,8 @@ class WinGPT(nn.Module):
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(self.n_layers):
-            if i == self.n_layers // 2 and self.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
-                self.lm_head.update_new_tokens_weight()  # thì upload lên
+            # if i == self.n_layers // 2 and self.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
+            #     self.lm_head.update_new_tokens_weight()  # thì upload lên
 
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
@@ -282,28 +253,16 @@ class WinGPT(nn.Module):
         # => Trước khi return để tính loss thì toàn bộ head's (active) weight đã được cập nhật !!!
         return norm(x), x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen
 
+
 ###################
 ## Loss function ##
 ###################
 
 def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
-    if model.ohmai:  # tính inverse target và async offload GPU->CPU
-        target = model.lm_head.activate(target)
-
+    if model.ohmai: target = model.lm_head.activate(target)  ## offload head
     x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
-
-    loss = _loss_method(x, target, model.lm_head, n_non_ignore=0)
-
-    if not model.has_future(): return loss
-    assert model.n_layers + 1 == len(model.blocks)
-    future = F.pad(target[1:], (0, 1), value=-100) # -100 == ignore
-
-    future_loss = _loss_method(
-        model.blocks[-1](x, x0, ve[-1], tl[-1], vl[-1], c, m, model.rotary), # output đã norm
-        future, model.lm_head,  # tied với main task head 
-        n_non_ignore=1,         # bỏ qua label cuối của future (-100)
-    )
-    return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
+    if model.ohmai: model.lm_head.update_new_tokens_weight()   ## upload head
+    return _loss_method(x, target, model.lm_head, n_non_ignore=0)
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head, n_non_ignore):
@@ -311,14 +270,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
         return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore)
     return _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen)
 
-
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
         mask[-1] = True
-        cu_seqlens = torch.cat([
-            torch.zeros(1, dtype=torch.int32, device=input_seq.device), 
-            torch.where(mask)[0].to(torch.int32) + 1,
-        ])
+        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1,])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
 
@@ -341,11 +296,11 @@ if __name__ == "__main__":
 
     # Khởi tạo model 1 dùng LigerEmbedding
     torch.manual_seed(seed)
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20).cuda()
+    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len).cuda()
     
     # Khởi tạo model 2 dùng OhMaiEmbedding
     torch.manual_seed(seed)
-    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, future_percent=20, active_vocab=vocab_size//2).cuda()
+    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, active_vocab=vocab_size//2).cuda()
 
     # Đảm bảo toàn bộ tham số của 2 model là như nhau
     def check_params():
@@ -404,26 +359,27 @@ if __name__ == "__main__":
         optim.zero_grad()
         aptim.zero_grad()
 
+        ## Đảm bảo 2 cách lấy embedding là giống nhau
+        xxxxx = model if step == 1 else ohmai
+        a = xxxxx.embeddings(input_seq).cpu()
+        b = ohmai.embeddings.weight[input_seq.cpu().long()]
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
+
         loss_fn = fused_loss_fn
         loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
-        loss_ohmai.backward()
-        loss_model.backward()
-
-        ## Đảm bảo 2 cách lấy embedding là giống nhau
-        a = ohmai.embeddings(input_seq).cpu()
-        b = ohmai.embeddings.weight[input_seq.cpu().long()]
-        assert torch.allclose(a, b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
-
         ## Đảm bảo 2 cách lấy head là giống nhau
-        a = ohmai.lm_head.weight.cuda()[target]
+        a = xxxxx.lm_head.weight.cuda()[target]
         inverse = ohmai.lm_head.activate(target)
         b = ohmai.lm_head.active_weight[inverse]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
+
+        loss_ohmai.backward()
+        loss_model.backward()
 
         optim.step()
         aptim.step()

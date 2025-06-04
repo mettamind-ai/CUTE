@@ -308,6 +308,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
         logits = _input @ weight.t()
         V = weight.shape[0]
+
         ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
         liger_cross_entropy_kernel[(logits.shape[0],)](
             X_ptr=logits, X_stride=logits.stride(-2),
@@ -318,6 +319,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
         )
+
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
         ctx.save_for_backward(grad_input, grad_weight)

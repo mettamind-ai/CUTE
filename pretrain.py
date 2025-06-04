@@ -22,7 +22,6 @@ parser.add_argument("--ohmai", type=int, default=None)
 parser.add_argument("--minloss", type=float, default=0)
 parser.add_argument("--int8ig", type=str, default="head")   # int8 ignore params (`proj|head` => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
-parser.add_argument("--future", type=int, default=0, choices=range(50))  # % in final loss
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
@@ -44,29 +43,21 @@ from wingpt import WinGPT, get_cu_max_seqlens_from
 tokens_per_batch = args.bs*1024
 
 if  args.L: # (L)arge ~ 999m
-    model = WinGPT(
-        dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        future_percent=args.future, active_vocab=args.ohmai,
-    )
+    model = WinGPT(dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 elif args.M: # (M)edium ~ 666m
-    model = WinGPT(
-        dim=1664, n_layers=26, num_heads=16, num_kv_heads=4, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        future_percent=args.future, active_vocab=args.ohmai,
-    )
+    model = WinGPT(dim=1664, n_layers=26, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 elif args.S: # (S)mall ~ 333m
-    model = WinGPT(
-        dim=1280, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        future_percent=args.future, active_vocab=args.ohmai,
-    )
+    model = WinGPT(dim=1280, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 else:        # (XS)mall ~ 100m
-    model = WinGPT(
-        dim=768, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch,
-        future_percent=args.future, active_vocab=args.ohmai,
-    )
+    model = WinGPT(dim=768, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 
 def find_key(s):

@@ -184,11 +184,11 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
-        with torch.cuda.stream(self.ohmai_stream):
-            self.active_weight.data[ self.new_token_indices ] = \
-            self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
+        # with torch.cuda.stream(self.ohmai_stream):
+        self.active_weight.data[ self.new_token_indices ] = \
+            self.weight[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
 
     @torch.no_grad()
     @torch.compiler.disable
     def update_async_weight(self):
-        self.weight.data[ self.active.cpu().long() ] = self.active_weight.data[ : len(self.active) ].cpu()
+        self.weight[ self.active.cpu().long() ] = self.active_weight[ : len(self.active) ].cpu()
