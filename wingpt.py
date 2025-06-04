@@ -25,10 +25,6 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 
-####################################
-##  ReLuSquareMLP Channel Mixing  ##
-####################################
-
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None):
         super().__init__()
@@ -53,9 +49,9 @@ class ReLuSquareMLP(nn.Module):
         return y
 
 
-#####################################
-## CausalSelfAttention Time Mixing ##
-#####################################
+##########################
+## CausalSelfAttention  ##
+##########################
 
 class Rotary(nn.Module):
     def __init__(self, dim: int, max_seq_len: int):
@@ -90,7 +86,7 @@ class Rotary(nn.Module):
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
             seq_len:int, head_dim=128, long=False, layer_id=-1):
-        super().__init__() # dim=hidden_size=embedding=feature=representation
+        super().__init__() # dim = hidden_size = embedding = feature = representation
 
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
@@ -110,12 +106,9 @@ class CausalSelfAttention(nn.Module):
             self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
             self. o_proj.weight.zero_() # zero init
 
-        if long:
-            self.rope   = False
-            self.window = 1024*4
-        else: # short
-            self.rope   = True
-            self.window = 1024
+        if long: self.rope, self.window  = False, 1024*4
+        else:    self.rope, self.window  = True,  1024*1
+
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
@@ -130,7 +123,6 @@ class CausalSelfAttention(nn.Module):
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
         T, C = k.shape; assert C == Hkv * D
 
-        ## Chuyển q, k, v thành x_THD
         q = q.contiguous().view(T, H,   D)
         k = k.contiguous().view(T, Hkv, D)
         v = v.contiguous().view(T, Hkv, D)
@@ -138,27 +130,10 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)
 
-        # Layer lẻ hoặc nope áp dụng varlen
-        if self.layer_id % 3 == 2 or not self.rope: # long attn
-            y = flash_attn_varlen_func(
-                q, k, v,
-                cu_seqlens, cu_seqlens,
-                max_seqlen, max_seqlen,
-                causal=True, dropout_p=0.0,
-                softmax_scale=self.attn_scale,
-                window_size=(self.window, 0),
-            ).to(x.dtype)
-        else:
-            assert self.rope
-            y = flash_attn_func(
-                q=q.view(-1, self.window, H, D),
-                k=k.view(-1, self.window, Hkv, D),
-                v=v.view(-1, self.window, Hkv, D),
-                causal=True, dropout_p=0.0,
-                softmax_scale=self.attn_scale,
-            )
-
-        y = y.contiguous()
+        y = flash_attn_varlen_func( q, k, v,
+            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
+            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        ).contiguous()
         y = y.reshape(T, H * D)
         return self.o_proj(y)
 
@@ -172,12 +147,11 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
-            head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 2, 5, 8, 11 ...
+                        head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 5 ngắn + 1 dài
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
-
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
         return x
@@ -278,11 +252,10 @@ if __name__ == "__main__":
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
-    # Khởi tạo model 1 dùng LigerEmbedding
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len).cuda()
     
-    # Khởi tạo model 2 dùng OhMaiEmbedding
+    # Khởi tạo model 2 dùng OhMaiEmbedding và OhMaiHead
     torch.manual_seed(seed)
     ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, active_vocab=vocab_size//2).cuda()
 
