@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-import os, sys, types, re
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-import argparse, json, time, torch, wandb, numpy as np
+import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 from datetime import datetime
 from pathlib import Path
@@ -21,12 +20,9 @@ parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "dec
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-for x in "T C XS S L M".split(): parser.add_argument(f"--{x}", action="store_true")
+for x in "C S L M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
-if args.T:
-    args.steps = 100 # thử nhỏ thôi
-    if args.bs == 64: args.bs = 1
 rank, world_size, is_master = 0, 1, True # 1 GPU
 def print0(msg): is_master and print(msg)
 torch.manual_seed(1981 + rank)
@@ -40,16 +36,24 @@ tokens_per_batch = args.bs*1024
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M: # (M)edium ~ 666m
+elif args.M:# (M)edium ~ 666m
     model = WinGPT(dim=1664, n_layers=26, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.S: # (S)mall ~ 333m
+else:       # (S)mall ~ 333m
     model = WinGPT(dim=1280, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-else:        # (XS)mall ~ 100m
-    model = WinGPT(dim=768, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-convert_int8_mixed_precision(model, ignore=args.int8ig)
+
+names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
+def find_key(s):
+    m = re.search(r'(blocks\.\d+\.)?(.*)', s)
+    return "*" + m.group(2) if m.group(1) else m.group(2)
+total_params = sum(p.numel() for p in model.parameters())
+names = sorted(set(find_key(x) for x in names))
+percent = (params/total_params)*100
+print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
+* {len(names)} INT8 Mixed Weights {percent:.1f}% {params:,}
+* {len(list(model.parameters())) - len(names)} BF16/ FP32 Weights {100-percent:.1f}% {total_params - params:,}
+INT8: {names}""")
 
 #################
 ## Data loader ##
@@ -112,10 +116,6 @@ print0(f"""\nPHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Muon: {muon_ratio*100:.1f}% {muon_params_count:,}
  TOTAL: {           100:.1f}% {total_params:,}""")
 
-def find_key(s):
-    m = re.search(r'(blocks\.\d+\.)?(.*)', s)
-    return "*" + m.group(2) if m.group(1) else m.group(2)
-
 adam_keys = sorted(set(find_key(x) for x in adam_n_params.keys()))
 muon_keys = sorted(set(find_key(x) for x in muon_n_params.keys()))
 
@@ -148,7 +148,7 @@ print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 """)
 step = 0
 log_interval = 5 
-if not args.T: logger = wandb.init(dir="/tmp", config=args,)
+logger = wandb.init(dir="/tmp", config=args,)
 
 #############################
 ## Training loop
@@ -172,7 +172,7 @@ while step < args.steps:
         muon_lr = muon_optim.param_groups[0]["lr"]
         log_dict = dict(loss=lossv, muon_lr=muon_lr, adam_lr=adam_lr)
 
-        if not args.T: logger.log(log_dict, step=step)
+        logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
     muon_optim.step(); muon_optim.zero_grad()
@@ -188,7 +188,7 @@ while step < args.steps:
     pbar.update()
     step += 1
 
-    if step % log_interval == 0 and not args.T:
+    if step % log_interval == 0:
         logger.log(dict(max_vram=torch.cuda.max_memory_allocated(), tokens_seen=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
