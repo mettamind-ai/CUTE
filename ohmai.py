@@ -133,22 +133,18 @@ class OhMaiHead(nn.Module):
         self.inverse_map.requires_grad_(False)
         self.maistream = torch.cuda.Stream()
 
+
     @torch.no_grad()
     @torch.compiler.disable
-    def update_freq(self, indices):
+    def get_active_tokens(self, indices):
         # Phép lấy unique tokens và counts này size thay đổi qua mỗi phép toán => ko compile
         tokens, counts = torch.unique(indices, return_counts=True)
         self.running_freq[tokens] += counts
         self.total_tokens += counts.sum()
-        return tokens
 
-    @torch.no_grad()
-    @torch.compile()
-    def get_active_tokens(self, indices):
-        tokens = self.update_freq(indices)
         empirical_freq = self.running_freq / self.total_tokens
+        combined_score = self.alpha * empirical_freq + (1-self.alpha) * self.pretrained_norm
 
-        combined_score = self.alpha * self.running_freq + (1-self.alpha) * self.pretrained_norm     
         sample_probs = combined_score.pow(0.75) # Smooth với power 0.75; Từ Word2Vec paper
         sample_probs = sample_probs / sample_probs .sum()
 
@@ -184,6 +180,7 @@ class OhMaiHead(nn.Module):
             self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
             return self.inverse_map[indices]
 
+
     @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
@@ -193,4 +190,4 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compiler.disable
     def update_async_weight(self):
-        self.weight.data[self.active.cpu().to(torch.long)] = self.active_weight.data[:len(self.active)].cpu()
+        self.weight.data[ self.active.cpu().long() ] = self.active_weight.data[ : len(self.active) ].cpu()
