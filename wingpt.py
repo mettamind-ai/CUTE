@@ -5,9 +5,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 from ohmai import OhMaiEmbedding, OhMaiHead
-try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
-except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
-print("FA3_ENABLED?", FA3_ENABLED)
+from flash_attn import flash_attn_varlen_func
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -23,7 +21,6 @@ def init_linear(w: Tensor):
     std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better
     bound = (3 ** 0.5) * std         # than default 1/sqrt(3)
     return w.uniform_(-bound, bound)
-
 
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None):
@@ -48,11 +45,9 @@ class ReLuSquareMLP(nn.Module):
         y = self.fc2_proj(y)
         return y
 
-
 ##########################
 ## CausalSelfAttention  ##
 ##########################
-
 class Rotary(nn.Module):
     def __init__(self, dim: int, max_seq_len: int):
         super().__init__()
@@ -112,7 +107,6 @@ class CausalSelfAttention(nn.Module):
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
-
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         q    = self.q_proj(x)
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
@@ -140,7 +134,6 @@ class CausalSelfAttention(nn.Module):
 ##############################
 ## Transformer for the WIN  ##
 ##############################
-
 class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
@@ -155,7 +148,6 @@ class Block(nn.Module):
         x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
         return x
-
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int, max_seq_len:int, head_dim=128, active_vocab=None):
@@ -216,10 +208,6 @@ class WinGPT(nn.Module):
         return norm(x)
 
 
-##############################
-## Loss & utility functions ##
-##############################
-
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai: target = model.lm_head.activate(target)   ### offload head weight
     hidden = model(input_seq, cu_seqlens, max_seqlen)         ### hidden đã norm
@@ -268,18 +256,16 @@ if __name__ == "__main__":
     convert_int8_mixed_precision(ohmai)
     # model = torch.compile(model) # chậm !!!
 
-    apara = {n: p for n, p in model.named_parameters() if "fc" not in n and "proj" not in n}
-    opara = [p for n, p in model.named_parameters() if "fc" in n or "proj" in n]
+    apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
+    opara = [p for n, p in model.named_parameters() if "proj" in n]
 
     print("\nAdam:", apara.keys())
     apara = list(apara.values())
 
     # Bổ xung thêm ohmai params vào adam và muon
     for n, p in ohmai.named_parameters():
-        if "fc" not in n and "proj" not in n:
-                print("Adam:", n)
-                apara.append(p)
-        else:   opara.append(p)
+        if "proj" not in n: apara.append(p)
+        else:  opara.append(p)
 
     aptim = torch.optim.Adam(apara)
     optim = Muon(opara)
@@ -321,11 +307,8 @@ if __name__ == "__main__":
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
 
-        loss_ohmai.backward()
-        loss_model.backward()
-
-        optim.step()
-        aptim.step()
+        loss_ohmai.backward(); loss_model.backward()
+        optim.step(); aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
         ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật

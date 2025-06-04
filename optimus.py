@@ -102,7 +102,7 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(inp, weight):
+    def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
         B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)
         return scaled_mm(A, B, As, Bs,)
