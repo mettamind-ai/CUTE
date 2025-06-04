@@ -131,7 +131,7 @@ class OhMaiHead(nn.Module):
 
         self.inverse_map = torch.full((vocab,), -1, dtype=torch.long, device='cuda')
         self.inverse_map.requires_grad_(False)
-        self.maistream = torch.cuda.Stream()
+        self.ohmai_stream = torch.cuda.Stream()
 
 
     @torch.no_grad()
@@ -161,7 +161,7 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compile()
     def activate(self, indices):
-        with torch.cuda.stream(self.maistream):
+        with torch.cuda.stream(self.ohmai_stream):
             curr_active   = self.get_active_tokens(indices)
             unuse_mask    = ~torch.isin(self.active, curr_active)
             unuse_tokens  = self.active[unuse_mask]
@@ -184,8 +184,9 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
-        self.active_weight.data[ self.new_token_indices ] = \
-        self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
+        with torch.cuda.stream(self.ohmai_stream):
+            self.active_weight.data[ self.new_token_indices ] = \
+            self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
 
     @torch.no_grad()
     @torch.compiler.disable

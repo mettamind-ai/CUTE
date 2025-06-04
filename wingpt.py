@@ -272,6 +272,9 @@ class WinGPT(nn.Module):
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(self.n_layers):
+            if i == self.n_layers // 2 and model.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
+                model.lm_head.update_new_tokens_weight()  # thì upload lên
+
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
@@ -289,25 +292,23 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
 
     x, x0, ve, tl, vl, c, m = model(input_seq, cu_seqlens, max_seqlen) # x đã norm
 
-    if model.ohmai:  # tối cuối pipeline chắc chắn đã offload xong
-        model.lm_head.update_new_tokens_weight()  # thì upload lên
-
-    loss = _loss_method(x, target, model.lm_head)
+    loss = _loss_method(x, target, model.lm_head, n_non_ignore=0)
 
     if not model.has_future(): return loss
     assert model.n_layers + 1 == len(model.blocks)
     future = F.pad(target[1:], (0, 1), value=-100) # -100 == ignore
 
-    future_loss, _ = _loss_method(
+    future_loss = _loss_method(
         model.blocks[-1](x, x0, ve[-1], tl[-1], vl[-1], c, m, model.rotary), # output đã norm
-        future, model.lm_head, # tied với main task head 
+        future, model.lm_head,  # tied với main task head 
+        n_non_ignore=1,         # bỏ qua label cuối của future (-100)
     )
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
-    def _loss_method(hidden, target, head):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore):
+    def _loss_method(hidden, target, head, n_non_ignore):
         w = head.active_weight if isinstance(head, OhMaiHead) else head.weight
-        return FusedLinearCrossEntropy.apply(hidden, w, target)
+        return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore)
     return _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen)
 
 
@@ -403,15 +404,15 @@ if __name__ == "__main__":
         optim.zero_grad()
         aptim.zero_grad()
 
+        loss_fn = fused_loss_fn
+        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0)
+        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0)
+
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         xxxxx = model if step == 0 else ohmai
         a = xxxxx.embeddings(input_seq).cpu()
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), "2 cách lấy embeddings phải trùng khớp nhau"
-
-        loss_fn = fused_loss_fn
-        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
-        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
 
         ## Đảm bảo 2 cách lấy head là giống nhau
         a = xxxxx.lm_head.weight.cuda()[target]
