@@ -299,9 +299,8 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
-@torch.compiler.disable
 def lce_for_each_label(logits, target, loss_1d, V, ignore_index, lse_square_scale, label_smoothing):
-    n_non_ignore = ( target != ignore_index ).sum().item() # .item() that affects the speed ???
+    n_non_ignore = 0 # ( target != ignore_index ).sum().item() # .item() that affects the speed ???
     liger_cross_entropy_kernel[(logits.shape[0],)](
         X_ptr=logits, X_stride=logits.stride(-2),
         Y_ptr=target, Y_stride=target.stride(-1),          # always 1
