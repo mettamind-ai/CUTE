@@ -348,15 +348,15 @@ import torch.distributed as dist
 from torch import Tensor
 
 @torch.compile()
-def zeropower_via_newtonschulz5(G):
+def zeropower_via_newtonschulz5(G:Tensor) -> Tensor:
     X = G.bfloat16()
-    if G.size(-2) > G.size(-1): X = X.mT                # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    need_invert = G.size(-2) > G.size(-1)
+    if need_invert: X = X.mT                            # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7) # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    for a,b,c in [(4.0848,-6.8946,2.9270),(3.9505,-6.3029,2.6377),(3.7418,-5.5913,2.3037),(2.8769,-3.1427,1.2046),(2.8366,-3.0525,1.2012)]:
+    for a,b,c in range([(3.4445,-4.7750,2.0315)]*5):
         A = X @ X.mT
         X = a*X + (b*A + c*A@A) @ X
-    return X.mT if G.size(-2) > G.size(-1) else X
-
+    return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
     ''' Viết lại Muon cho 1 GPU, bỏ distributed code cho dễ hiểu '''
