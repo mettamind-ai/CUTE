@@ -327,7 +327,6 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
-    @torch.compiler.disable
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
