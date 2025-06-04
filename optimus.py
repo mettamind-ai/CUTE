@@ -299,17 +299,6 @@ def liger_cross_entropy_kernel(
 
 
 MAX_FUSED_SIZE = 65536 // 2
-def lce_for_each_label(logits, target, loss_1d, V, n_non_ignore, ignore_index, lse_square_scale, label_smoothing):
-    liger_cross_entropy_kernel[(logits.shape[0],)](
-        X_ptr=logits, X_stride=logits.stride(-2),
-        Y_ptr=target, Y_stride=target.stride(-1),          # always 1
-        loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
-        n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
-        lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
-        BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
-        num_warps=32 if torch.version.hip is None else 16,
-    )
-
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
@@ -318,8 +307,17 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     def forward(ctx, _input, weight, target, n_non_ignore=0, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
         logits = _input @ weight.t()
-        ## Tính cross entropy loss cho từng label một !!! => vocab càng lớn càng chậm
-        lce_for_each_label(logits, target, loss_1d, weight.shape[0], n_non_ignore, ignore_index, lse_square_scale, label_smoothing)
+        V = weight.shape[0]
+        ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
+        liger_cross_entropy_kernel[(logits.shape[0],)](
+            X_ptr=logits, X_stride=logits.stride(-2),
+            Y_ptr=target, Y_stride=target.stride(-1),          # always 1
+            loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
+            n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
+            lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
+            BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
+            num_warps=32 if torch.version.hip is None else 16,
+        )
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
         ctx.save_for_backward(grad_input, grad_weight)
