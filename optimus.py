@@ -307,13 +307,10 @@ def liger_cross_entropy_kernel(
 
 MAX_FUSED_SIZE = 65536 // 2
 def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-    # TODO: Chuẩn bị total_n_non_ignore để không phải .item() that affects the speed
-    total_n_non_ignore = ( target != ignore_index ).sum().item()
+    total_n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
     loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
-
     logits = _input @ weight.t()
     V = weight.shape[0]
-
     ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
     liger_cross_entropy_kernel[(logits.shape[0],)](
         X_ptr=logits, X_stride=logits.stride(-2),
@@ -324,34 +321,20 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
         BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
         num_warps=32 if torch.version.hip is None else 16,
     )
-
-    grad_input = logits @ weight
-    if weight.requires_grad:
-        grad_weight = logits.t() @ _input
-
-    loss, z_loss = torch.sum(loss_1d), None
-    return loss, z_loss, grad_input, grad_weight
-
+    grad_input  = ( logits     @ weight ).detach()
+    grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
+    return torch.sum(loss_1d), grad_input, grad_weight
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
+    @torch.compiler.disable
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-        """ Ref https://github.com/mgmalek/efficient_cross_entropy
-        Xử lý forward và backward pass của linear layer cuối cùng với cross-entropy loss bằng cách 
-        tránh tạo ra tensor logits lớn. Vì Cross Entropy Loss là layer cuối, TA CÓ THỂ TÍNH 
-        GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass.
-        """
-        loss, z_loss, grad_input, grad_weight = fused_linear_cross_entropy_forward(
-            _input=_input, weight=weight, target=target,
-            ignore_index=ignore_index, lse_square_scale=lse_square_scale,
-            label_smoothing=label_smoothing
-        )
-        # downcast to dtype and store for backward
-        if grad_weight is not None: grad_weight = grad_weight.detach()
-        ctx.save_for_backward(grad_input.detach(), grad_weight)
-        return loss, z_loss
-
+        """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
+        TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
+        loss, grad_in, grad_w = fused_linear_cross_entropy_forward(_input, weight, target, ignore_index, lse_square_scale, label_smoothing, )
+        ctx.save_for_backward(grad_in, grad_w)
+        return loss
 
     @staticmethod
     @torch.compile()

@@ -283,7 +283,6 @@ class WinGPT(nn.Module):
 ## Loss function ##
 ###################
 
-import random
 def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai:  # tính inverse target và async offload GPU->CPU
         target = model.lm_head.activate(target)
@@ -296,8 +295,6 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     loss, _ = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
-    if random.random() > 0.3: return loss
-
     assert model.n_layers + 1 == len(model.blocks)
     future = F.pad(target[1:], (0, 1), value=-100) # -100 == ignore
 
@@ -306,7 +303,6 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
         future, model.lm_head, # tied với main task head 
     )
     return loss * (1 - model.future_ratio) + future_loss * model.future_ratio
-
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     def _loss_method(hidden, target, head):
