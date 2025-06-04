@@ -9,7 +9,7 @@ from torch import nn, Tensor
 - Có thao tác để đổi active_vocab
 """
 
-@torch.compile(mode="max-autotune")
+@torch.compile()
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
@@ -106,7 +106,6 @@ MAX_ACTIVE_VOCAB = 1024 * 32  # 32k tối ưu cho speed, và vừa đủ 1:3 -> 
 class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab):
         super().__init__()
-
         self.active_vocab = vocab // 2
 
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
@@ -160,7 +159,7 @@ class OhMaiHead(nn.Module):
 
 
     @torch.no_grad()
-    @torch.compile(mode="max-autotune")
+    @torch.compile()
     def activate(self, indices):
         with torch.cuda.stream(self.ohmai_stream):
             curr_active   = self.get_active_tokens(indices)

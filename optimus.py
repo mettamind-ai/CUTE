@@ -220,23 +220,16 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 
 @triton.jit
 def liger_cross_entropy_kernel(
-    X_ptr, X_stride,        # input tensor.
-    Y_ptr, Y_stride,        # đang tính LCE cho label Y này.
-    loss_ptr, loss_stride,  # loss của label.
-    n_cols,         #  (int): The number of columns in the input tensor.
-    n_non_ignore,   #  (float): The number of non-ignored elements in the batch.
-    ignore_index,   #  (int): The index to ignore in the target. (-100)
-    lse_square_scale: tl.constexpr,  # (float): The scaler of (logsumexp(_input))^2 adding to the loss for training stability
-    label_smoothing:  tl.constexpr,  # (float): 0.0 means no smoothing.
+    X_ptr, X_stride,                # input tensor.
+    Y_ptr, Y_stride,                # đang tính LCE cho label Y này.
+    loss_ptr, loss_stride,          # để lưu loss của label.
+    n_cols,                         # (int):   The number of columns in the input tensor.
+    n_non_ignore,                   # (float): The number of non-ignored elements in the batch.
+    ignore_index,                   # (int):   The index to ignore in the target (-100.)
+    lse_square_scale: tl.constexpr, # (float): The scaler of (logsumexp(_input))^2 adding to the loss for training stability
+    label_smoothing:  tl.constexpr, # (float): 0.0 means no smoothing.
     BLOCK_SIZE:       tl.constexpr,
 ):
-    """ This kernel computes both cross entropy loss and the gradient of the input. We only consider hard label + mean reduction.
-        Refer to https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html for the math.
-        - Online softmax: 2 loads + 1 store (compared with 3 loads + 1 store for the safe softmax)
-        Refer to Algorithm 3 in the paper: https://arxiv.org/pdf/1805.02867
-        - Label smoothing is a general case of normal cross entropy
-        See the full derivation at https://github.com/linkedin/Liger-Kernel/pull/198#issue-2503665310
-    """
     program_id = tl.program_id(0).to(tl.int64)
     X_ptr     += program_id * X_stride
     Y_ptr     += program_id * Y_stride
@@ -245,55 +238,41 @@ def liger_cross_entropy_kernel(
     y = tl.load(Y_ptr)
     if y == ignore_index: # grad == 0 => set all X_ptr as 0
         for i in range(0, n_cols, BLOCK_SIZE):
-            offs  = i + tl.arange(0, BLOCK_SIZE)
-            tl.store(X_ptr + offs , 0.0, mask=offs  < n_cols)
+            offs = i + tl.arange(0, BLOCK_SIZE)
+            tl.store(X_ptr + offs, 0.0, mask=offs  < n_cols)
         return # loss đã đc set = 0 trước nên không cần gán
 
     m = float("-inf")                              # m is the max value. use the notation from the paper
-    d = scaled_x_sum = 0.0                         # d is the sum. use the notation from the paper
+    d = 0.0; scaled_x_sum = 0.0                    # d is the sum. use the notation from the paper
     ori_X_y = tl.load(X_ptr + y).cast(tl.float32)  # we need to store the original value of X_y for the loss calculation
     eps = label_smoothing / n_cols
 
+    ## First pass: Tìm giá trị lớn nhất m và tính tổng exponential
     for i in range(0, n_cols, BLOCK_SIZE):
-        X_offsets = i + tl.arange(0, BLOCK_SIZE)
-        X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),).cast(tl.float32)
+        offs = i + tl.arange(0, BLOCK_SIZE)
+        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
+        if eps > 0: scaled_x_sum += tl.sum(tl.where(offs<n_cols, -eps*X, 0.0))
+        mm = tl.maximum(m, tl.max(X))
+        d = d * tl.exp(m - mm) + tl.sum(tl.exp(X - mm))
+        m = mm
 
-        block_max = tl.max(X_block)
-        if label_smoothing > 0: # scale X beforehand to avoid overflow
-            scaled_x_sum += tl.sum(tl.where(X_offsets < n_cols, -eps * X_block, 0.0))
-
-        m_new = tl.maximum(m, block_max)
-        d = d * tl.exp(m - m_new) + tl.sum(tl.exp(X_block - m_new))
-        m = m_new
-
+    ## Second pass: Tính softmax và gradient
     lse = m + tl.log(d)
     for i in range(0, n_cols, BLOCK_SIZE):
-
-        X_offsets = i + tl.arange(0, BLOCK_SIZE)
-        X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf"),).cast(tl.float32)
-
-        X_block = tl.exp(X_block - m) / d  ### softmax(x_i)
-        X_block += 2 * lse_square_scale * lse * X_block
-
-        X_block += -eps                    ### smoothing term
-        X_block = tl.where(X_offsets != y, X_block, X_block - (1 - label_smoothing))
-
-        X_block = X_block / n_non_ignore   ### mean reduction
-        tl.store(X_ptr + X_offsets, X_block, mask=X_offsets < n_cols)
+        offs = i + tl.arange(0, BLOCK_SIZE)
+        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
+        X = tl.exp(X - m) / d                                       # softmax(x_i)
+        X = X + 2*lse_square_scale*lse*X - eps                      # smoothing term
+        X = tl.where(offs != y, X, X-1+label_smoothing)             # gradient 
+        tl.store(X_ptr + offs, X / n_non_ignore, mask=offs<n_cols)  # mean reduction
     tl.debug_barrier()  # to ensure the new result of X_ptr is written
 
     loss = lse - ori_X_y
     if label_smoothing > 0:
         smooth_loss = scaled_x_sum + label_smoothing * lse
         loss = loss * (1 - label_smoothing) + smooth_loss
-
-    loss = loss / n_non_ignore                  # Normalize the loss, mean reduction
-    if lse_square_scale > 0:
-        z_loss = lse_square_scale * lse * lse   # z_loss is an auxiliary loss
-        loss += z_loss / n_non_ignore           # Normalize the z_loss, mean reduction
-
-    # Lưu loss value đơn (a float value) của target label
-    tl.store(loss_ptr, loss)
+    if lse_square_scale > 0: loss += lse_square_scale*lse*lse # z_loss is an auxiliary loss
+    tl.store(loss_ptr, loss/n_non_ignore)                     # mean reductiom
 
 
 MAX_FUSED_SIZE = 65536 // 2
@@ -304,10 +283,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
-
         logits = _input @ weight.t() 
         V = weight.shape[0]
- 
         ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
         liger_cross_entropy_kernel[(logits.shape[0],)](
             X_ptr=logits, X_stride=logits.stride(-2),
@@ -318,7 +295,6 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
         )
-
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach() if weight.requires_grad else None
         ctx.save_for_backward(grad_input, grad_weight)
@@ -348,12 +324,11 @@ import torch.distributed as dist
 from torch import Tensor
 
 @torch.compile()
-def zeropower_via_newtonschulz5(G:Tensor) -> Tensor:
-    X = G.bfloat16()
-    need_invert = G.size(-2) > G.size(-1)
-    if need_invert: X = X.mT                            # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7) # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    for a,b,c in range([(3.4445,-4.7750,2.0315)]*5):
+def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
+    need_invert = X.size(-2) > X.size(-1)
+    if need_invert: X = X.mT                         # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X /= (X.norm(dim=(-2, -1), keepdim=True) + 1e-7) # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    for a,b,c in [(3.4445,-4.7750,2.0315)]*5:
         A = X @ X.mT
         X = a*X + (b*A + c*A@A) @ X
     return X.mT if need_invert else X
@@ -367,18 +342,18 @@ class Muon1GPU(torch.optim.Optimizer):
     @torch.compiler.disable
     def step(self):
         for group in self.param_groups:
-            for p in group['params']:                   # với mỗi tham số p trong model
-                if p.grad is None: continue             # bỏ qua nếu không có gradient
+            for p in group['params']:                           # với mỗi tham số p trong model
+                if p.grad is None: continue                     # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]           # lấy gradient và optim state và khởi tạo momentum nếu chưa có
+                g, st = p.grad, self.state[p]                   # lấy gradient và optim state và khởi tạo momentum nếu chưa có
                 if 'mm' not in st: st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.9 + gradient * 0.1
-                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.1 + momentum * 0.9
+                st['mm'].lerp_(g, 1 - group['mm'])              # momentum = momentum * 0.9 + gradient * 0.1
+                g = g.lerp_(st['mm'], group['mm'])              # gradient = gradient * 0.1 + momentum * 0.9
 
-                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
-                if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
+                if g.ndim != 2: g = g.view(len(g), -1)          # 2D hoá
+                g = zeropower_via_newtonschulz5(g.bfloat16())   # Trực giao Newton-Schulz
+                if g.shape != p.shape: g = g.view_as(p)         # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])  # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
