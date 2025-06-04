@@ -159,7 +159,7 @@ class OhMaiHead(nn.Module):
 
 
     @torch.no_grad()
-    @torch.compile()
+    @torch.compile(mode="max-autotune")
     def activate(self, indices):
         with torch.cuda.stream(self.ohmai_stream):
             curr_active   = self.get_active_tokens(indices)
