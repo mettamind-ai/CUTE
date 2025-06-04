@@ -35,12 +35,11 @@ def _scaled_mm_kernel(
     stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, GROUP_M: tl.constexpr = 8,
 ):
-    # based on triton.ops.matmul
     pid = tl.program_id(0)
-    grid_m = (M + BLOCK_M - 1) // BLOCK_M
-    grid_n = (N + BLOCK_N - 1) // BLOCK_N
+    grid_m = tl.cdiv(M, BLOCK_M)
+    grid_n = tl.cdiv(N, BLOCK_N)
 
-    # re-order program ID for better L2 performance
+    # Swizzle for better L2 cache usage
     width = GROUP_M * grid_n
     group_id = pid // width
     group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
@@ -49,20 +48,19 @@ def _scaled_mm_kernel(
 
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    rk =                   tl.arange(0, BLOCK_K)
 
     ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
     rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
-    rk = tl.arange(0, BLOCK_K)
 
-    A = A_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
-    B = B_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+    A = A_ptr + (ram[:, None] * stride_am +  rk[None, :] * stride_ak)
+    B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        a, b = tl.load(A), tl.load(B)
-        acc += tl.dot(a, b)
-        A += BLOCK_K * stride_ak
-        B += BLOCK_K * stride_bk
+        acc += tl.dot(tl.load(A), tl.load(B))
+        A   += BLOCK_K * stride_ak
+        B   += BLOCK_K * stride_bk
 
     # rematerialize rm and rn to save registers
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
@@ -78,37 +76,13 @@ def _scaled_mm_kernel(
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
-
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
-    """Low-bit matmul tensor cores. `scale_A` and `scale_B` are quantization scales for A and B. E.g.
-    - if `X` is quantized with tile shape (128, 64), `scale_X`'s shape will be `(X.shape[0] / 128, X.shape[1] / 64)`.
-    - if `X` is row-wise quantized, `scale_X`'s shape will be `(X.shape[0], 1)`.
-    """
-    assert A.dtype == B.dtype == torch.int8
-    assert scale_A.dtype == scale_B.dtype
-    assert A.ndim == B.ndim == scale_A.ndim == scale_B.ndim == 2
-    assert A.shape[1] == B.shape[0]
-
-    # row-scale + col-scale or row-scale + tensor-scale
-    is_row_scale_A     = scale_A.shape == ( A.shape[0], 1 )
-    is_col_scale_B     = scale_B.shape == ( 1, B.shape[1] )
-    is_tensor_scale_B  = scale_B.shape == ( 1,          1 )
-
-    assert is_row_scale_A and ( is_col_scale_B or is_tensor_scale_B )
-    assert scale_A.is_contiguous() and scale_B.is_contiguous()
-    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
-
-
 @torch.library.impl(lib, "scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
-    M, K = A.shape
-    _, N = B.shape
-
+    M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
     return C
@@ -135,7 +109,7 @@ class Int8MixedLinear(torch.autograd.Function):
         A, B  = inp, weight._data.T
         A, As = quantize_int8(A, dim=1, sr=False)
         B, Bs = quantize_int8(B, dim=0, sr=True)  # rounding ma trận nhỏ có
-        return scaled_mm(A, B, As, Bs,)
+        return lib_ops.scaled_mm(A, B, As, Bs,)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -154,7 +128,7 @@ class Int8MixedLinear(torch.autograd.Function):
         A, B  = grad_output, weight
         A, As = quantize_int8(A, dim=1, sr=True) # rounding để đạt độ ...
         B, Bs = quantize_int8(B, dim=0, sr=True) # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs,)
+        grad_input = lib_ops.scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[1]:
             ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
@@ -162,7 +136,7 @@ class Int8MixedLinear(torch.autograd.Function):
             A, B  = grad_output.T, inp
             A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
-            grad_weight = scaled_mm(A, B, As, Bs,)
+            grad_weight = lib_ops.scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
         return grad_input, grad_weight, grad_bias
