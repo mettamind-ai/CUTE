@@ -285,7 +285,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 ##  Muon Optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
-@torch.compile(mode="max-autotune")
+@torch.compile()
 def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
     need_invert = X.size(-2) > X.size(-1)
     if need_invert: X = X.mT                            # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
