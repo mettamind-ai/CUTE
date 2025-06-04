@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 ## GPT for the WIN (cải biên từ modded nanogpt)
-import os, math, torch
+import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
-import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
-
+from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
+from ohmai import OhMaiEmbedding, OhMaiHead
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
-
-from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
-from ohmai import OhMaiEmbedding, OhMaiHead
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
