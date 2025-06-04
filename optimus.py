@@ -267,7 +267,6 @@ def liger_cross_entropy_kernel(
     tl.store(loss_ptr, loss/n_non_ignore)                     # mean reductiom
 
 
-MAX_FUSED_SIZE = 65536 // 2
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
@@ -275,10 +274,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
-
-        A, As = quantize_int8(_input, dim=1, sr=False)
-        B, Bs = quantize_int8(weight.t(), dim=0, sr=False)
-        logits = scaled_mm(A, B, As, Bs,)
+        logits  = _input @ weight.t()
         
         V = weight.shape[0]
         liger_cross_entropy_kernel[(logits.shape[0],)](
@@ -287,16 +283,11 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
             n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
             lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
-            BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
+            BLOCK_SIZE=min(65536 // 2, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
         )
         grad_input  = ( logits     @ weight ).detach()
-        # grad_weight = ( logits.t() @ _input ).detach()
-        if weight.requires_grad:
-                A, As = quantize_int8(logits.t(), dim=1, sr=False)
-                B, Bs = quantize_int8(_input, dim=0, sr=False)
-                grad_weight = scaled_mm(A, B, As, Bs,).detach()
-        else:   grad_weight = None
+        grad_weight = ( logits.t() @ _input ).detach()
 
         ctx.save_for_backward(grad_input, grad_weight)
         return torch.sum(loss_1d)
