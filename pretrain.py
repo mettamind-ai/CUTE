@@ -67,7 +67,6 @@ else:        # (XS)mall ~ 100m
         vocab_size=args.vocab, max_seq_len=tokens_per_batch,
         future_percent=args.future, active_vocab=args.ohmai,
     )
-model = model.cuda()
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 
 def find_key(s):
@@ -181,7 +180,9 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ## LOSS FUNCTION & PREPARE ##
 #############################
 from wingpt import fused_loss_fn as lossf
-if args.C: lossf = torch.compile(lossf); for x in model.blocks: x.compile()
+if args.C:
+    lossf = torch.compile(lossf)
+    for x in model.blocks: x.compile()
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
@@ -190,10 +191,12 @@ print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * {lossf.__name__}
 * {tokens_per_batch//1024}k seq/step
 """)
-model.train()
 step = 0
 log_interval = 5
 lossv = 9999 # cần cho args.minloss
+
+model = model.cuda()
+model.train()
 
 if args.T: log_interval = 2
 else: logger = wandb.init(dir="/tmp", config=args,)
