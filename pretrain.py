@@ -172,11 +172,9 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 from wingpt import fused_loss_fn as lossf
 if args.C:
-    mode = "max-autotune"
+    mode = "reduce-overhead"
     lossf = torch.compile(lossf, mode=mode)
-    for i, x in enumerate(model.blocks):
-        if i % 2 == 0: x.compile()
-        else: x.compile(mode=mode)
+    for x in model.blocks: x.compile(mode=mode)
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
 * GPU(s) {world_size}
