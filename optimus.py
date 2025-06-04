@@ -5,11 +5,10 @@ Muon optimizer modded from github.com/nil0x9/flash-muon
 Fused CE modded from https://github.com/linkedin/Liger-Kernel
 '''
 import functools, torch, triton, os
-import triton.language as tl
+import triton.language as tl, torch.distributed as dist
+import torch.nn.functional as F, torch.utils._pytree as pytree
 
 from typing import NamedTuple
-import torch.nn.functional as F
-import torch.utils._pytree as pytree
 from torch import Tensor, nn
 
 aten = torch.ops.aten
@@ -32,16 +31,9 @@ cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_w
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
-    A_ptr, B_ptr, C_ptr,
-    A_scale_ptr, B_scale_ptr,
-    M, N, K,
-    stride_am, stride_ak,
-    stride_bk, stride_bn,
-    stride_cm, stride_cn,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    GROUP_M: tl.constexpr = 8,
+    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,
+    stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, GROUP_M: tl.constexpr = 8,
 ):
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -252,9 +244,9 @@ def liger_cross_entropy_kernel(
         offs = i + tl.arange(0, BLOCK_SIZE)
         X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
         if eps > 0: scaled_x_sum += tl.sum(tl.where(offs<n_cols, -eps*X, 0.0))
-        mm = tl.maximum(m, tl.max(X))
-        d = d * tl.exp(m - mm) + tl.sum(tl.exp(X - mm))
-        m = mm
+        m_new = tl.maximum(m, tl.max(X))
+        d = d * tl.exp(m - m_new) + tl.sum(tl.exp(X - m_new))
+        m = m_new
 
     ## Second pass: Tính softmax và gradient
     lse = m + tl.log(d)
@@ -283,9 +275,12 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
-        logits = _input @ weight.t() 
+
+        A, As = quantize_int8(_input, dim=1, sr=False)
+        B, Bs = quantize_int8(weight.t() , dim=0, sr=False)
+        logits = scaled_mm(A, B, As, Bs,)
+        
         V = weight.shape[0]
-        ## Tính LCE cho từng label một !!! => vocab càng lớn càng chậm
         liger_cross_entropy_kernel[(logits.shape[0],)](
             X_ptr=logits, X_stride=logits.stride(-2),
             Y_ptr=target, Y_stride=target.stride(-1),          # always 1
@@ -313,15 +308,6 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 #################################################################
 ##  Muon Optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
-""" Muon internally runs standard SGD-momentum, and then performs an orthogonalization post-
-processing step, in which each 2D parameter's update is replaced with the nearest orthogonal
-matrix. To efficiently orthogonalize each update, we use a Newton-Schulz iteration, which has
-the advantage that it can be stably run in bfloat16 on the GPU.
-NOTE: use Adam for 0D, 1D, embeddings and lm_head, then use Muon for the rest """
-
-import torch, math
-import torch.distributed as dist
-from torch import Tensor
 
 @torch.compile()
 def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
