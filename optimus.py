@@ -80,7 +80,7 @@ lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Ten
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
-@torch.library.impl(lib, "scaled_mm", "Meta")Add commentMore actions
+@torch.library.impl(lib, "scaled_mm", "Meta")
 def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
