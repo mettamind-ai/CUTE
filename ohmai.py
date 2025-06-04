@@ -16,13 +16,14 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return embeddings[indices]
 
     @staticmethod
+    @torch.compile()
     def backward(ctx, grad_output: torch.Tensor):
         embeddings, indices = ctx.saved_tensors
         grad_weight = torch.zeros_like(embeddings)
         grad_weight.index_add_(0, indices, grad_output)
         return grad_weight, None
 
-@torch.compiler.disable
+
 class OhMaiEmbedding(nn.Module):
     def __init__(self, vocab, dim, active_vocab=None):
         super().__init__()
@@ -48,6 +49,7 @@ class OhMaiEmbedding(nn.Module):
 
 
     @torch.no_grad()
+    @torch.compiler.disable
     def activate(self, indices):
         curr_active = torch.unique(indices).long()
         assert len(curr_active) <= self.active_vocab, f"OhMai found {len(curr_active)} > active_vocab"
@@ -82,6 +84,8 @@ class OhMaiEmbedding(nn.Module):
         return self.inverse_map[indices]
 
 
+    @torch.no_grad()
+    @torch.compiler.disable
     def update_async_weight(self):
         self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
 
@@ -98,7 +102,6 @@ Do lượng active_vocab x3-x5 lần Emb nên dự đoán IO sẽ bị nặng h�
 bù lại tiết kiệm rất nhiều vram và lượng computing save được lúc compute loss là nhiều.
 '''
 MAX_ACTIVE_VOCAB = 1024 * 32  # 32k tối ưu cho speed, và vừa đủ 1:3 -> 1:4 pos/ng
-@torch.compiler.disable
 class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab):
         super().__init__()
@@ -130,8 +133,8 @@ class OhMaiHead(nn.Module):
         self.inverse_map.requires_grad_(False)
         self.maistream = torch.cuda.Stream()
 
-
-    @torch.no_grad
+    @torch.no_grad()
+    @torch.compile()
     def get_active_tokens(self, indices):
         tokens, counts = torch.unique(indices, return_counts=True)
         self.running_freq[tokens] += counts
@@ -153,6 +156,7 @@ class OhMaiHead(nn.Module):
 
 
     @torch.no_grad()
+    @torch.compile()
     def activate(self, indices):
         with torch.cuda.stream(self.maistream):
             curr_active   = self.get_active_tokens(indices)
@@ -167,15 +171,19 @@ class OhMaiHead(nn.Module):
             self.active[self.new_token_indices] = self.new_tokens
 
             self.new_tokens = self.new_tokens.cpu()
-            self.weight[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
+            self.weight.data[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
 
             # Tạo inverse indices và trả về
             self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
             return self.inverse_map[indices]
 
+    @torch.no_grad()
+    @torch.compiler.disable
     def update_new_tokens_weight(self):
         self.active_weight.data[ self.new_token_indices ] = \
-        self.weight[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
+        self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
 
+    @torch.no_grad()
+    @torch.compiler.disable
     def update_async_weight(self):
-        self.weight[self.active.cpu().to(torch.long)] = self.active_weight[:len(self.active)].cpu()
+        self.weight.data[self.active.cpu().to(torch.long)] = self.active_weight.data[:len(self.active)].cpu()
