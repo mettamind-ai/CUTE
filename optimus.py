@@ -313,7 +313,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             X_ptr=logits, X_stride=logits.stride(-2),
             Y_ptr=target, Y_stride=target.stride(-1),          # always 1
             loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
-            n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
+            n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
             lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
