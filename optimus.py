@@ -264,20 +264,6 @@ amp_custom_fwd = functools.partial(torch.amp.custom_fwd, device_type="cuda")
 amp_custom_bwd = functools.partial(torch.amp.custom_bwd, device_type="cuda")
 def is_hip() -> bool: return torch.version.hip is not None
 
-
-@triton.jit
-def element_mul_kernel(X_ptr, X_stride, value_ptr, n_cols, BLOCK_SIZE: tl.constexpr,):
-    """ Nhân giá trị với ma trận theo từng hàng """
-    row_i = tl.program_id(0).to(tl.int64)   # Convert program ID to int64 to avoid overflow
-    X_ptr += row_i * X_stride               # Locate the start index
-    value = tl.load(value_ptr)              # Load the gradient output value
-    col_offsets = tl.arange(0, BLOCK_SIZE)  # Nhân theo từng BLOCK_SIZE một (tối ưu IO)
-
-    for _ in range(tl.cdiv(n_cols, BLOCK_SIZE)):
-        pointer, mask = X_ptr+col_offsets, col_offsets < n_cols
-        tl.store(pointer, tl.load(pointer, mask=mask)*value, mask=mask)
-        col_offsets += BLOCK_SIZE
-
 @triton.jit
 def liger_cross_entropy_kernel(
     X_ptr, X_stride,
@@ -407,24 +393,6 @@ def fused_linear_cross_entropy_forward(_input, weight, target, ignore_index=-100
     return loss, z_loss, grad_input, grad_weight
 
 
-def fused_linear_cross_entropy_backward(grad_output, grad_input, grad_weight):
-    BT, H = grad_input.shape
-    BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(H))
-
-    element_mul_kernel[(BT,)](
-        grad_input, grad_input.stride(-2), grad_output, H,
-        BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
-    )
-    # handle grad_weight
-    if grad_weight is not None:
-        V, H = grad_weight.shape
-        element_mul_kernel[(V,)](
-            grad_weight, grad_weight.stride(-2), grad_output, H,
-            BLOCK_SIZE=BLOCK_SIZE, num_warps=32 if not is_hip() else 16,
-        )
-    return grad_input, grad_weight
-
-
 class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @amp_custom_fwd
@@ -448,12 +416,12 @@ GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target
 
     @staticmethod
     @amp_custom_bwd
-    def backward(ctx, grad_out, grad_out2):
-        del grad_out2  # z_loss is only for logging
+    @torch.compile()
+    def backward(ctx, grad_out, z_loss_grad_out):
+        del z_loss_grad_out  # z_loss is only for logging
         grad_in, grad_w = ctx.saved_tensors
-        # If cross entropy is the last layer, grad_output is 1.0. Skip the mul to save time
-        if not torch.equal(grad_out, torch.tensor(1.0, device=grad_out.device)):
-            grad_in, grad_w = fused_linear_cross_entropy_backward(grad_out, grad_in, grad_w,)
+        grad_in = grad_in * grad_out
+        if grad_w is not None: grad_w = grad_w * grad_out
         return grad_in, grad_w, None, None, None, None, None, None, None, None, None
 
 
