@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -24,14 +23,25 @@ for x in "C S L M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
 rank, world_size, is_master = 0, 1, True # 1 GPU
-def print0(msg): is_master and print(msg)
 torch.manual_seed(1981 + rank)
+
+def print0(msg): is_master and print(msg)
+tokens_per_batch = args.bs*1024
+
+data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+CTX  = tokens_per_batch + 1
+N    = len(data) - CTX
+WIN  = torch.arange(CTX)
+def get_batch():
+    idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
+    x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.
+    return x.pin_memory().to("cuda", dtype=torch.long, non_blocking=True)
+batch = get_batch()
 
 #############################
 ## Init model for pretraining
 #############################
 from wingpt import WinGPT, get_cu_max_seqlens_from
-tokens_per_batch = args.bs*1024
 
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
@@ -55,20 +65,9 @@ print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(list(model.parameters())) - len(names)} BF16/ FP32 Weights {100-percent:.1f}% {total_params - params:,}
 INT8: {short_names}""")
 
-#################
-## Data loader ##
-#################
-data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
-CTX  = tokens_per_batch + 1
-N    = len(data) - CTX
-WIN  = torch.arange(CTX)
-def get_batch():
-    idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
-    x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.
-    return x.pin_memory().to("cuda", dtype=torch.long, non_blocking=True)
-batch = get_batch()
-
-
+#########################
+##  Init Optimizer(s)  ##
+#########################
 class LRSchedule:
     def __init__(self, lr, n_steps, decay_type="linear", warmup: float = 0.05, decay:  float = 0.15,):
         self.lr = lr
@@ -77,7 +76,6 @@ class LRSchedule:
         self.t3 = n_steps
         self.decay_type = decay_type
         assert self.t1 <= self.t2
-        assert decay_type in ("linear", "cosine")
 
     def get_lr(self, step: int) -> float:
         if step < 0 or step > self.t3: return 0.0
@@ -93,34 +91,8 @@ class LRSchedule:
             if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
             else: param_group["lr"] = self.get_lr(step)
 
-#############################
-## Init Optimizer(s)
-#############################
-
-m = model
-adam_n_params = {n: p for n, p in m.named_parameters() if "proj" not in n}
-muon_n_params = {n: p for n, p in m.named_parameters() if "proj" in n}
-
-adam_params = list(adam_n_params.values())
-muon_params = list(muon_n_params.values())
-
-adam_params_count = sum(p.numel() for p in adam_params)
-muon_params_count = sum(p.numel() for p in muon_params)
-total_params = sum(p.numel() for p in model.parameters())
-
-adam_ratio = adam_params_count / total_params
-muon_ratio = muon_params_count / total_params
-
-print0(f"""\nPHÂN CHIA PARAMS VÀO OPTIMIZERS:
-* Adam: {adam_ratio*100:.1f}% {adam_params_count:,}
-* Muon: {muon_ratio*100:.1f}% {muon_params_count:,}
- TOTAL: {           100:.1f}% {total_params:,}""")
-
-adam_keys = sorted(set(find_key(x) for x in adam_n_params.keys()))
-muon_keys = sorted(set(find_key(x) for x in muon_n_params.keys()))
-
-print0(f"Adam: {sorted(set(x.replace('.weight','') for x in adam_keys))}")
-print0(f"Muon: {sorted(set(x.replace('.weight','').replace('future.block.','') for x in muon_keys))}")
+adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
+muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
 muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size)
@@ -129,10 +101,9 @@ muon_lr_schedule = LRSchedule(args.muonlr, args.steps, **args.schedule)
 adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 
 
-#############################
-## LOSS FUNCTION & PREPARE ##
-#############################
-
+##############
+## TRANING  ##
+##############
 from wingpt import fused_loss_fn as lossf
 if args.C:
     lossf = torch.compile(lossf)
@@ -150,11 +121,8 @@ step = 0
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
-#############################
-## Training loop
-#############################
 started_at = time.time()
-while step < args.steps:
+while step < args.steps:  # training loop
 
     tokens, targets = batch[:-1], batch[1:]
     c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
@@ -192,6 +160,5 @@ while step < args.steps:
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-    # END of Training Loop
 model.update_async_weight()
 if not args.T: logger.finish()
