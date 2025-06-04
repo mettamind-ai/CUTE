@@ -219,7 +219,6 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ###################################
 
 @triton.jit
-@torch.compiler.disable
 def liger_cross_entropy_kernel(
     X_ptr, X_stride,        # input tensor.
     Y_ptr, Y_stride,        # đang tính LCE cho label Y này.
@@ -304,6 +303,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
     @staticmethod
+    @torch.compiler.disable
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
         n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
@@ -376,17 +376,14 @@ class Muon1GPU(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         for group in self.param_groups:
-            for p in group['params']:               # với mỗi tham số p trong model
-                if p.grad is None: continue         # bỏ qua nếu không có gradient
+            for p in group['params']:                   # với mỗi tham số p trong model
+                if p.grad is None: continue             # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]       # lấy gradient và optim state
-                if 'mm' not in st:                  # khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g)  # (g, dtype=torch.bfloat16)
+                g, st = p.grad, self.state[p]           # lấy gradient và optim state và khởi tạo momentum nếu chưa có
+                if 'mm' not in st: st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])  # Áp dụng momentum vào gradient
-                g = g.lerp_(st['mm'], group['mm'])  # tương đương với 2 phép tính:
-                    # 1) momentum_state = momentum_state * 0.95 + gradient * 0.05
-                    # 2) final_gradient = gradient * 0.05 + momentum_state * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.9 + gradient * 0.1
+                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.1 + momentum * 0.9
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
                 g = newtonschulz(g, steps=group['ns'])  # Trực giao Newton-Schulz
