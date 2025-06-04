@@ -182,8 +182,9 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 #############################
 from wingpt import fused_loss_fn as lossf
 if args.C:
-    # for x in model.blocks: x.compile() # compile từng block chậm đi 10% và vram tăng dần => OOM !?!
-    model = torch.compile(model)
+    for x in model.blocks: x.compile() # compile từng block chậm đi 10% và vram tăng dần => OOM !?!
+    # model = torch.compile(model)
+    lossf  = torch.compile(lossf)
     print('''>>> torch.compile <<<''')
 
 print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
