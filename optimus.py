@@ -496,7 +496,6 @@ class Muon1GPU(torch.optim.Optimizer):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, ns=ns_steps))
 
     @torch.no_grad()
-    @torch.compile()
     def step(self):
         for group in self.param_groups:
             for p in group['params']:               # với mỗi tham số p trong model

@@ -134,11 +134,18 @@ class OhMaiHead(nn.Module):
         self.maistream = torch.cuda.Stream()
 
     @torch.no_grad()
-    @torch.compile()
-    def get_active_tokens(self, indices):
+    @torch.compiler.disable
+    def update_freq(self, indices):
+        # Phép lấy unique tokens và counts này size thay đổi qua mỗi phép toán => ko compile
         tokens, counts = torch.unique(indices, return_counts=True)
         self.running_freq[tokens] += counts
         self.total_tokens += counts.sum()
+        return tokens
+
+    @torch.no_grad()
+    @torch.compile()
+    def get_active_tokens(self, indices):
+        tokens = self.update_freq(indices)
         empirical_freq = self.running_freq / self.total_tokens
 
         combined_score = self.alpha * self.running_freq + (1-self.alpha) * self.pretrained_norm     
