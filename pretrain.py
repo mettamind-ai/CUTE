@@ -48,12 +48,12 @@ def find_key(s):
     m = re.search(r'(blocks\.\d+\.)?(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
 total_params = sum(p.numel() for p in model.parameters())
-names = sorted(set(find_key(x) for x in names))
+short_names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
 print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(names)} INT8 Mixed Weights {percent:.1f}% {params:,}
 * {len(list(model.parameters())) - len(names)} BF16/ FP32 Weights {100-percent:.1f}% {total_params - params:,}
-INT8: {names}""")
+INT8: {short_names}""")
 
 #################
 ## Data loader ##

@@ -189,7 +189,7 @@ class WinGPT(nn.Module):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
-    @torch.compile()
+    @torch.compile(mode="max-autotune")
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())

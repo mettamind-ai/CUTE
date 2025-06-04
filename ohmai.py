@@ -9,7 +9,7 @@ from torch import nn, Tensor
 - Có thao tác để đổi active_vocab
 """
 
-@torch.compile()
+@torch.compile(mode="max-autotune")
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
@@ -17,7 +17,6 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return embeddings[indices]
 
     @staticmethod
-    @torch.compile()
     def backward(ctx, grad_output: torch.Tensor):
         embeddings, indices = ctx.saved_tensors
         grad_weight = torch.zeros_like(embeddings)
