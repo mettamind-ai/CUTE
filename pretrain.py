@@ -161,4 +161,4 @@ while step < args.steps:  # training loop
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
 model.update_async_weight()
-if not args.T: logger.finish()
+logger.finish()

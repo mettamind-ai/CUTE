@@ -9,14 +9,13 @@ from torch import nn, Tensor
 - Có thao tác để đổi active_vocab
 """
 
-@torch.compile()
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
         ctx.save_for_backward(embeddings, indices)
         return embeddings[indices]
 
-    @staticmethod
+    @torch.compile()
     def backward(ctx, grad_output: torch.Tensor):
         embeddings, indices = ctx.saved_tensors
         grad_weight = torch.zeros_like(embeddings)
@@ -115,7 +114,7 @@ class OhMaiHead(nn.Module):
 
         self.active = torch.arange(self.active_vocab, device='cuda')
         self.active.requires_grad_(False)
-        self.alpha = torch.tensor(0.69, device='cuda') # :D
+        self.alpha = 0.69
 
         w = torch.empty(self.active_vocab, dim, device="cuda", dtype=self.weight.dtype)
         with torch.no_grad(): w.data = self.weight.data[:self.active_vocab].cuda()
