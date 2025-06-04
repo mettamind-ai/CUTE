@@ -349,6 +349,7 @@ import torch, math
 import torch.distributed as dist
 from torch import Tensor
 
+@torch.compile()
 def newtonschulz(G: Tensor, steps: int) -> Tensor:
     # G: The gradient or momentum matrix to be orthogonalized.
     assert G.ndim == 2
