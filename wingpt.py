@@ -272,8 +272,8 @@ class WinGPT(nn.Module):
         ve_lambdas   = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(self.n_layers):
-            if i == self.n_layers // 2 and model.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
-                model.lm_head.update_new_tokens_weight()  # thì upload lên
+            if i == self.n_layers // 2 and self.ohmai:   # tới giữa pipeline chắc chắn đã offload xong
+                self.lm_head.update_new_tokens_weight()  # thì upload lên
 
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
@@ -405,8 +405,8 @@ if __name__ == "__main__":
         aptim.zero_grad()
 
         loss_fn = fused_loss_fn
-        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0)
-        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0)
+        loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         xxxxx = model if step == 0 else ohmai
