@@ -292,7 +292,7 @@ def _loss_fn(_loss_method, model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai:  # tối cuối pipeline chắc chắn đã offload xong
         model.lm_head.update_new_tokens_weight()  # thì upload lên
 
-    loss, _ = _loss_method(x, target, model.lm_head)
+    loss = _loss_method(x, target, model.lm_head)
 
     if not model.has_future(): return loss
     assert model.n_layers + 1 == len(model.blocks)
