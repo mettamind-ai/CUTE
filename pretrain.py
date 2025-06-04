@@ -189,7 +189,7 @@ while step < args.steps:
     step += 1
 
     if step % log_interval == 0:
-        logger.log(dict(max_vram=torch.cuda.max_memory_allocated(), tokens_seen=tokens_per_batch*step,
+        logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
     # END of Training Loop

@@ -11,13 +11,12 @@ import torch.nn.functional as F, torch.utils._pytree as pytree
 from typing import NamedTuple
 from torch import Tensor, nn
 
+##############################################
+##  INT8 Mixed Precision for Linear Module  ##
+##############################################
 aten = torch.ops.aten
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
-
-##########################
-##  INT8 Triton Matmul  ##
-##########################
 
 cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
     (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4),
@@ -58,8 +57,7 @@ def _scaled_mm_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        a, b = tl.load(A), tl.load(B)
-        acc += tl.dot(a, b)
+        acc += tl.dot(tl.load(A), tl.load(B))
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 
@@ -94,32 +92,24 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
-    ''' absmax symmetric quantization, clip(cận_dưới_eps) tránh chia cho 0 '''
     scale  = tensor.abs().amax(dim, keepdim=True) / 127
-    tensor = tensor.float() / scale.float().clip(eps)
+    tensor = tensor.float() / scale.float().clip(eps) # clip(cận_dưới_eps) tránh chia cho 0
     if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
     else:    tensor.round_()    # ^^^ stochastic rounding ^^^^
     tensor = tensor.clip(-128, 127).to(torch.int8)
     return ( tensor, scale )
 
-##############################################
-##  INT8 Mixed Precision for Linear Module  ##
-##############################################
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(inp:Tensor, weight, bias=None):
-        assert bias is None
-        # Do dùng sample packing (varlen) nên input luôn là ma trận 2 chiều
-        A, B  = inp, weight._data.T
-        A, As = quantize_int8(A, dim=1, sr=False)
-        B, Bs = quantize_int8(B, dim=0, sr=True)  # rounding ma trận nhỏ có
+    def forward(inp, weight):
+        A, As = quantize_int8(inp, dim=1, sr=False)
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)
         return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        inp, weight, bias = inputs
-        assert bias is None
+        inp, weight, _ = inputs
         ctx.save_for_backward(inp, weight._data)
         ctx.bias = False
 
@@ -128,19 +118,13 @@ class Int8MixedLinear(torch.autograd.Function):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None 
 
-        ## Grad truyền tiếp về layer sau, nên cần độ chính xác cao
-        # grad_input = grad_output @ weight # phép nhân nguyên bản
-        A, B  = grad_output, weight
-        A, As = quantize_int8(A, dim=1, sr=True) # rounding để đạt độ ...
-        B, Bs = quantize_int8(B, dim=0, sr=True) # ... chính xác cao hơn
+        A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding để đạt độ ...
+        B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
         grad_input = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[1]:
-            ## grad_weight = grad_output.T @ inp; cả 2 là activation nên rất lớn
-            ## Áp dụng INT8 matmul ở đây là lợi nhất; sr=False để tránh OOM và max speed
-            A, B  = grad_output.T, inp
-            A, As = quantize_int8(A, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
-            B, Bs = quantize_int8(B, dim=0, sr=False) # ... nó được update thẳng vào weight
+            A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
+            B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
             grad_weight = scaled_mm(A, B, As, Bs,)
 
         if ctx.needs_input_grad[2] and ctx.bias: grad_bias = grad_output.sum(0)
