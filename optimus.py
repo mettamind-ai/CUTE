@@ -211,18 +211,15 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             names.append(n)            
             params  += m.weight.numel()
-            m.weight = nn.Parameter(
-                MixedPrecisionLinearWeight(m.weight.detach()),
-                requires_grad=m.weight.requires_grad,
-            )
+            m.weight = nn.Parameter(MixedPrecisionLinearWeight(m.weight.detach()), requires_grad=m.weight.requires_grad,)
     return names, params
-
 
 ###################################
 ##  Fused Chunked Cross Entropy  ##
 ###################################
 
 @triton.jit
+@torch.compiler.disable
 def liger_cross_entropy_kernel(
     X_ptr, X_stride,        # input tensor.
     Y_ptr, Y_stride,        # đang tính LCE cho label Y này.
@@ -307,10 +304,9 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
     @staticmethod
-    @torch.compiler.disable
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, ignore_index=-100, lse_square_scale=0.0, label_smoothing=0.0):
-        total_n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
+        n_non_ignore = ( target != ignore_index ).sum().item()  # .item() that affects the speed ???
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
         logits = _input @ weight.t()
         V = weight.shape[0]
@@ -319,7 +315,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             X_ptr=logits, X_stride=logits.stride(-2),
             Y_ptr=target, Y_stride=target.stride(-1),          # always 1
             loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
-            n_cols=V, n_non_ignore=total_n_non_ignore, ignore_index=ignore_index,
+            n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
             lse_square_scale=lse_square_scale, label_smoothing=label_smoothing,
             BLOCK_SIZE=min(MAX_FUSED_SIZE, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
@@ -330,7 +326,6 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         return torch.sum(loss_1d)
 
     @staticmethod
-    @torch.compile()
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output):
         grad_input, grad_weight = ctx.saved_tensors
