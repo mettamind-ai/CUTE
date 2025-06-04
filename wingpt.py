@@ -218,7 +218,7 @@ class WinGPT(nn.Module):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
-
+    @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
@@ -288,19 +288,6 @@ if __name__ == "__main__":
     # Khởi tạo model 2 dùng OhMaiEmbedding
     torch.manual_seed(seed)
     ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, active_vocab=vocab_size//2).cuda()
-
-    # # Đảm bảo toàn bộ tham số của 2 model là như nhau
-    # def check_params():
-    #     for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
-    #         if n2 == "embeddings.active_weight":
-    #             n2 = "embeddings.weight"
-    #             p2 = ohmai.embeddings.weight.cuda()
-    #         if n2 == "lm_head.active_weight":
-    #             n2 = "lm_head.weight"
-    #             p2 = ohmai.lm_head.weight.cuda()
-    #         assert n1 == n2, f"{n1} != {n2}"
-    #         assert torch.allclose(p1, p2), f"{n1} values are different"
-    # check_params()
 
     # Đảm bảo toàn bộ 2 models đều là bf16
     for m in [model, ohmai]:

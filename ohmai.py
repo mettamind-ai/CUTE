@@ -9,6 +9,7 @@ from torch import nn, Tensor
 - Có thao tác để đổi active_vocab
 """
 
+@torch.compile()
 class OhMaiEmbFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, embeddings: torch.Tensor, indices: torch.Tensor):
