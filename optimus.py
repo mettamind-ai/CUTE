@@ -172,7 +172,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ############################
 
 @triton.jit
-def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, n_cols: tl.constexpr,):
+def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, vocab, CHUNK: tl.constexpr):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
@@ -181,13 +181,13 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
     offs = tl.arange(0, n_cols)
-    mask = (offs == true_label)
+    mask = (offs < vocab)
     X_ptr= X_ptr + offs
 
     if true_label == ignore: # logits' grad as 0     
         tl.store(X_ptr, 0.0)
     else:
-        X = tl.load(X_ptr).cast(tl.float32)
+        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
         X = 15*X*tl.rsqrt(X*X+225)  # smooth func từ modded nanogpt
 
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
@@ -196,11 +196,11 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
-        X = tl.exp(X - m)/d         # softmax
-        X = X - mask.to(X.dtype)    # gradient bị tác động bởi true_label_logit
+        X = tl.exp(X - m)/d                         # softmax
+        X = tl.where(offs != true_label, X, X - 1)  # gradient bị tác động bởi true_label_logit
 
-        tl.store(X_ptr, X / n_non_ignore)       # mean reduction
-        tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
+        tl.store(X_ptr, X/n_non_ignore, mask=mask)  # mean reduction
+        tl.store(loss_ptr, loss/n_non_ignore)       # mean reduction
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -211,11 +211,11 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
 
-        N, V = ( logits.shape[0], logits.shape[1] )
-        assert V % 128 == 0 and N == len(target) and V == weight.shape[0]
+        N,  V = ( logits.shape[0], logits.shape[1] ) # N là số labels, V là vocab
+        ni, C = ( N-n_ignores, triton.next_power_of_2(V) )
 
-        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, \
-            loss_ptr=loss_1d, n_non_ignore=float(N-n_ignores), ignore=ignore, n_cols=V, num_warps=32, )
+        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, 
+            loss_ptr=loss_1d, n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
 
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach()
