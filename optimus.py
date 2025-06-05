@@ -180,20 +180,25 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
     true_label = tl.load(label_ptr + program_id)
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
-    offs = tl.arange(0, n_cols) 
+    offs = tl.arange(0, n_cols)
+    mask = (offs == true_label)
     X_ptr= X_ptr + offs
 
     if true_label == ignore: # logits' grad as 0     
-        tl.store(X_ptr, 0.0) 
+        tl.store(X_ptr, 0.0)
     else:
-        X = tl.load(X_ptr, other=float("-inf")).cast(tl.float32)
+        X = tl.load(X_ptr).cast(tl.float32)
         X = 15*X*tl.rsqrt(X*X+225)  # smooth func từ modded nanogpt
+
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
+
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
-        X = tl.exp(X - LSE)                     # softmax(x_i), exp(X-m_max)/d_sum
-        X = tl.where(offs!=true_label, X, X-1)  # gradient bị tác động bởi true_label_logit
+
+        X = tl.exp(X - LSE)         # softmax(x_i), exp(X-m_max)/d_sum
+        X = X - mask.to(X.dtype)    # gradient bị tác động bởi true_label_logit
+
         tl.store(X_ptr, X / n_non_ignore)       # mean reduction
         tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
@@ -211,6 +216,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 
         per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, \
             loss_ptr=loss_1d, n_non_ignore=float(N-n_ignores), ignore=ignore, n_cols=V, num_warps=32, )
+
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach()
 
