@@ -150,7 +150,7 @@ class Block(nn.Module):
         return x
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size:int, n_layers:int, num_heads:int, num_kv_heads:int, dim:int, max_seq_len:int, head_dim=128, active_vocab=None):
+    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, active_vocab=None):
         super().__init__()
 
         self.ohmai = ( active_vocab is not None )
@@ -169,6 +169,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
+        self.final_mlp = ReLuSquareMLP(dim)
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
@@ -201,13 +202,16 @@ class WinGPT(nn.Module):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-        return norm(x)
+        return x
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
-    hidden = model(input_seq, cu_seqlens, max_seqlen)
+    x = model(input_seq, cu_seqlens, max_seqlen)
     if model.ohmai: model.lm_head.update_new_tokens_weight() # upload ...
+    x = x + checkpoint(model.final_mlp, norm(x), use_reentrant=False)
+    hidden = norm(x)    # câu giờ cho upload ...
+
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     return FusedLinearCrossEntropy.apply(hidden, w, target, n_ignore, ignore)
 

@@ -181,7 +181,6 @@ class OhMaiHead(nn.Module):
 
     @torch.compiler.disable
     def update_new_tokens_weight(self):
-        self.ohmai_stream.synchronize()
         self.active_weight.data[ self.new_token_indices ] = \
             self.weight.data[ self.new_tokens ].cuda(non_blocking=True)
 
