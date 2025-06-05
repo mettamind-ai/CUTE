@@ -173,13 +173,13 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 
 @triton.jit
 def per_label_cross_entropy_kernel(
-    X_ptr, X_stride,            # logits tensor.
-    label_ptr,                  # đang tính LCE cho label này.
-    loss_ptr,                   # để lưu loss của label.
-    n_cols,                     # (int):   The number of columns in the logits tensor.
-    n_non_ignore,               # (float): The number of non-ignored elements in the batch.
-    ignore_index,               # (int):   The index to ignore in the target (-100).
-    CHUNK_SIZE: tl.constexpr,   # vectorize thuật toán gốc theo từng chunk
+    X_ptr, X_stride,    # logits tensor.
+    label_ptr,          # đang tính LCE cho label này.
+    loss_ptr,           # để lưu loss của label.
+    n_cols,             # (int):   The number of columns in the logits tensor.
+    n_non_ignore,       # (float): The number of non-ignored elements in the batch.
+    ignore,             # (int):   The index to ignore in the target (-100).
+    CHUNK: tl.constexpr # vectorize thuật toán gốc theo từng chunk
 ):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
@@ -188,13 +188,13 @@ def per_label_cross_entropy_kernel(
     true_label = tl.load(label_ptr + program_id)
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
-    offs = tl.arange(0, CHUNK_SIZE)     # CHUNK_SIZE >= n_cols for sure
-    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
+    offs = tl.arange(0, CHUNK) # CHUNK >= n_cols for sure
+    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK), CHUNK)
 
     X_ptr= X_ptr + offs
     mask = offs < n_cols
 
-    if true_label == ignore_index:  # logits' grad as 0     
+    if true_label == ignore: # logits' grad as 0     
         tl.store(X_ptr, 0.0, mask=mask) 
     else:
         X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
@@ -212,7 +212,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu _input và target cho backward """
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
 
@@ -220,11 +220,11 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         C = triton.next_power_of_2(V) # Load toàn bộ batch data
         assert C >= V and N == len(target) and V == weight.shape[0]
 
-        per_label_cross_entropy_kernel[(N,)](           # Khởi tạo số kernels tương ứng với số labels
-            X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
-            label_ptr=target, loss_ptr=loss_1d,         # 1D label và loss => stride = 1
-            n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
-            CHUNK_SIZE=C, num_warps=32,                 # torch.version.hip is None
+        per_label_cross_entropy_kernel[(N,)](         # Khởi tạo số kernels tương ứng với số labels
+            X_ptr=logits, X_stride=logits.stride(-2), # 2D logits
+            label_ptr=target, loss_ptr=loss_1d,       # 1D label và loss => stride = 1
+            n_cols=V, n_non_ignore=(N - n_ignores),
+            ignore=ignore, CHUNK=C, num_warps=32,
         )
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach()

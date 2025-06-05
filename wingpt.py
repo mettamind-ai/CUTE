@@ -204,11 +204,11 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
         return norm(x)
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, ignore_index=-100):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore=len(target), ignore_index=ignore_index)
+    return FusedLinearCrossEntropy.apply(hidden, w, target, n_ignore, ignore)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
