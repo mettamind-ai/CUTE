@@ -15,7 +15,7 @@ class OhMaiEmbFunction(torch.autograd.Function):
         ctx.save_for_backward(embeddings, indices)
         return embeddings[indices]
 
-    @torch.compile()
+    # @torch.compile()
     def backward(ctx, grad_output: torch.Tensor):
         embeddings, indices = ctx.saved_tensors
         grad_weight = torch.zeros_like(embeddings)
@@ -28,7 +28,7 @@ class OhMaiEmbedding(nn.Module):
         super().__init__()
         self.vocab = vocab
 
-        self.weight = torch.randn(vocab, dim, device="cpu", dtype=torch.bfloat16)
+        self.weight = torch.randn(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
         self.weight.requires_grad_(False)
 
         if active_vocab is None: active_vocab = vocab // 2  # a safe assumption
@@ -55,7 +55,7 @@ class OhMaiEmbedding(nn.Module):
 
         # Dùng unuse_tokens và unuse_weights để update vào weight trên CPU
         unuse_mask    = ~torch.isin(self.active, curr_active)
-        unuse_tokens  = self.active[unuse_mask]
+        unuse_tokens  = self.active[unuse_mask].cpu()
 
         unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
         unuse_weights  = self.active_weight.data[unuse_indices].clone()
@@ -72,11 +72,11 @@ class OhMaiEmbedding(nn.Module):
 
         # Update new token embeddings
         self.active_weight.data[ new_token_indices ] = \
-        self.weight.data[new_tokens.cpu()].pin_memory().cuda(non_blocking=True)
+        self.weight.data[new_tokens.cpu()].cuda(non_blocking=True)
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):
-            self.weight.data[unuse_tokens.cpu()] = unuse_weights.cpu()
+            self.weight.data[unuse_tokens] = unuse_weights.to('cpu', non_blocking=True)
 
         # Tạo inverse indices và trả về
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
@@ -129,7 +129,9 @@ class OhMaiHead(nn.Module):
 
         self.inverse_map = torch.full((vocab,), -1, dtype=torch.long, device='cuda')
         self.inverse_map.requires_grad_(False)
+
         self.ohmai_stream = torch.cuda.Stream()
+        self.upload_stream = torch.cuda.Stream()
 
 
     @torch.no_grad()
@@ -159,32 +161,31 @@ class OhMaiHead(nn.Module):
     @torch.no_grad()
     @torch.compile()
     def activate(self, indices):
+        curr_active   = self.get_active_tokens(indices)
+        unuse_mask    = ~torch.isin(self.active, curr_active)
+        unuse_tokens  = self.active[unuse_mask].cpu()
+        unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
+
         with torch.cuda.stream(self.ohmai_stream):
-            curr_active   = self.get_active_tokens(indices)
-            unuse_mask    = ~torch.isin(self.active, curr_active)
-            unuse_tokens  = self.active[unuse_mask]
+            self.weight.data[unuse_tokens] = self.active_weight.data[unuse_indices].to('cpu', non_blocking=True)
 
-            unuse_indices = torch.nonzero(unuse_mask, as_tuple=False).flatten()
-            self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
-            self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
+        self.new_tokens = curr_active[~torch.isin(curr_active, self.active)]
+        self.new_token_indices = torch.nonzero(~torch.isin(self.active, curr_active), as_tuple=False).flatten()
 
-            assert len(self.new_token_indices) == len(self.new_tokens)
-            self.active[self.new_token_indices] = self.new_tokens
+        assert len(self.new_token_indices) == len(self.new_tokens)
+        self.active[self.new_token_indices] = self.new_tokens
+        self.new_tokens = self.new_tokens.cpu()
 
-            self.new_tokens = self.new_tokens.cpu()
-            self.weight.data[unuse_tokens.cpu()] = self.active_weight.data[unuse_indices].cpu()
-
-            # Tạo inverse indices và trả về
-            self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
-            return self.inverse_map[indices]
-
+        # Tạo inverse indices và trả về
+        self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
+        return self.inverse_map[indices]
 
     @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
-        self.active_weight.data[ self.new_token_indices ] = \
-            self.weight.data[ self.new_tokens ].pin_memory().cuda(non_blocking=True)
-            # self.weight.data[ self.new_tokens ].cuda()
+        with torch.cuda.stream(self.upload_stream):
+            self.active_weight.data[ self.new_token_indices ] = \
+                self.weight.data[ self.new_tokens ].cuda(non_blocking=True)
 
     @torch.no_grad()
     @torch.compiler.disable

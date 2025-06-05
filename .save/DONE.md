@@ -154,3 +154,6 @@
   - giải quyết vấn đề representation collapse trong Transformers
 - tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
 
+--------
+
+- [ ] Tìm hiểu byte level LLM (BLT, EveByte)

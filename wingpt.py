@@ -177,7 +177,7 @@ class WinGPT(nn.Module):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
-    @torch.compile()
+    # @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())
@@ -315,8 +315,10 @@ if __name__ == "__main__":
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
 
-        loss_ohmai.backward(); loss_model.backward()
-        optim.step(); aptim.step()
+        loss_ohmai.backward()
+        loss_model.backward()
+        optim.step()
+        aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
         ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
