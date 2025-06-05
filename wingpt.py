@@ -204,6 +204,7 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
         return norm(x)
 
+
 def simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
@@ -237,7 +238,7 @@ if __name__ == "__main__":
 
     seed = 1982
     seq_len = 1024
-    vocab_size = 2048
+    vocab_size = 6400
     dim, n_layers = 256, 8
     num_heads, num_kv_heads = 8, 4
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
