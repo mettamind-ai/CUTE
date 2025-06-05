@@ -184,39 +184,32 @@ def per_label_cross_entropy_kernel(
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     label_ptr += program_id
-    loss_ptr  += program_id
     true_label = tl.load(label_ptr)
     true_label_logit = tl.load(X_ptr + true_label).cast(tl.float32)
+    loss_ptr  += program_id
 
-    offs = tl.arange(0, CHUNK_SIZE) # CHUNK_SIZE >= n_cols for sure
+    offs = tl.arange(0, CHUNK_SIZE)     # CHUNK_SIZE >= n_cols for sure
     offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
+    X_ptr= X_ptr + offs
     mask = offs < n_cols
 
-    if true_label == ignore_index:  # gradient is 0 => set logits' grad as 0
-        for i in range(0, n_cols, CHUNK_SIZE): tl.store(X_ptr + offs, 0.0, mask=mask)
-        return                      # just return, loss đã đc set = 0 trước nên không cần xử lý
+    if true_label == ignore_index:      
+        tl.store(X_ptr, 0.0, mask=mask) # gradient is 0 => set logits' grad as 0
+    else:
+        ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
+        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
+        m_max = tl.max(X, axis=0)           # the max value `m` and the sum `d` are notations in ... 
+        d_sum = tl.sum(tl.exp(X - m_max))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
 
-    m_max   = float("-inf")         # the max value `m` and the sum `d` are notations in ... 
-    d_sum   = 0.0                   # ... the paper https://www.alphaxiv.org/abs/1805.02867
+        LSE = m_max + tl.log(d_sum)   # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
+        loss = LSE - true_label_logit # loss là khoảng cách mức độ lớn tổng thể và true label logit
+        tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
-    ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
-    X = tl.load(X_ptr + offs, mask=mask, other=float("-inf"),
-        cache_modifier=".cg",).cast(tl.float32) # Cache ở mọi level cho second pass
-    m_new = tl.maximum(m_max, tl.max(X))
-    d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
-    m_max = m_new
-
-    LSE = m_max + tl.log(d_sum)   # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
-    loss = LSE - true_label_logit # loss là khoảng cách mức độ lớn tổng thể và true label logit
-    tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
-
-    ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
-    X = tl.load(X_ptr + offs, mask=mask, other=float("-inf"),).cast(tl.float32)
-    X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
-    X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
-    tl.store(X_ptr+offs, X/n_non_ignore, mask=mask) # mean reduction
+        ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
+        X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
+        X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
+        tl.store(X_ptr, X/n_non_ignore, mask=mask) # mean reduction
     # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
-
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu _input và target cho backward """
