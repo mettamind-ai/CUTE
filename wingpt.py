@@ -198,7 +198,6 @@ class WinGPT(nn.Module):
         ve_lambdas = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(n_blks):
-            if self.ohmai and i == int(n_blks*0.6): self.lm_head.update_new_tokens_weight() # upload ...
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
@@ -208,7 +207,7 @@ class WinGPT(nn.Module):
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)
-    if model.ohmai: model.lm_head.sync_upload_stream()
+    if model.ohmai: model.lm_head.update_new_tokens_weight() # upload ...
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     return FusedLinearCrossEntropy.apply(hidden, w, target, n_ignore, ignore)
 

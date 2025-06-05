@@ -129,9 +129,7 @@ class OhMaiHead(nn.Module):
 
         self.inverse_map = torch.full((vocab,), -1, dtype=torch.long, device='cuda')
         self.inverse_map.requires_grad_(False)
-
         self.ohmai_stream = torch.cuda.Stream()
-        self.upload_stream = torch.cuda.Stream()
 
 
     @torch.no_grad()
@@ -184,13 +182,8 @@ class OhMaiHead(nn.Module):
     @torch.compiler.disable
     def update_new_tokens_weight(self):
         self.ohmai_stream.synchronize()
-        with torch.cuda.stream(self.upload_stream):
-            self.active_weight.data[ self.new_token_indices ] = \
-                self.weight.data[ self.new_tokens ].cuda(non_blocking=True)
-
-    @torch.compiler.disable
-    def sync_upload_stream(self):
-        self.upload_stream.synchronize()
+        self.active_weight.data[ self.new_token_indices ] = \
+            self.weight.data[ self.new_tokens ].cuda(non_blocking=True)
 
     @torch.no_grad()
     @torch.compiler.disable
