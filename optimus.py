@@ -268,8 +268,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
     need_invert = X.size(-2) > X.size(-1)
     if need_invert: X = X.mT                            # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    X /= (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)    # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    a,b,c = (3.4445,-4.7750,2.0315)
+    X /= ( X.norm(dim=(-2, -1), keepdim=True) + 1e-7 )  # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    a , b, c = ( 3.4445, -4.7750, 2.0315 )
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 1
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 2
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 3
