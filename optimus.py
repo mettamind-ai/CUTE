@@ -227,7 +227,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         logits  = _input @ weight.t()
 
         N, V = logits.shape[0], logits.shape[1], 
-        C = min(1024*16, triton.next_power_of_2(V))     # Tối ưu cho L2 cache line (128 bytes)
+        C = min(1024*64, triton.next_power_of_2(V))     # Tối ưu cho L2 cache line (128 bytes)
 
         per_label_cross_entropy_kernel[(N,)](           # Khởi tạo số kernels tương ứng với số labels
             X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
