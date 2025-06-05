@@ -210,13 +210,13 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x = model(input_seq, cu_seqlens, max_seqlen)
     if model.ohmai: model.lm_head.update_new_tokens_weight() #  upload ...
 
-    x=norm(x); y=x+checkpoint(model.final_mlp,x,use_reentrant=False); y=norm(y)
-    future = target.roll(-1); future[-1] = ignore # câu giờ cho upload ...
+    x=norm(x); y=x+model.final_mlp(x); y=norm(y)
+    future=target.roll(-1); future[-1]=ignore # câu giờ cho upload ...
 
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, future, n_ignore, ignore)
-    return (xloss*0.75 + yloss*0.25)
+    return (xloss*0.8 + yloss*0.2)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
