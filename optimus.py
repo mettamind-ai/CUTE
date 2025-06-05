@@ -180,7 +180,7 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
     true_label = tl.load(label_ptr + program_id)
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
-    offs = tl.arange(0, n_cols)
+    offs = tl.arange(0, CHUNK)
     mask = (offs < vocab)
     X_ptr= X_ptr + offs
 
