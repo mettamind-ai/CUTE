@@ -52,16 +52,8 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- [ ] Các phương pháp huấn luyện hiệu quả
-  - Dùng LoRA để dup 1 thành 2 blocks liên tiếp ... 
-  - MoE https://huggingface.co/collections/allenai/olmoe-january-2025-67992134f9ebea0a941706ca
-  - [ROSA](https://github.com/IST-DASLab/RoSA) combines low-rank (LoRA) and sparse finetuning
-  - [DORA](https://www.answer.ai/posts/2024-04-26-fsdp-qdora-llama3.html) (tham khảo torchtune)
-  - [ ] Kết hợp DORA + ROSA ...
-
 - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-- [ ] Redo `Byte Latent Transformer`
-- Quant https://github.com/mit-han-lab/nunchaku
+- [ ] Tìm hiểu byte level LLM (BLT, EveByte)
