@@ -192,7 +192,7 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
 
-        LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
+        LSE  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
         X = tl.exp(X - m)/d                         # softmax
@@ -209,7 +209,6 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
-        logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
 
         N,  V = ( logits.shape[0], logits.shape[1] ) # N là số labels, V là vocab
         ni, C = ( N-n_ignores, triton.next_power_of_2(V) )
