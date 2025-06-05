@@ -204,6 +204,14 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
         return norm(x)
 
+def simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
+    if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
+    hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
+    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+    logits = ( hidden @ w.t() ).float() 
+    logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+    return F.cross_entropy(logits, target)
+    
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
@@ -213,7 +221,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
         mask[-1] = True
-        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1,])
+        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device="cuda"), torch.where(mask)[0].to(torch.int32) + 1,])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
 
@@ -302,8 +310,8 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
 
-        loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
-        loss_ohmai = fused_loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
+        loss_model = simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss_ohmai = fused_loss_fn( ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
         ## Đảm bảo 2 cách lấy head là giống nhau
         a = ohmai.lm_head.weight.cuda()[target]
@@ -317,7 +325,7 @@ if __name__ == "__main__":
         loss_ohmai.backward(); loss_model.backward()
         optim.step(); aptim.step()
 
-        print(f"Peak VRAM: {current_memory:.2f} MB, {loss_fn.__name__}")
+        print(f"Peak VRAM: {current_memory:.2f} MB")
         ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
 
     tok_emb_after = ohmai.embeddings.weight.data

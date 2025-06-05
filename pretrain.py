@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
+from wingpt import WinGPT, get_cu_max_seqlens_from, simple_loss_fn as lossf
 import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
