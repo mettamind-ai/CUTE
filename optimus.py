@@ -230,7 +230,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, label_smooth=0.1):
+    def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, label_smooth=0.0):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
         logits  = _input @ weight.t()
         
