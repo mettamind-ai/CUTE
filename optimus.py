@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 ''' TẬP HỢP CODE TỐI ƯU ĐỂ TRAIN LLM TRÊN GAMING GPUs (30xx, 40xx, 50xx)
-- INT8 Mixed Precision modded from github.com/gau-nernst/quantized-training
-- Muon optimizer modded from github.com/nil0x9/flash-muon
-- Fused CE modded from https://github.com/linkedin/Liger-Kernel
+- INT8 Mixed Precision github.com/gau-nernst/quantized-training
+- Muon optimizer github.com/nil0x9/flash-muon
+- Fused LCE github.com/linkedin/Liger-Kernel
 '''
 import functools, torch, triton, os, re
 import triton.language as tl, torch.distributed as dist
@@ -184,7 +184,7 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
     mask = (offs < vocab)
     X_ptr= X_ptr + offs
 
-    if true_label == ignore: # logits' grad as 0     
+    if true_label == ignore: # logits' grad is 0
         tl.store(X_ptr, 0.0)
     else:
         X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
@@ -192,7 +192,7 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
 
-        LSE  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
+        LSE  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
         X = tl.exp(X - m)/d                         # softmax
@@ -233,7 +233,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 
 
 #################################################################
-##  Muon Optimizer - MomentUm Orthogonalized by Newton-schulz  ##
+##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
 @torch.compile()
@@ -250,7 +250,6 @@ def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
-    ''' Viết lại Muon cho 1 GPU, bỏ distributed code cho dễ hiểu '''
     def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
@@ -264,8 +263,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 g, st = p.grad, self.state[p]                   # lấy gradient và optim state và khởi tạo momentum nếu chưa có
                 if 'mm' not in st: st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])              # momentum = momentum * 0.9 + gradient * 0.1
-                g = g.lerp_(st['mm'], group['mm'])              # gradient = gradient * 0.1 + momentum * 0.9
+                st['mm'].lerp_(g, 1 - group['mm'])              # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])              # gradient = gradient * 0.05 + momentum * 0.95
 
                 if g.ndim != 2: g = g.view(len(g), -1)          # 2D hoá
                 g = zeropower_via_newtonschulz5(g.bfloat16())   # Trực giao Newton-Schulz
