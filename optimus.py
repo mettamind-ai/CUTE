@@ -189,7 +189,7 @@ def per_label_cross_entropy_kernel(
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
     offs = tl.arange(0, CHUNK) # CHUNK >= n_cols for sure
-    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK), CHUNK)
+    # offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK), CHUNK)
 
     X_ptr= X_ptr + offs
     mask = offs < n_cols
