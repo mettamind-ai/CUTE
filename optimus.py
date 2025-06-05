@@ -196,26 +196,25 @@ def per_label_cross_entropy_kernel(
 
     m_max   = float("-inf")         # the max value `m` and the sum `d` are notations in ... 
     d_sum   = 0.0                   # ... the paper https://www.alphaxiv.org/abs/1805.02867
+
     ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
-    for i in range(0, n_cols, CHUNK_SIZE):
-        offs  = i + tl.arange(0, CHUNK_SIZE)
-        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),
-            cache_modifier=".cg",).cast(tl.float32) # Cache ở mọi level cho second pass
-        m_new = tl.maximum(m_max, tl.max(X))
-        d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
-        m_max = m_new
+    offs = tl.arange(0, CHUNK_SIZE)
+    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
+    X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),
+        cache_modifier=".cg",).cast(tl.float32) # Cache ở mọi level cho second pass
+    m_new = tl.maximum(m_max, tl.max(X))
+    d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
+    m_max = m_new
 
     LSE = m_max + tl.log(d_sum)   # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
     loss = LSE - true_label_logit # loss là khoảng cách mức độ lớn tổng thể và true label logit
     tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
     ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
-    for i in range(0, n_cols, CHUNK_SIZE):
-        offs = i + tl.arange(0, CHUNK_SIZE)
-        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
-        X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
-        X = tl.where(offs != true_label, X, X - 1)              # gradient bị tác động bởi true_label_logit
-        tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
+    X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
+    X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
+    X = tl.where(offs != true_label, X, X - 1)              # gradient bị tác động bởi true_label_logit
+    tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
     # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -227,7 +226,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         logits  = _input @ weight.t()
 
         N, V = logits.shape[0], logits.shape[1], 
-        C = min(1024*64, triton.next_power_of_2(V))     # Tối ưu cho L2 cache line (128 bytes)
+        C = triton.next_power_of_2(V) # Load toàn bộ batch data
+        assert C >= V and N == len(target) and V == weight.shape[0]
 
         per_label_cross_entropy_kernel[(N,)](           # Khởi tạo số kernels tương ứng với số labels
             X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
