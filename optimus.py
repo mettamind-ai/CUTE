@@ -188,19 +188,19 @@ def per_label_cross_entropy_kernel(
     true_label = tl.load(label_ptr)
     true_label_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
+    offs = tl.arange(0, CHUNK_SIZE) # CHUNK_SIZE >= n_cols for sure
+    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
+    mask = offs < n_cols
+
     if true_label == ignore_index:  # gradient is 0 => set logits' grad as 0
-        for i in range(0, n_cols, CHUNK_SIZE):
-            offs = i + tl.arange(0, CHUNK_SIZE)
-            tl.store(X_ptr + offs, 0.0, mask=offs<n_cols)
+        for i in range(0, n_cols, CHUNK_SIZE): tl.store(X_ptr + offs, 0.0, mask=mask)
         return                      # just return, loss đã đc set = 0 trước nên không cần xử lý
 
     m_max   = float("-inf")         # the max value `m` and the sum `d` are notations in ... 
     d_sum   = 0.0                   # ... the paper https://www.alphaxiv.org/abs/1805.02867
 
     ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
-    offs = tl.arange(0, CHUNK_SIZE)
-    offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
-    X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),
+    X = tl.load(X_ptr + offs, mask=mask, other=float("-inf"),
         cache_modifier=".cg",).cast(tl.float32) # Cache ở mọi level cho second pass
     m_new = tl.maximum(m_max, tl.max(X))
     d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
@@ -211,11 +211,12 @@ def per_label_cross_entropy_kernel(
     tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
     ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
-    X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
-    X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
-    X = tl.where(offs != true_label, X, X - 1)              # gradient bị tác động bởi true_label_logit
-    tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
+    X = tl.load(X_ptr + offs, mask=mask, other=float("-inf"),).cast(tl.float32)
+    X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
+    X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
+    tl.store(X_ptr+offs, X/n_non_ignore, mask=mask) # mean reduction
     # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
+
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu _input và target cho backward """
