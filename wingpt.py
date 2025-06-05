@@ -154,15 +154,8 @@ class WinGPT(nn.Module):
         super().__init__()
 
         self.ohmai = ( active_vocab is not None )
-        if self.ohmai:
-            Embedding = OhMaiEmbedding 
-            self.lm_head = OhMaiHead(dim, vocab_size)
-        else:
-            Embedding = nn.Embedding
-            self.lm_head = nn.Linear(dim, vocab_size, bias=False)
-            with torch.no_grad(): self.lm_head.weight.zero_()
-
-        print(f"OH_MAI? {self.ohmai}; using {Embedding.__name__}")
+        Embedding, Head = (OhMaiEmbedding, OhMaiHead) if self.ohmai else (nn.Embedding, nn.Linear)
+        print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
         self.blocks = nn.ModuleList([Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers)])
@@ -176,6 +169,9 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
+        self.lm_head = Head(dim, vocab_size, bias=False)
+        if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
+            with torch.no_grad(): self.lm_head.weight.zero_()
 
     def update_async_weight(self):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
@@ -205,16 +201,17 @@ class WinGPT(nn.Module):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-        return norm(x)
+        return x
 
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
-    if model.ohmai: target = model.lm_head.activate(target)   ### offload head weight
-    hidden = model(input_seq, cu_seqlens, max_seqlen)         ### hidden đã norm
-    if model.ohmai: model.lm_head.update_new_tokens_weight()  ### đã offload xong thì upload lên
-    n_non_ignore = len(target)  ### cần tính số lượng cụ target != -100 từ CPU
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, ignore_index=-100):
+    if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
+    hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
+    if model.ohmai: model.lm_head.update_new_tokens_weight() # upload lên ... do tính loss per label lâu nên có thể async
+    n_non_ignore = ( target != ignore_index ).sum().item()   # câu thêm giờ cho upload ...
+    hidden = norm(hidden)                                    # câu thêm giờ cho upload ...
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore)
+    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore, ignore_index)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
@@ -246,6 +243,20 @@ if __name__ == "__main__":
     # Khởi tạo model 2 dùng OhMaiEmbedding và OhMaiHead
     torch.manual_seed(seed)
     ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, active_vocab=vocab_size//2).cuda()
+
+    # Đảm bảo toàn bộ tham số của 2 model là như nhau
+    def check_params():
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
+            if n2 == "embeddings.active_weight":
+                n2 = "embeddings.weight"
+                p2 = ohmai.embeddings.weight.cuda()
+            if n2 == "lm_head.active_weight":
+                n2 = "lm_head.weight"
+                p2 = ohmai.lm_head.weight.cuda()
+            assert n1 == n2, f"{n1} != {n2}"
+            assert torch.allclose(p1, p2), f"{n1} values are different"
+        print("Params của 2 model đã được khởi tạo giống hệt nhau")
+    check_params()
 
     # Đảm bảo toàn bộ 2 models đều là bf16
     for m in [model, ohmai]:

@@ -102,7 +102,7 @@ bù lại tiết kiệm rất nhiều vram và lượng computing save được 
 '''
 MAX_ACTIVE_VOCAB = 1024 * 32  # 32k tối ưu cho speed, và vừa đủ 1:3 -> 1:4 pos/ng
 class OhMaiHead(nn.Module):
-    def __init__(self, dim, vocab):
+    def __init__(self, dim, vocab, bias=None):
         super().__init__()
         self.active_vocab = vocab // 2
 

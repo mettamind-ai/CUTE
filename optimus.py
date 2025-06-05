@@ -204,16 +204,16 @@ def per_label_cross_entropy_kernel(
         d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
         m_max = m_new
 
-    LSE = m_max + tl.log(d_sum)     # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
-    loss = LSE - true_label_logit   # loss là khoảng cách mức độ lớn tổng thể và true label logit
+    LSE = m_max + tl.log(d_sum)   # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
+    loss = LSE - true_label_logit # loss là khoảng cách mức độ lớn tổng thể và true label logit
     tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
-    ## Second pass: Tính gradient
+    ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
     for i in range(0, n_cols, CHUNK_SIZE):
         offs = i + tl.arange(0, CHUNK_SIZE)
-        X = tl.load(X_ptr+offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
+        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
         X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
-        X = tl.where(offs != true_label, X, X - 1)              # gradient 
+        X = tl.where(offs != true_label, X, X - 1)              # gradient bị tác động bởi true_label_logit
         tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
     # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
 
@@ -224,13 +224,15 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
-        V       = weight.shape[0]
-        per_label_cross_entropy_kernel[(len(target),)]( # Khởi tạo số kernels tương ứng với số labels
+
+        N, V = logits.shape[0], logits.shape[1], 
+        C    = min(65536 // 2, triton.next_power_of_2(V))
+
+        per_label_cross_entropy_kernel[(N,)](           # Khởi tạo số kernels tương ứng với số labels
             X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
             label_ptr=target, loss_ptr=loss_1d,         # 1D label và loss => stride = 1
             n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
-            CHUNK_SIZE=min(65536 // 2, triton.next_power_of_2(V)),
-            num_warps=32 if torch.version.hip is None else 16,
+            CHUNK_SIZE=C, num_warps=32,                 # torch.version.hip is None
         )
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach()
