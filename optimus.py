@@ -167,9 +167,9 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
             m.weight = nn.Parameter(MixedPrecisionLinearWeight(m.weight.detach()), requires_grad=m.weight.requires_grad,)
     return names, params
 
-###################################
-##  Fused Chunked Cross Entropy  ##
-###################################
+############################
+##  Fused  Cross Entropy  ##
+############################
 
 @triton.jit
 def per_label_cross_entropy_kernel(
@@ -184,25 +184,24 @@ def per_label_cross_entropy_kernel(
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
+
     true_label = tl.load(label_ptr + program_id)
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
     offs = tl.arange(0, CHUNK_SIZE)     # CHUNK_SIZE >= n_cols for sure
     offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
+
     X_ptr= X_ptr + offs
     mask = offs < n_cols
 
-    if true_label == ignore_index:      
-        tl.store(X_ptr, 0.0, mask=mask) # gradient is 0 => set logits' grad as 0
+    if true_label == ignore_index:  # logits' grad as 0     
+        tl.store(X_ptr, 0.0, mask=mask) 
     else:
-        ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
         X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
-
-        ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
         X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
         X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
         tl.store(X_ptr, X/n_non_ignore, mask=mask)      # mean reduction

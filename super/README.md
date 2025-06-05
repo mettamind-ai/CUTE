@@ -127,9 +127,11 @@ Token → Router → Expert Visual (2048d)
 - https://www.youtube.com/watch?v=z3Nhg9DQzdU
 - https://hkunlp.github.io/blog/2025/evabyte
 - https://github.com/OpenEvaByte/evabyte
+- Base model before annealing https://huggingface.co/EvaByte/EvaByte-Phase1
 
 The main difference between BLTs and EvaByte lies in the architecture: BLTs use patchification and propose entropy patching to dynamically group bytes. While this approach adjusts compute allocation based on data complexity and reduces context length, it still relies on external models to determine patch boundaries. The majority of compute ends up focused on patch-level modeling, detached from the byte stream, similar to tokenizer-based models.
 
 In contrast, EvaByte keeps things simple: it directly operates on bytes with a flat Transformer-like model without needing to invoke external modules or group inputs. Empirically, EvaByte achieves better performance than BLTs even with 3-4x fewer training bytes, as shown in the table below. Besides, EvaByte is more flexible and scales easily to multimodal data, while BLTs require retraining or swapping out the auxiliary language model used for entropy patching.
 
 ![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/comp_to_blt-1400.webp)
+
