@@ -199,8 +199,8 @@ def per_label_cross_entropy_kernel(
     ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
     for i in range(0, n_cols, CHUNK_SIZE):
         offs  = i + tl.arange(0, CHUNK_SIZE)
-        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),            # cố gắng giữ lại data ở
-            cache_modifier=".cg", eviction_policy="evict_last",).cast(tl.float32)   # L2 cache cho second pass
+        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),
+            cache_modifier=".cg",).cast(tl.float32) # Cache ở mọi level cho second pass
         m_new = tl.maximum(m_max, tl.max(X))
         d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
         m_max = m_new
