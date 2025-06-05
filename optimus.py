@@ -172,15 +172,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ############################
 
 @triton.jit
-def per_label_cross_entropy_kernel(
-    X_ptr, X_stride,    # logits tensor.
-    label_ptr,          # đang tính LCE cho label này.
-    loss_ptr,           # để lưu loss của label.
-    n_cols,             # (int):   The number of columns in the logits tensor.
-    n_non_ignore,       # (float): The number of non-ignored elements in the batch.
-    ignore,             # (int):   The index to ignore in the target (-100).
-    CHUNK: tl.constexpr # vectorize thuật toán gốc theo từng chunk
-):
+def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, n_cols: tl.constexpr,):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
@@ -188,45 +180,37 @@ def per_label_cross_entropy_kernel(
     true_label = tl.load(label_ptr + program_id)
     true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
-    offs = tl.arange(0, CHUNK) # CHUNK >= n_cols for sure
-    # offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK), CHUNK)
-
+    offs = tl.arange(0, n_cols) 
     X_ptr= X_ptr + offs
-    mask = offs < n_cols
 
     if true_label == ignore: # logits' grad as 0     
-        tl.store(X_ptr, 0.0, mask=mask) 
+        tl.store(X_ptr, 0.0) 
     else:
-        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
+        X = tl.load(X_ptr, other=float("-inf")).cast(tl.float32)
         X = 15*X*tl.rsqrt(X*X+225)  # smooth func từ modded nanogpt
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
-        X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
-        X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
-        tl.store(X_ptr, X / n_non_ignore, mask=mask)    # mean reduction
-        tl.store(loss_ptr, loss / n_non_ignore)         # mean reduction
+        X = tl.exp(X - LSE)                     # softmax(x_i), exp(X-m_max)/d_sum
+        X = tl.where(offs!=true_label, X, X-1)  # gradient bị tác động bởi true_label_logit
+        tl.store(X_ptr, X / n_non_ignore)       # mean reduction
+        tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
-    """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu _input và target cho backward """
+    """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu input và target cho backward """
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
 
-        N, V = logits.shape[0], logits.shape[1], 
-        C = triton.next_power_of_2(V) # Load toàn bộ batch data
-        assert C >= V and N == len(target) and V == weight.shape[0]
+        N, V = ( logits.shape[0], logits.shape[1] )
+        assert V == triton.next_power_of_2(V) and N == len(target) and V == weight.shape[0]
 
-        per_label_cross_entropy_kernel[(N,)](         # Khởi tạo số kernels tương ứng với số labels
-            X_ptr=logits, X_stride=logits.stride(-2), # 2D logits
-            label_ptr=target, loss_ptr=loss_1d,       # 1D label và loss => stride = 1
-            n_cols=V, n_non_ignore=float(N-n_ignores),
-            ignore=ignore, CHUNK=C, num_warps=32,
-        )
+        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, \
+            loss_ptr=loss_1d, n_non_ignore=float(N-n_ignores), ignore=ignore, n_cols=V, num_warps=32, )
         grad_input  = ( logits     @ weight ).detach()
         grad_weight = ( logits.t() @ _input ).detach()
 
