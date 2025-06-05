@@ -4,7 +4,7 @@
 - Muon optimizer modded from github.com/nil0x9/flash-muon
 - Fused CE modded from https://github.com/linkedin/Liger-Kernel
 '''
-import functools, torch, triton, os
+import functools, torch, triton, os, re
 import triton.language as tl, torch.distributed as dist
 import torch.nn.functional as F, torch.utils._pytree as pytree
 
@@ -156,7 +156,7 @@ class MixedPrecisionLinearWeight(Tensor):
         elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
         else: return out # new unwrapped object
 
-import re
+
 def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
     ignore = re.compile(rf'{ignore}')
     names, params = [], 0
@@ -172,76 +172,63 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ###################################
 
 @triton.jit
-def cross_entropy_kernel(
-    X_ptr, X_stride,            # input tensor.
-    Y_ptr, Y_stride,            # đang tính LCE cho label Y này.
-    loss_ptr, loss_stride,      # để lưu loss của label.
-    n_cols,                     # (int):   The number of columns in the input tensor.
+def per_label_cross_entropy_kernel(
+    X_ptr, X_stride,            # logits tensor.
+    label_ptr,                  # đang tính LCE cho label này.
+    loss_ptr,                   # để lưu loss của label.
+    n_cols,                     # (int):   The number of columns in the logits tensor.
     n_non_ignore,               # (float): The number of non-ignored elements in the batch.
     ignore_index,               # (int):   The index to ignore in the target (-100).
-    label_smooth: tl.constexpr, # (float): 0.0 means no smoothing.
     CHUNK_SIZE: tl.constexpr,   # vectorize thuật toán gốc theo từng chunk
 ):
-    program_id = tl.program_id(0).to(tl.int64)
+    program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
-    Y_ptr     += program_id * Y_stride
-    loss_ptr  += program_id * loss_stride
+    label_ptr += program_id
+    loss_ptr  += program_id
+    true_label = tl.load(label_ptr)
+    true_label_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
-    y = tl.load(Y_ptr)
-    if y == ignore_index:   # gradient is 0 => set logits' grad as 0
+    if true_label == ignore_index:  # gradient is 0 => set logits' grad as 0
         for i in range(0, n_cols, CHUNK_SIZE):
             offs = i + tl.arange(0, CHUNK_SIZE)
             tl.store(X_ptr + offs, 0.0, mask=offs<n_cols)
-        return              # just return, loss đã đc set = 0 trước nên không cần xử lý
+        return                      # just return, loss đã đc set = 0 trước nên không cần xử lý
 
-    true_label_logit = tl.load(X_ptr + y).cast(tl.float32)
-    m_max   = float("-inf") # the max value `m` and the sum `d` are notations in ... 
-    d_sum   = 0.0           # ... the paper https://www.alphaxiv.org/abs/1805.02867
-    x_sum   = 0.0           # dùng trong label smoothing
-
+    m_max   = float("-inf")         # the max value `m` and the sum `d` are notations in ... 
+    d_sum   = 0.0                   # ... the paper https://www.alphaxiv.org/abs/1805.02867
     ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
-    eps = label_smooth / n_cols
     for i in range(0, n_cols, CHUNK_SIZE):
-        offs = i + tl.arange(0, CHUNK_SIZE)
+        offs  = i + tl.arange(0, CHUNK_SIZE)
         X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
-        x_sum = x_sum + tl.sum(tl.where(offs<n_cols, -eps*X, 0.0))
         m_new = tl.maximum(m_max, tl.max(X))
         d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
         m_max = m_new
 
     LSE = m_max + tl.log(d_sum)     # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
-    loss = LSE - true_label_logit   # loss là khoảng cách mức độ lớn tổng thể và true class logit
-    loss = loss*(1 - label_smooth) + label_smooth*LSE   # Điều chuẩn của norm softmax (lse)
-    loss = loss + x_sum                                 # Penalty từ smoothing tất cả logits
-    tl.store(loss_ptr, loss / n_non_ignore)             # mean reduction
+    loss = LSE - true_label_logit   # loss là khoảng cách mức độ lớn tổng thể và true label logit
+    tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
 
     ## Second pass: Tính gradient
     for i in range(0, n_cols, CHUNK_SIZE):
         offs = i + tl.arange(0, CHUNK_SIZE)
         X = tl.load(X_ptr+offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
-        X = tl.exp(X - LSE) - eps                               # softmax(x_i), exp(X-m_max)/d_sum
-        X = tl.where(offs != y, X, X - 1 + label_smooth)        # gradient 
+        X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
+        X = tl.where(offs != true_label, X, X - 1)              # gradient 
         tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
-    tl.debug_barrier() # a trick to ensure the new result of X_ptr is written !!!
-
+    # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
-    """ Ref https://github.com/mgmalek/efficient_cross_entropy. Vì Cross Entropy Loss là layer cuối,
-    TA CÓ THỂ TÍNH GRADIENT NGAY TRONG FORWARD PASS. Nhờ đó không cần lưu _input và target cho backward pass. """
+    """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu _input và target cho backward """
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100, label_smooth=0.0):
-        loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)
+    def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100):
+        loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
-        
-        V = weight.shape[0]
-        cross_entropy_kernel[(logits.shape[0],)](
-            X_ptr=logits, X_stride=logits.stride(-2),
-            Y_ptr=target, Y_stride=target.stride(-1),          # always 1
-            loss_ptr=loss_1d, loss_stride=loss_1d.stride(-1),  # always 1
-            n_cols=V, n_non_ignore=n_non_ignore,
-            ignore_index=ignore_index,
-            label_smooth=label_smooth,
+        V       = weight.shape[0]
+        per_label_cross_entropy_kernel[(len(target),)]( # Khởi tạo số kernels tương ứng với số labels
+            X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
+            label_ptr=target, loss_ptr=loss_1d,         # 1D label và loss => stride = 1
+            n_cols=V, n_non_ignore=n_non_ignore, ignore_index=ignore_index,
             CHUNK_SIZE=min(65536 // 2, triton.next_power_of_2(V)),
             num_warps=32 if torch.version.hip is None else 16,
         )
@@ -258,7 +245,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         grad_input = grad_input * grad_output
         if grad_weight is not None:
             grad_weight = grad_weight * grad_output
-        return grad_input, grad_weight, None, None, None, None
+        return grad_input, grad_weight, None, None, None
 
 
 #################################################################
