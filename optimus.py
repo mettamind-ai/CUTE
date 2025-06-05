@@ -199,7 +199,8 @@ def per_label_cross_entropy_kernel(
     ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
     for i in range(0, n_cols, CHUNK_SIZE):
         offs  = i + tl.arange(0, CHUNK_SIZE)
-        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
+        X = tl.load(X_ptr + offs, mask=offs<n_cols, other=float("-inf"),            # cố gắng giữ lại data ở
+            cache_modifier=".cg", eviction_policy="evict_last",).cast(tl.float32)   # L2 cache cho second pass
         m_new = tl.maximum(m_max, tl.max(X))
         d_sum = d_sum * tl.exp(m_max - m_new) + tl.sum(tl.exp(X - m_new))
         m_max = m_new
@@ -226,7 +227,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         logits  = _input @ weight.t()
 
         N, V = logits.shape[0], logits.shape[1], 
-        C    = min(65536 // 2, triton.next_power_of_2(V))
+        C = min(1024*16, triton.next_power_of_2(V))     # Tối ưu cho L2 cache line (128 bytes)
 
         per_label_cross_entropy_kernel[(N,)](           # Khởi tạo số kernels tương ứng với số labels
             X_ptr=logits, X_stride=logits.stride(-2),   # 2D logits
@@ -238,7 +239,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         grad_weight = ( logits.t() @ _input ).detach()
 
         ctx.save_for_backward(grad_input, grad_weight)
-        return torch.sum(loss_1d)
+        return torch.sum(loss_1d)  # final loss
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
