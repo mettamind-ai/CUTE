@@ -104,7 +104,7 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ##############
 ## TRANING  ##
 ##############
-from wingpt import fused_loss_fn as lossf
+from wingpt import simple_loss_fn as lossf
 if args.C:
     lossf = torch.compile(lossf)
     for x in model.blocks: x.compile()

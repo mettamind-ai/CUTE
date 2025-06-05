@@ -204,12 +204,19 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
         return norm(x)
 
-
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0, ignore_index=-100):
+def simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore, ignore_index)
+    logits = ( hidden @ w.t() ).float() 
+    logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
+    return F.cross_entropy(logits, target)
+
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, ignore_index=-100):
+    if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
+    hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
+    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+    return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore=len(target), ignore_index=ignore_index)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
@@ -303,7 +310,7 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
 
-        loss_fn = fused_loss_fn
+        loss_fn = simple_loss_fn
         loss_model = loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         loss_ohmai = loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
