@@ -204,14 +204,6 @@ class WinGPT(nn.Module):
             x = checkpoint(f, x, use_reentrant=False)
         return norm(x)
 
-
-def simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen):
-    if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
-    hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
-    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-    logits = ( hidden @ w.t() ).float() 
-    logits = 15*logits*torch.rsqrt(logits.square() + 15*15)
-    return F.cross_entropy(logits, target)
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
@@ -311,8 +303,8 @@ if __name__ == "__main__":
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
         assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
 
-        loss_model = simple_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
-        loss_ohmai = fused_loss_fn( ohmai, input_seq, target, cu_seqlens, max_seqlen)
+        loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss_ohmai = fused_loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
 
         ## Đảm bảo 2 cách lấy head là giống nhau
         a = ohmai.lm_head.weight.cuda()[target]
