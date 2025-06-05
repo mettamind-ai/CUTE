@@ -208,12 +208,15 @@ class WinGPT(nn.Module):
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     x = model(input_seq, cu_seqlens, max_seqlen)
-    if model.ohmai: model.lm_head.update_new_tokens_weight() # upload ...
-    x = x + checkpoint(model.final_mlp, norm(x), use_reentrant=False)
-    hidden = norm(x)    # câu giờ cho upload ...
+    if model.ohmai: model.lm_head.update_new_tokens_weight() #  upload ...
+
+    x=norm(x); y=x+checkpoint(model.final_mlp,x,use_reentrant=False); y=norm(y)
+    future = target.roll(-1); future[-1] = ignore # câu giờ cho upload ...
 
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-    return FusedLinearCrossEntropy.apply(hidden, w, target, n_ignore, ignore)
+    xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
+    yloss = FusedLinearCrossEntropy.apply(y, w, future, n_ignore, ignore)
+    return (xloss*0.75 + yloss*0.25)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
