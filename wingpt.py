@@ -207,7 +207,8 @@ class WinGPT(nn.Module):
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
-    hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
+    hidden = model(input_seq, cu_seqlens, max_seqlen)
+    if model.ohmai: model.lm_head.sync_upload_stream()
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     return FusedLinearCrossEntropy.apply(hidden, w, target, n_ignore, ignore)
 

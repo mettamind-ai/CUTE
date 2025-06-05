@@ -180,12 +180,17 @@ class OhMaiHead(nn.Module):
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
 
-    @torch.no_grad()
+
     @torch.compiler.disable
     def update_new_tokens_weight(self):
+        self.ohmai_stream.synchronize()
         with torch.cuda.stream(self.upload_stream):
             self.active_weight.data[ self.new_token_indices ] = \
                 self.weight.data[ self.new_tokens ].cuda(non_blocking=True)
+
+    @torch.compiler.disable
+    def sync_upload_stream(self):
+        self.upload_stream.synchronize()
 
     @torch.no_grad()
     @torch.compiler.disable
