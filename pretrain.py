@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from wingpt import WinGPT, get_cu_max_seqlens_from, simple_loss_fn as lossf
 import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -41,8 +42,6 @@ batch = get_batch()
 #############################
 ## Init model for pretraining
 #############################
-from wingpt import WinGPT, get_cu_max_seqlens_from
-
 if  args.L: # (L)arge ~ 999m
     model = WinGPT(dim=2048, n_layers=27, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
@@ -104,7 +103,6 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ##############
 ## TRANING  ##
 ##############
-from wingpt import simple_loss_fn as lossf
 if args.C:
     lossf = torch.compile(lossf)
     for x in model.blocks: x.compile()
