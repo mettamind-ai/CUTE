@@ -185,7 +185,6 @@ def per_label_cross_entropy_kernel(
     X_ptr     += program_id * X_stride
     label_ptr += program_id
     true_label = tl.load(label_ptr)
-    true_label_logit = tl.load(X_ptr + true_label).cast(tl.float32)
     loss_ptr  += program_id
 
     offs = tl.arange(0, CHUNK_SIZE)     # CHUNK_SIZE >= n_cols for sure
@@ -198,17 +197,16 @@ def per_label_cross_entropy_kernel(
     else:
         ## First pass: Tìm giá trị lớn nhất `m` và tính tổng exponential `d`
         X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
-        m_max = tl.max(X, axis=0)           # the max value `m` and the sum `d` are notations in ... 
-        d_sum = tl.sum(tl.exp(X - m_max))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
-
-        LSE = m_max + tl.log(d_sum)   # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
-        loss = LSE - true_label_logit # loss là khoảng cách mức độ lớn tổng thể và true label logit
-        tl.store(loss_ptr, loss / n_non_ignore) # mean reduction
+        m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
+        d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
+        LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
+        loss = LSE - X[true_label]  # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
         ## Second pass: Tính gradient, gây ra bởi LSE và true_label_logit
         X = tl.exp(X - LSE)                             # softmax(x_i), exp(X-m_max)/d_sum
         X = tl.where(offs != true_label, X, X - 1)      # gradient bị tác động bởi true_label_logit
-        tl.store(X_ptr, X/n_non_ignore, mask=mask) # mean reduction
+        tl.store(X_ptr, X/n_non_ignore, mask=mask)      # mean reduction
+        tl.store(loss_ptr, loss / n_non_ignore)         # mean reduction
     # tl.debug_barrier() # a trick to ensure the new result of X_ptr is written ?!?
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
