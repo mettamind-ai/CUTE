@@ -196,7 +196,7 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
         loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
-        X = tl.exp(X - LSE)         # softmax(x_i), exp(X-m_max)/d_sum
+        X = tl.exp(X - m)/d         # softmax
         X = X - mask.to(X.dtype)    # gradient bị tác động bởi true_label_logit
 
         tl.store(X_ptr, X / n_non_ignore)       # mean reduction
@@ -212,8 +212,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         logits  = _input @ weight.t()
 
         N, V = ( logits.shape[0], logits.shape[1] )
-        assert V == triton.next_power_of_2(V) and N == len(target) and V == weight.shape[0], \
-            f"{V}, {triton.next_power_of_2(V)}, {N}, {len(target)}, {weight.shape[0]}"
+        assert V % 128 == 0 and N == len(target) and V == weight.shape[0]
 
         per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, \
             loss_ptr=loss_1d, n_non_ignore=float(N-n_ignores), ignore=ignore, n_cols=V, num_warps=32, )
