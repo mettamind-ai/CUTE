@@ -198,18 +198,16 @@ class WinGPT(nn.Module):
         ve_lambdas = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
         for i in range(n_blks):
+            if self.ohmai and i == int(n_blks*0.6): self.lm_head.update_new_tokens_weight() # upload ...
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-        return x
+        return norm(x)
 
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, ignore_index=-100):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_non_ignore=0, ignore_index=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload head weight ...
     hidden = model(input_seq, cu_seqlens, max_seqlen)        # hidden chưa norm
-    if model.ohmai: model.lm_head.update_new_tokens_weight() # upload lên ... do tính loss per label lâu nên có thể async
-    n_non_ignore = ( target != ignore_index ).sum().item()   # câu thêm giờ cho upload ...
-    hidden = norm(hidden)                                    # câu thêm giờ cho upload ...
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     return FusedLinearCrossEntropy.apply(hidden, w, target, n_non_ignore, ignore_index)
 

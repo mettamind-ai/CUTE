@@ -123,8 +123,6 @@ Token → Router → Expert Visual (2048d)
 ![](https://pbs.twimg.com/media/GshsGeJasAMyBcr?format=jpg)
 
 ## EvaByte
-- https://asap-seminar.github.io/assets/slides/evabyte-0423.pdf
-- https://www.youtube.com/watch?v=z3Nhg9DQzdU
 - https://hkunlp.github.io/blog/2025/evabyte
 - https://github.com/OpenEvaByte/evabyte
 - Base model before annealing https://huggingface.co/EvaByte/EvaByte-Phase1
@@ -134,4 +132,13 @@ The main difference between BLTs and EvaByte lies in the architecture: BLTs use 
 In contrast, EvaByte keeps things simple: it directly operates on bytes with a flat Transformer-like model without needing to invoke external modules or group inputs. Empirically, EvaByte achieves better performance than BLTs even with 3-4x fewer training bytes, as shown in the table below. Besides, EvaByte is more flexible and scales easily to multimodal data, while BLTs require retraining or swapping out the auxiliary language model used for entropy patching.
 
 ![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/comp_to_blt-1400.webp)
+
+## EVA (extended value aggregation) linearized attention
+- playground/684138df4cd7dbf747d280d5
+- https://github.com/OpenEvaByte/evabyte/blob/main/evabyte_hf/eva_agg_kernel.py
+![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/arch-1400.webp)
+![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/attn_sketch-1400.webp)
+
+- Local window attention: Attention trong window cục bộ (như SWA)
+- RFA chunks: Compressed representations cho global attention
 
