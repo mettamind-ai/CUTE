@@ -20,7 +20,7 @@ parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "dec
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
-for x in "C S L M".split(): parser.add_argument(f"--{x}", action="store_true")
+for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
 rank, world_size, is_master = 0, 1, True # 1 GPU
@@ -103,24 +103,18 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ##############
 ## TRANING  ##
 ##############
-if args.C:
-    lossf = torch.compile(lossf)
-    for x in model.blocks: x.compile()
+lossf = torch.compile(lossf)
+for x in model.blocks: x.compile()
+
 model = model.cuda()
 model.train()
 
-print0(f"""\nCHUẨN BỊ HUẤN LUYỆN:
-* GPU(s) {world_size}
-* compile? {args.C}
-* {lossf.__name__}
-* {tokens_per_batch//1024}k seq/step
-""")
-step = 0
+print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\nGPU(s) {world_size}, {tokens_per_batch//1024}k seq/step")
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
 started_at = time.time()
-while step < args.steps:  # training loop
+for step in range(args.steps):  # training loop
 
     tokens, targets = batch[:-1], batch[1:]
     c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
@@ -150,9 +144,7 @@ while step < args.steps:  # training loop
     elif step == 1:
         print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time0 -= time.time() - time0 # điều chỉnh lại time0
-
     pbar.update()
-    step += 1
 
     if step % log_interval == 0:
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
