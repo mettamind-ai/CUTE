@@ -219,7 +219,7 @@ def cross_entropy_kernel(
     for i in range(0, n_cols, CHUNK_SIZE):
         offs = i + tl.arange(0, CHUNK_SIZE)
         X = tl.load(X_ptr+offs, mask=offs<n_cols, other=float("-inf"),).cast(tl.float32)
-        X = tl.exp(X - LSE)                                     # softmax(x_i), exp(X-m_max)/d_sum
+        X = tl.exp(X - LSE) - eps                               # softmax(x_i), exp(X-m_max)/d_sum
         X = tl.where(offs != y, X, X - 1 + label_smooth)        # gradient 
         tl.store(X_ptr+offs, X/n_non_ignore, mask=offs<n_cols)  # mean reduction
     tl.debug_barrier() # a trick to ensure the new result of X_ptr is written !!!
