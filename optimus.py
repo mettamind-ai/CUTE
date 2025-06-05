@@ -186,7 +186,7 @@ def per_label_cross_entropy_kernel(
     loss_ptr  += program_id
 
     true_label = tl.load(label_ptr + program_id)
-    true_logit = tl.load(X_ptr + true_label).cast(tl.float64)
+    true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
 
     offs = tl.arange(0, CHUNK_SIZE)     # CHUNK_SIZE >= n_cols for sure
     offs = tl.max_contiguous(tl.multiple_of(offs % n_cols, CHUNK_SIZE), CHUNK_SIZE)
@@ -197,7 +197,7 @@ def per_label_cross_entropy_kernel(
     if true_label == ignore_index:  # logits' grad as 0     
         tl.store(X_ptr, 0.0, mask=mask) 
     else:
-        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float64)
+        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
         LSE = m + tl.log(d)         # Log-Sum-Exp, "Mức độ lớn" của tất cả logits (normalization term của softmax)
@@ -213,7 +213,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_non_ignore=None, ignore_index=-100):
-        loss_1d = torch.zeros(_input.shape[0], dtype=torch.float64, device=_input.device)        
+        loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
         logits  = _input @ weight.t()
 
         N, V = logits.shape[0], logits.shape[1], 
