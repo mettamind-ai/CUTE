@@ -235,18 +235,36 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 #################################################################
 ##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
+'''
+Muon is "Matrix-structured steepest descent with spectral norm regularization"
 
+Phương pháp này bắt đầu từ ý tưởng steepest descent cơ bản - đi theo hướng giảm nhanh nhất của hàm loss bằng cách di chuyển ngược hướng gradient. Khác với các optimizer truyền thống cập nhật từng tham số riêng lẻ, Muon áp dụng cách tiếp cận có cấu trúc ma trận (matrix-structured). Điều này có nghĩa là thay vì xem mỗi element của weight matrix như các đơn vị độc lập, Muon xử lý toàn bộ ma trận như một thể thống nhất và tìm cách biến đổi nó một cách có hệ thống.
+
+Để đảm bảo quá trình cập nhật không bị "vượt quá giới hạn", Muon áp dụng spectral norm regularization (điều chuẩn chuẩn phổ) - một ràng buộc giới hạn sức mạnh của ma trận update thông qua điều kiện ||O_t||₂ ≤ 1. Ràng buộc này không chỉ đảm bảo tính ổn định mà còn tự nhiên dẫn đến nghiệm tối ưu có dạng O_t = UV^T từ phép phân tích SVD của gradient. Cách tiếp cận này cho phép Muon tự động cân bằng toàn bộ ma trận thông qua một ràng buộc toàn cục, thay vì phải điều chỉnh learning rate cho từng parameter như AdamW. Kết quả là một phương pháp optimization vừa đơn giản vừa hiệu quả, duy trì cấu trúc ma trận trong khi đảm bảo convergence ổn định.
+
+- Chuẩn phổ (spectral norm): Là giá trị singular value lớn nhất của ma trận - ĐO "SỨC MẠNH KÉO DÀI" TỐI ĐA mà ma trận có thể gây ra cho vector.
+- UV^T là ma trận trực giao (orthogonal) với spectral norm = 1. Newton-Schulz là cách tính gần đúng UV^T mà không cần SVD đắt đỏ.
+
+TẠI SAO MUON LẠI SỬ DỤNG ĐIỀU CHUẨN CHUẨN PHỔ? (spectral norm regularization)
+- Muon giới hạn chuẩn phổ <= 1 nghĩa là giới hạn Sức mạnh kéo dài mà ma trận gây ra cho vector (control maximum damage) tránh bùng nổ gradient
+- Sử dụng spectral norm regularization tự nhiên dẫn tới SVD structure (nghiệm tối ưu TỰ ĐỘNG là O=UV^T từ SVD G = UΣV^T)
+- Spectral norm liên kết với inverse Fisher matrix approximation là 1 phương pháp đạo hàm bậc 2 (điều này quan trọng)
+  Shampoo dùng: E[GG^T]^{-1/4} G E[G^T G]^{-1/4} => Simplify → UV^T (spectral structure) => Muon là minimal version của class này
+
+=> Muon thực sự nhìn optimization landscape từ góc nhìn geometric hoàn toàn khác với Adam !!! Và vì Muon xấp xỉ tối thiểu inverse Hessian, nó có thể nhìn thấy "valleys and ridges" của loss landscape, trong khi đó Adam chỉ nhìn thấy local slopes, đặc biệt khi BATCH SIZE lớn và global structure quan trọng hơn local adaptivity.
+'''
 @torch.compile()
 def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
-    need_invert = X.size(-2) > X.size(-1)
-    if need_invert: X = X.mT                            # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    X /= ( X.norm(dim=(-2, -1), keepdim=True) + 1e-7 )  # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    a , b, c = ( 3.4445, -4.7750, 2.0315 )
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 1
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 2
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 3
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 4
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X           # 5
+    need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
+    if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 2: error ≈ ε²
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6:                                               (0.9, 1.1)
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
@@ -261,7 +279,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 if p.grad is None: continue                     # bỏ qua nếu không có gradient
 
                 g, st = p.grad, self.state[p]                   # lấy gradient và optim state và khởi tạo momentum nếu chưa có
-                if 'mm' not in st: st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
+                if 'mm' not in st: 
+                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
                 st['mm'].lerp_(g, 1 - group['mm'])              # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])              # gradient = gradient * 0.05 + momentum * 0.95
