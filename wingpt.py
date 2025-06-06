@@ -23,7 +23,7 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, use_gate=False):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False):
         super().__init__()
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
@@ -176,7 +176,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp = ReLuSquareMLP(dim, expansion_factor=6, use_gate=True) # thêm năng lực để dự đoán future tốt hơn
+        self.future_mlp = ReLuSquareMLP(dim, expansion_factor=4, use_gate=True) # thêm gating để dự đoán future tốt hơn? và câu giờ lâu hơn :)
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
