@@ -129,32 +129,32 @@ class Int8MixedLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-## Dùng lớp này để gói Linear weight, giúp torch.compile build graph?
-class MixedPrecisionLinearWeight(Tensor):
+''' Định tuyến lời gọi F.linear tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
+dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch 2.
+'''
+class Int8MixedLWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
     def __new__(cls, data: Tensor): return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
     @torch._dynamo.disable
     def __init__(self, data: Tensor): self._data = data
     def __tensor_flatten__(self): return ["_data"], []
-    @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
     def __repr__(self): return f"{self.__class__.__name__}(data={self._data})"
     @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
+    @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = kwargs or dict()
-        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)
-        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)
+        kwargs = kwargs or dict()                           # hook vào torch_function để ...
+        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)              # 1) xử lý riêng F.linear
+        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)      # 2) các hàm khác giữ nguyên
     @classmethod # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        def unwrap(x: cls): return x._data
+    def __torch_dispatch__(cls, func, types, args, kwargs): # đảm bảo các operations khác (transpose, clone, view...) vẫn hoạt động
+        def unwrap(x: cls): return x._data                  # Weight vẫn có thể được sử dụng như tensor bình thường
         out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
-        others = { aten.t.default, aten.detach.default, aten.empty_like.default, 
-                   aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, 
-                   aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default,}
-        if func is aten.copy_.default: return args[0] # original object
+        others = { aten.t.default, aten.detach.default, aten.empty_like.default, aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default,}
+        if func is aten.copy_.default: return args[0]       # original object
         elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
-        else: return out # new unwrapped object
+        else: return out                                    # new unwrapped object
 
 
 def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
@@ -164,7 +164,10 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             names.append(n)            
             params  += m.weight.numel()
-            m.weight = nn.Parameter(MixedPrecisionLinearWeight(m.weight.detach()), requires_grad=m.weight.requires_grad,)
+            m.weight = nn.Parameter(                    # Tạo đối tượng param mới và làm 2 việc: 
+                Int8MixedLWeight(m.weight.detach()),    # 1) đón Tensor gốc sau khi tháo rời khỏi graph
+                requires_grad=m.weight.requires_grad,   # 2) gắn lại wrapper vào graph với yêu cầu grad như cũ 
+            )
     return names, params
 
 ############################
