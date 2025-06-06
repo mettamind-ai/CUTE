@@ -316,8 +316,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
-                # g = PolarExpress(g)                   # Thuật toán Polar Express => NaN ?!?
+                # g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
+                g = PolarExpress(g)                   # Thuật toán Polar Express => NaN ?!?
                 if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
