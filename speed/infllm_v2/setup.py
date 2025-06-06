@@ -75,7 +75,7 @@ ext_modules.append(
                 "-U__CUDA_NO_HALF2_OPERATORS__",
                 "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
                 "-O3", "-std=c++17", "--use_fast_math",
-                "-lineinfo", "--threads", 16,
+                "-lineinfo", "--threads 16",
                 "--expt-relaxed-constexpr",
                 "--expt-extended-lambda",]
         },
