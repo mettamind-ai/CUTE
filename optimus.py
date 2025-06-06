@@ -265,7 +265,7 @@ def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có ngh�
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 3: error ≈ ε⁴
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
-    # A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X     # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
     return X.mT if need_invert else X
     '''Khi thực hiện phép tính A = X @ X.mT, chúng ta đang tạo ra một hiệu ứng trung bình hóa. Trong phép nhân ma trận này, mỗi phần tử của ma trận kết quả A được hình thành từ tổng của nhiều phép nhân giữa các phần tử khác nhau trong X. Noise ngẫu nhiên, do bản chất không có cấu trúc, có xu hướng triệt tiêu lẫn nhau trong quá trình cộng tổng này, trong khi tín hiệu thật có cấu trúc rõ ràng được củng cố và tăng cường.
 
@@ -283,10 +283,10 @@ coeffs_list = [  (8.28721201814563   , -23.595886519098837  , 17.300387312530933
                  (1.891301407787398  ,  -1.2679958271945868 ,  0.37680408948524835 ),    # iter 6
                  (1.8750014808534479 ,  -1.2500016453999487 ,  0.3750001645474248  ),    # iter 7
               ]#  1.875                 -1.25                  0.375         => subsequent coeffs
-coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.875, -1.25 , 0.375)]*5
+coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.875, -1.25 , 0.375)]*3
 #    safety factor for numerical stability
 @torch.compile()
-def PolarExpress(X:Tensor, steps=7)->Tensor:
+def PolarExpress(X:Tensor, steps=7)->Tensor:        # coeffs_list cho 5 tới 10 lần lặp
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
     X = X.bfloat16()                                # Need for Speed
     if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
