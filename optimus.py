@@ -321,7 +321,7 @@ class Muon1GPU(torch.optim.Optimizer):
                 if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
                 # go = zeropower_via_newtonschulz5(g)       # Trực giao Newton-Schulz gốc
                 go = PolarExpress(g)                        # Thuật toán Polar Express
-                if if group['pg']:                          # PolarGrad https://alphaxiv.org/abs/2505.21799v1#S3
+                if group['pg']:                             # PolarGrad https://alphaxiv.org/abs/2505.21799v1#S3
                     nuclear_norm = torch.sum(g*go)          # Tính nuclear norm (bản speedup)
                 if go.shape != p.shape: go=go.view_as(p)    # Reshape back if needed
 
