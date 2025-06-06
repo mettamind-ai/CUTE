@@ -23,25 +23,32 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, use_gate=False):
         super().__init__()
-        if not hdim: hdim = int(3 * dim)
+        if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
+        if use_gating: self.gate_proj = nn.Linear(dim, hdim)
         
         with torch.no_grad():
-            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            w = init_linear(torch.empty(hdim, dim))
+            self.fc1_proj.weight.copy_(w)
+            if use_gate: self.gate_proj.weight.copy_(w)
             self.fc2_proj.weight.zero_()
         
         # Add weight decay multiplier attribute to the weights
         self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
+        if use_gate: self.gate_proj.wd_mul = 2.0
+        self.use_gate = use_gate
 
+    @torch.compile()
     def forward(self, x):
         y = self.fc1_proj(x)
-        y = F.relu(y).square() 
+        y = F.relu(y).square()
+        if self.use_gate: y = y * self.gate_proj(x) # Selective activation giúp mô hình tự động học cách lọc thông tin quan trọng
         y = self.fc2_proj(y)
         return y
 
@@ -108,7 +115,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        q    = self.q_proj(x)
+        q    = self.q_proj(x)  # TODO: có thể tiết kiệm 1 phép int8quant cho x ở đây
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
 
         if ve_lambdas is not None and v_emb is not None:
@@ -169,7 +176,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.final_mlp = ReLuSquareMLP(dim)
+        self.future_mlp = ReLuSquareMLP(dim, expansion_factor=6, use_gate=True) # thêm năng lực để dự đoán future tốt hơn
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
@@ -210,7 +217,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x = model(input_seq, cu_seqlens, max_seqlen)
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
-    x=norm(x); y=x+model.final_mlp(x); y=norm(y)
+    x=norm(x); y=x+model.future_mlp(x); y=norm(y)
     future=target.roll(-1); future[-1]=ignore # câu giờ cho upload ...
 
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
