@@ -1,6 +1,4 @@
-third-party
-gemm-quest/*.so
-
+cutlass
 CMakeFiles
 CMakeCache.txt
 CPackConfig.cmake
@@ -12,4 +10,3 @@ build/
 dist/
 *.egg-info/
 bin/
-3rd
