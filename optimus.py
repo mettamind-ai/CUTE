@@ -322,11 +322,11 @@ class Muon1GPU(torch.optim.Optimizer):
                 # go = zeropower_via_newtonschulz5(g)       # Trực giao Newton-Schulz gốc
                 go = PolarExpress(g)                        # Thuật toán Polar Express
                 if group['pg']:                             # PolarGrad https://alphaxiv.org/abs/2505.21799v1#S3
-                    nuclear_norm = torch.sum(g*go)          # Tính nuclear norm (bản speedup)
+                    nnorm = torch.linalg.norm(go, 'nuc')    # Tính nuclear norm
                 if go.shape != p.shape: go=go.view_as(p)    # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
                 rows, cols = p.size(-2), p.size(-1)     # 2) p -= go * lr * sqrt(max(1, rows / cols))
-                x = nuclear_norm.item() if group['pg'] else max(1, rows/cols)**0.5 
+                x = nnorm.item() if group['pg'] else max(1, rows/cols)**0.5 
                 p.add_(go, alpha=-group['lr']*x)
