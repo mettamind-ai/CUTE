@@ -301,8 +301,8 @@ def PolarExpress(X:Tensor, steps=6)->Tensor:        # coeffs_list cho 5 tới 10
 
 
 class Muon1GPU(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, polargrad=False, **args):
-        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, pg=polargrad))
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
+        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
     @torch.no_grad()
     @torch.compiler.disable
@@ -320,14 +320,11 @@ class Muon1GPU(torch.optim.Optimizer):
 
                 if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
                 # go = zeropower_via_newtonschulz5(g)       # Trực giao Newton-Schulz gốc
-                go = PolarExpress(g)                        # Thuật toán Polar Express
-                if group['pg']:                             # PolarGrad https://alphaxiv.org/abs/2505.21799v1#S3
-                    nn = go.float()                         # nnorm = torch.sum(g * g_ortho) thì gây NaN ???
-                    nn = torch.linalg.norm(nn, 'nuc')       # Tính nuclear norm cách này siêu chậm
+                go = PolarExpress(g)                        # Thuật toán Polar Express tính orthogonal grad
                 if go.shape != p.shape: go=go.view_as(p)    # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
                 rows, cols = p.size(-2), p.size(-1)     # 2) p -= go * lr * sqrt(max(1, rows / cols))
-                x = nn.item() if group['pg'] else max(1, rows/cols)**0.5 
+                x = max(1, rows / cols)**0.5 
                 p.add_(go, alpha=-group['lr']*x)
