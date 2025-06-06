@@ -256,8 +256,8 @@ TẠI SAO MUON LẠI SỬ DỤNG ĐIỀU CHUẨN CHUẨN PHỔ? (spectral norm r
 @torch.compile()
 def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
-    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X = X.bfloat16()                                # Need for Speed
+    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
     a, b, c = ( 3.4445, -4.7750, 2.0315 )           # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
@@ -265,7 +265,7 @@ def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có ngh�
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 3: error ≈ ε⁴
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
+    # A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X     # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
     return X.mT if need_invert else X
     '''Khi thực hiện phép tính A = X @ X.mT, chúng ta đang tạo ra một hiệu ứng trung bình hóa. Trong phép nhân ma trận này, mỗi phần tử của ma trận kết quả A được hình thành từ tổng của nhiều phép nhân giữa các phần tử khác nhau trong X. Noise ngẫu nhiên, do bản chất không có cấu trúc, có xu hướng triệt tiêu lẫn nhau trong quá trình cộng tổng này, trong khi tín hiệu thật có cấu trúc rõ ràng được củng cố và tăng cường.
 
@@ -288,9 +288,10 @@ coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.87
 @torch.compile()
 def PolarExpress(X:Tensor)->Tensor:
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
-    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X = X.bfloat16()                                # Need for Speed
-    X /= X.norm(dim=(-2,-1), keepdim=True)*1.01     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    # X /= X.norm(dim=(-2,-1), keepdim=True)*1.01   # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
     for (a,b,c) in coeffs_list[:5]:
         A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # X <- aX + bXˆ3 + cXˆ5
     return X.mT if need_invert else X
@@ -315,8 +316,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                # g = zeropower_via_newtonschulz5(g)    # Trực giao Newton-Schulz
-                g = PolarExpress(g)                     # Trực giao Newton-Schulz bằng thuật toán Polar Express
+                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
+                # g = PolarExpress(g)                   # Thuật toán Polar Express => NaN ?!?
                 if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
