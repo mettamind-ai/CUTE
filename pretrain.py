@@ -126,11 +126,13 @@ for step in range(args.steps):  # training loop
     adam_lr_schedule.set_lr(step, adam_optim)
     muon_lr_schedule.set_lr(step, muon_optim)
 
+    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
+
         lossv = loss.item()
         adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossv, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
 
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
