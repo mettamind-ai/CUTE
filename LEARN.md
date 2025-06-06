@@ -250,5 +250,41 @@ Rủi ro:
 
 ---
 
-# FTP: Future Token Prediction
+## FTP: Future Token Prediction
 - https://www.alphaxiv.org/abs/2410.18160?conversation_id=68426a6181a77e60840110cc
+
+## Grad Norm
+- https://github.com/TianjinYellow/StableSPAM/blob/master/main_pretrain.py#L256
+log và tính grad clipping cho hợp lý ...
+```
+gt = -∇loss/∇weights
+gnorm = ||gt||2  # L2 norm của gradient
+mnorm = γ1 * mnorm + (1-γ1) * gnorm     # first moment
+vnorm = γ2 * vnorm + (1-γ2) * gnorm²    # second moment
+adaptive_norm = mnorm / sqrt(vnorm + ε)
+adaptive_norm = mnorm / sqrt(vnorm + ε)
+gt = (gt / gnorm) * adaptive_norm
+```
+- `mnorm`: trung bình lịch sử của gradient norm
+- `vnorm`: variance lịch sử của gradient norm
+- `adaptive_norm`: tỷ lệ mean/std → giá trị "lý tưởng" cho gradient norm
+- `gt`: gradient gốc từ backprop
+
+## PolarGrad
+- https://www.alphaxiv.org/abs/2505.21799v1
+
+PolarGrad về bản chất là cải tiến từ Muon nhưng những cải tiến này rất quan trọng:
+
+- Thêm nuclear norm scaling: Từ update đơn giản Xk+1 = Xk - γk·Uk của Muon thành Xk+1 = Xk - γk·tr(Hk)·Uk của PolarGrad
+- Thay đổi thuật toán polar decomposition: Từ Newton-Schulz (cần tuning) sang QDWH/ZOLO-PD (tự động, ổn định hơn)
+
+Tại sao "cải tiến chút ít" này lại quan trọng:
+
+- Về lý thuyết: Nâng convergence rate từ sublinear lên linear cho strongly convex problems
+- Về thực tế: PolarGrad không bị "plateau" như Muon, hội tụ đến optimum thực sự
+- Về stability: Giải quyết vấn đề training instability của Muon với "fat matrices"
+
+Tác giả nhấn mạnh: "the nuclear norm scaling factor, tr(Hk), in the PolarGrad update leads to a pivotal distinction from the original Muon optimizer". Vậy nên đây không phải chỉ là "tweak nhỏ" mà là fundamental improvement giải quyết những hạn chế cốt lõi của Muon.
+
+[Nuclear norm scaling: hệ số chuẩn hạt nhân; Convergence rate: tốc độ hội tụ; Plateau: trạng thái dừng ở một mức không optimal; Fat matrices: ma trận có chiều rộng lớn hơn nhiều so với chiều cao]
+

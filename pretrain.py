@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
+from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
+
 import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -8,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 from torch import Tensor, nn
-from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
@@ -94,7 +95,7 @@ adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
-muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size)
+muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size, polargrad=True)
 
 muon_lr_schedule = LRSchedule(args.muonlr, args.steps, **args.schedule)
 adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)

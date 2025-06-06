@@ -289,7 +289,7 @@ coeffs_list = [  (8.28721201814563   , -23.595886519098837  , 17.300387312530933
 coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.875, -1.25 , 0.375)]*3
 #    safety factor for numerical stability
 @torch.compile()
-def PolarExpress(X:Tensor, steps=7)->Tensor:        # coeffs_list cho 5 tới 10 lần lặp
+def PolarExpress(X:Tensor, steps=6)->Tensor:        # coeffs_list cho 5 tới 10 lần lặp
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
     X = X.bfloat16()                                # Need for Speed
     if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
@@ -301,8 +301,8 @@ def PolarExpress(X:Tensor, steps=7)->Tensor:        # coeffs_list cho 5 tới 10
 
 
 class Muon1GPU(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
-        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, polargrad=False, **args):
+        super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum, pg=polargrad))
 
     @torch.no_grad()
     @torch.compiler.disable
@@ -315,15 +315,17 @@ class Muon1GPU(torch.optim.Optimizer):
                 if 'mm' not in st: 
                     st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
-                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
 
-                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                # g = zeropower_via_newtonschulz5(g)    # Trực giao Newton-Schulz gốc
-                g = PolarExpress(g)                     # Thuật toán Polar Express
-                if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
+                if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
+                # go = zeropower_via_newtonschulz5(g)       # Trực giao Newton-Schulz gốc
+                go = PolarExpress(g)                        # Thuật toán Polar Express
+                if pg: nuclear_norm = torch.sum(g*go)       # Tính nuclear norm (bản speedup)
+                if go.shape != p.shape: go=go.view_as(p)    # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
-                rows, cols = p.size(-2), p.size(-1)     # 2) p -= g * lr * sqrt(max(1, rows / cols))
-                p.add_(g, alpha=-group['lr']*max(1, rows/cols)**0.5)
+                rows, cols = p.size(-2), p.size(-1)     # 2) p -= go * lr * sqrt(max(1, rows / cols))
+                x = nuclear_norm.item() if pg else max(1, rows/cols)**0.5 
+                p.add_(go, alpha=-group['lr']*x)
