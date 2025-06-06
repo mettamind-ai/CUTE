@@ -96,3 +96,84 @@ To further guarantee numerical stability, we store in higher precision:
 **Figure 4**: MoE vs. Dense. We train a 1.3B parameter dense model and a 1.3B active, 6.9B total parameter MoE model, each on 128 H100 GPUs. Apart from MoE-related changes, we train both with the same configuration for 130B tokens. The MoE contains 64 experts out of which 8 are activated with an FFN dimension of 1,024, while the dense model has an FFN dimension of 8,192. Thus both have the same number of active parameters. Top: The MoE reaches the final dense performance with ∼3× fewer tokens (or FLOPs, as both have the same active parameters ignoring the trivial router parameters). Bottom: Due to some memory overhead, this equates to ∼2× faster training. More results, logs, and configurations: https://wandb.ai/ai2-llm/olmoe/reports/Plot-MoE-vs-Dense--Vmlldzo4OTM0Mjkx
 
 Survey https://icml.cc/media/icml-2024/Slides/35222_1r94S59.pdf
+
+---
+
+# LongCE
+- https://www.youtube.com/watch?v=A36u6DB_TgU
+- https://asap-seminar.github.io/assets/slides/asap-yifei-wang.pdf
+- https://github.com/PKU-ML/LongPPL
+- https://alphaxiv.org/abs/2410.23771
+![](https://github.com/PKU-ML/LongPPL/raw/main/longppl.png)
+
+|![](https://pbs.twimg.com/media/GsugIlKbMAAdLsq?format=jpg)|![](https://pbs.twimg.com/media/Gsugh-obIAAkSEo?format=jpg)|
+|-|-|
+|![](https://pbs.twimg.com/media/Gsugh-obIAAkSEo?format=jpg)|![](https://pbs.twimg.com/media/GsuhRFybAAAxMvP?format=jpg)|
+|![](https://pbs.twimg.com/media/GsulWpTbsAAfZTI?format=jpg)|![](https://pbs.twimg.com/media/GsulvkObEAAAmn3?format=jpg)|
+
+## 1. Vấn đề chính - SSL (Self-Supervised Learning):
+- Làm sao xác định "key tokens" mà **không cần người gán nhãn**?
+- Giải pháp: Tìm tokens phản ánh khả năng xử lý long context của model
+
+## 2. Phương pháp - Causal Intervention:
+**Ví dụ cụ thể:**
+```
+Long context: "Sarah has a dog named Buddy [...] Sarah feels happy to play with Buddy."
+Short context: "Sarah feels happy to play with Buddy."
+```
+**Log Probability Gain (LPG):**
+```
+    r(x_i) =     P_θ(x_i|l_i) /     P_θ(x_i|s_i) =>
+log r(x_i) = log P_θ(x_i|l_i) - log P_θ(x_i|s_i)
+```
+Trong ví dụ:
+- Token `Buddy` (lần 2): LPG = 0.8/0.1 = 8 → **Key token!**
+- Token `happy`: LPG = 0.6/0.6 = 1 → Không quan trọng
+
+### 2.a) Chỉ dùng LPG → 85.6% accuracy:
+- Phương pháp: Đặt threshold cho LPG (ví dụ: LPG > 2)
+- **Vấn đề 14.4% còn lại:** Một số non-answer tokens cũng có LPG cao
+
+### 2.b) Phân tích 14.4% sai:
+Nhìn biểu đồ (a và b) trong hình trên:
+- **Answer tokens** có LPG cao thường có LPV vừa phải ([-0.5, 0])
+- **Non-answer tokens** (màu xanh) có LPG cao thường có **LPV rất thấp** (vùng khoanh tròn: (-∞, -2))
+  Những token này thường có **Log Probability Value (LPV) thấp** => khó dự đoán
+
+### 2.c) Giải pháp - Thêm tiêu chí LPV:
+Combining LPV and LPG critiria, we can predict key tokens with 98.2% ACCURACY!
+
+## 3. Công thức LongPPL
+`LongPPL(x;θ,θ₀) = exp(∑ᵢ -Î(xᵢ;θ₀) log P_θ(xᵢ|x<ᵢ))`
+Trong đó `Î(xᵢ;θ₀) = 1` khi:
+- `LSD_θ₀(xᵢ) > α` (Log Score Difference cao)
+- `LCL_θ₀(xᵢ) > β` (Log Context Length cao)
+
+**Ưu điểm**:
+- Focus vào tokens quan trọng cho long context
+- Correlation cao với benchmarks (0.84-0.96)
+- Hiệu quả: Chỉ cần model nhỏ (Llama-3.1-8B) để xác định key tokens
+
+
+“Log Context Length” (LCL) là phép đo đánh giá **mức độ token xᵢ phụ thuộc vào context dài đến đâu**. Cách tính như sau:
+- LCL(xᵢ) = log(k)  
+- Với **k** là chiều dài context ngắn nhất (k < L) để model dự đoán xᵢ đạt xác suất (hoặc LPG) vượt ngưỡng nhất định.
+
+**Cách tính phổ biến**
+- Di chuyển “cửa sổ” context từ ngắn tăng dần đến dài:
+  - Tính P(xᵢ | context_length = k) cho các giá trị k tăng dần.
+  - **Khi P vượt qua threshold (hoặc LPG tăng mạnh),** đánh dấu `k_min`  
+- Sau đó tính ```LCL(xᵢ) = log(k_min)```
+
+**Ý nghĩa**
+- Nếu xᵢ dễ đoán ngay từ context ngắn → log(k) thấp → không cần context dài.
+- Nếu xᵢ chỉ đoán được khi context rất dài → log(k) cao → đặc trưng cho long context.
+
+## Training and PE bias
+|![](https://pbs.twimg.com/media/GsuoFoNbsAAYMGq?format=jpg)|![](https://pbs.twimg.com/media/GsuoWj5bgAAHGpR?format=jpg)|
+|-|-|
+|![](https://pbs.twimg.com/media/GsupKgnaoAAgWcb?format=jpg)|![](https://pbs.twimg.com/media/GsupfRuaoAA1VBh?format=jpg)|
+|![](https://pbs.twimg.com/media/Gsup3sLaQAAwbtY?format=jpg)|![](https://pbs.twimg.com/media/GsuqYFra4AAhFNl?format=jpg)|
+
+## Cần build more Context Model (explicit) thay vì thuần Token Model (implicit contextualize)  
+![](https://pbs.twimg.com/media/Gsuq3QcaQAA_bca?format=jpg&name=4096x4096)
