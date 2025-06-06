@@ -102,9 +102,6 @@ Survey https://icml.cc/media/icml-2024/Slides/35222_1r94S59.pdf
 # LongCE
 - https://www.youtube.com/watch?v=A36u6DB_TgU
 - https://asap-seminar.github.io/assets/slides/asap-yifei-wang.pdf
-- https://github.com/PKU-ML/LongPPL
-- https://alphaxiv.org/abs/2410.23771
-![](https://github.com/PKU-ML/LongPPL/raw/main/longppl.png)
 
 |![](https://pbs.twimg.com/media/GsugIlKbMAAdLsq?format=jpg)|![](https://pbs.twimg.com/media/Gsugh-obIAAkSEo?format=jpg)|
 |-|-|
@@ -177,3 +174,81 @@ Trong đó `Î(xᵢ;θ₀) = 1` khi:
 
 ## Cần build more Context Model (explicit) thay vì thuần Token Model (implicit contextualize)  
 ![](https://pbs.twimg.com/media/Gsuq3QcaQAA_bca?format=jpg&name=4096x4096)
+
+---
+
+# LongCE
+- https://github.com/PKU-ML/LongPPL
+- https://alphaxiv.org/abs/2410.23771
+![](https://github.com/PKU-ML/LongPPL/raw/main/longppl.png)
+
+**Filtered key tokens** là những token được lọc ra dựa trên hai tiêu chí quan trọng mà tác giả đề xuất:
+
+1. **Tiêu chí lọc**: Theo công thức trong bài báo, một token được coi là key token nếu:
+- LSD (Long-Short Difference) > α: Token này được dự đoán tốt hơn đáng kể khi có ngữ cảnh dài so với ngữ cảnh ngắn
+- LCL (Long-Context Likelihood) > β: Token này vẫn có thể dự đoán được với ngữ cảnh dài (loại bỏ những token quá khó)
+
+2. **Quy trình filtering**: Như tác giả giải thích: "The first criterion ensures that the generation of the token is enhanced by the additional information in the long-context. The second criterion excludes the fundamentally hard (misclassified) tokens that long context information does not help."
+
+[`LSD`: đo sự cải thiện dự đoán nhờ ngữ cảnh dài; `LCL`: xác suất dự đoán token dưới ngữ cảnh dài; `α, β`: ngưỡng tham số để lọc]
+
+**LongCE (Long-context Cross-Entropy)** là hàm loss mới được đề xuất để fine-tuning các mô hình ngôn ngữ, **tập trung vào việc cải thiện khả năng xử lý ngữ cảnh dài.**
+
+Nguyên lý hoạt động: Thay vì tính loss đều trên tất cả token như CE truyền thống, LongCE **gán trọng số cao hơn cho các key tokens**:
+- `LongCE(x; θ) = -1/n ∑ Isoft(xi; θ) log Pθ(xi|x<i)`
+- `Isoft(xi; θ) = min(exp(LSDθ(xi)), γ) = min(Pθ(xi|li)/Pθ(xi|si), γ)` -
+  trọng số dựa trên tỉ lệ xác suất dự đoán giữa ngữ cảnh dài và ngữ cảnh ngắn.
+
+Ưu điểm:
+- Tự bootstrap: Mô hình tự đánh giá key tokens và tối ưu hóa chúng theo kiểu EM
+- Plug-and-play: Có thể áp dụng trực tiếp vào quá trình fine-tuning hiện có
+- Hiệu quả: Cải thiện lên đến 22% accuracy trên LongEval
+- Overhead tính toán: Khoảng 80% thời gian training so với CE thông thường.
+
+**Cách giảm overhead**: Như trong Appendix B.2: "by changing the hyperparameters of LongCE, i.e., the short context-length K and the sliding window length d, this overhead can be **`further reduced to 36%`, with almost no loss in model performance**"
+=> có thể giảm xuống chỉ 36% mà vẫn giữ hiệu suất. Và **so với tổng chi phí training LLM**, overhead này không đáng kể.
+
+
+Overhead cao do phải tính toán bổ sung nhiều forward passes:
+Nguyên nhân chính: Để tính LongCE, cần tính LSD (Long-Short Difference) cho mỗi token, điều này yêu cầu:
+
+- Forward pass cho long context: Pθ(xi|li) - như bình thường
+- Forward pass cho short context: Pθ(xi|si) - THÊM cho mỗi token
+
+**Giải pháp tối ưu**: Tác giả dùng `sliding window` technique: "resulting in a complexity of O((N − K)K²/d)" với **step size d=1024**, giảm overhead từ 80% xuống 36%.
+
+Kỹ thuật sliding window được tác giả sử dụng với hai tham số kích thước chính. Đầu tiên là **context window size K được đặt ở mức `4096 tokens`**, đây chính là độ dài ngữ cảnh ngắn dùng **để tính toán short-context probability**. Thứ hai là **step size d với giá trị `1024 tokens`**.
+
+Thay vì xử lý từng token riêng lẻ, phương pháp này **nhóm 1024 tokens lại để tính toán cùng lúc**, giúp cải thiện đáng kể hiệu suất. Khi tính short-context probabilities cho các token từ xi đến xi+d-1, hệ thống sẽ đặt token bắt đầu của ngữ cảnh một cách đồng nhất.
+
+Tác giả cũng đã thử nghiệm nhiều kết hợp khác nhau trong Table 7. Khi sử dụng K=1k và d=1k thì overhead chỉ tăng 43%, còn với K=4k và d=4k thì overhead giảm xuống chỉ 36%. Tuy nhiên nếu giảm step size xuống d=512 thì overhead lại tăng vọt lên 150%. Nhờ thiết lập mặc định K=4096 và d=1024, độ phức tạp tính toán được giảm từ O((n-K)K²) xuống O((n-K)K²/d), mang lại hiệu quả đáng kể trong quá trình training.
+
+hmm 4k window context mà đc cho là short? => Tác giả đang tính cho VERY LONG CONTEXT, có thể lên tới 32k?. Đúng rồi paper có mặc định:
+- Long context: 32k tokens (full sequence)
+- Short context: 4k tokens (truncated version)
+
+- => long vs short là tương đối. Tác giả thử nghiệm K=1k cũng cho kết quả tốt.
+- => chứng tỏ tác giả đang áp dụng vào giai đoạn long context finetune phía sau pretrain
+
+---
+
+# Áp dụng LongCE trong pretrain
+
+Ưu điểm:
+
+- Model học focus vào key tokens ngay từ đầu instead of learning bad habits
+- Có thể tránh được "lost in the middle" problem từ pre-training stage
+- Potential compound benefits qua millions of training steps
+
+Rủi ro:
+
+- Với random initialization, bootstrap có thể chậm hơn
+- Cost 36-80% overhead trên scale pre-training là rất lớn
+- Chưa có experimental evidence cho pre-training
+
+=> Rất promising nhưng cần pilot study nhỏ để verify cost-benefit ratio trước khi scale up.
+
+---
+
+# FTP: Future Token Prediction
+- https://www.alphaxiv.org/abs/2410.18160?conversation_id=68426a6181a77e60840110cc

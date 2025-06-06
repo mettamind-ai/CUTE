@@ -254,23 +254,47 @@ TẠI SAO MUON LẠI SỬ DỤNG ĐIỀU CHUẨN CHUẨN PHỔ? (spectral norm r
 => Muon thực sự nhìn optimization landscape từ góc nhìn geometric hoàn toàn khác với Adam !!! Và vì Muon xấp xỉ tối thiểu inverse Hessian, nó có thể nhìn thấy "valleys and ridges" của loss landscape, trong khi đó Adam chỉ nhìn thấy local slopes, đặc biệt khi BATCH SIZE lớn và global structure quan trọng hơn local adaptivity.
 '''
 @torch.compile()
-def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
-    need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
-    if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 2: error ≈ ε²
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ...
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
+def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
+    need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
+    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X = X.bfloat16()                                # Need for Speed
+    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    a, b, c = ( 3.4445, -4.7750, 2.0315 )           # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 2: error ≈ ε²
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 3: error ≈ ε⁴
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ...
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
     return X.mT if need_invert else X
     '''Khi thực hiện phép tính A = X @ X.mT, chúng ta đang tạo ra một hiệu ứng trung bình hóa. Trong phép nhân ma trận này, mỗi phần tử của ma trận kết quả A được hình thành từ tổng của nhiều phép nhân giữa các phần tử khác nhau trong X. Noise ngẫu nhiên, do bản chất không có cấu trúc, có xu hướng triệt tiêu lẫn nhau trong quá trình cộng tổng này, trong khi tín hiệu thật có cấu trúc rõ ràng được củng cố và tăng cường.
 
     Phép update X = aX + (bA + c*A@A) @ X làm mịn dữ liệu: Sau khi ma trận A đã được "lọc" với X ban đầu, chúng ta áp dụng một phép biến đổi mà trong đó mỗi phần tử mới được tạo thành từ sự kết hợp của nhiều phần tử cũ. Quá trình này tương tự như việc áp dụng bộ lọc không gian, nơi các giá trị lân cận ảnh hưởng và cân bằng lẫn nhau, từ đó làm mịn những biến động đột ngột và bất thường.
 
-    Cuối cùng, xu hướng convergence hướng về cấu trúc orthogonal tạo ra một cơ chế lọc tự nhiên. Sau nhiều iterations, X dần hội tụ về ma trận orthogonal, và quá trình này tự động "đẩy ra" những thành phần không phù hợp với cấu trúc orthogonal, bao gồm cả noise, trong khi bảo tồn những directions quan trọng và có ý nghĩa nhất.'''
+    Cuối cùng, xu hướng convergence hướng về cấu trúc orthogonal tạo ra một cơ chế lọc tự nhiên. Sau nhiều iterations, X dần hội tụ về ma trận orthogonal, và quá trình này tự động "đẩy ra" những thành phần không phù hợp với cấu trúc orthogonal, bao gồm cả noise, trong khi bảo tồn những directions quan trọng và có ý nghĩa nhất.
+    '''
+
+## POLAR https://alphaxiv.org/abs/2505.16932 | https://x.com/gowerrobert/status/1930292178456039739
+coeffs_list = [  (8.28721201814563   , -23.595886519098837  , 17.300387312530933   ),    # iter 1
+                 (4.107059111542203  ,  -2.9478499167379106 ,  0.5448431082926601  ),    # iter 2
+                 (3.9486908534822946 ,  -2.908902115962949  ,  0.5518191394370137  ),    # iter 3
+                 (3.3184196573706015 ,  -2.488488024314874  ,  0.51004894012372    ),    # iter 4
+                 (2.300652019954817  ,  -1.6689039845747493 ,  0.4188073119525673  ),    # iter 5
+                 (1.891301407787398  ,  -1.2679958271945868 ,  0.37680408948524835 ),    # iter 6
+                 (1.8750014808534479 ,  -1.2500016453999487 ,  0.3750001645474248  ),    # iter 7
+              ]#  1.875                 -1.25                  0.375         => subsequent coeffs
+coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.875, -1.25 , 0.375)]*5
+#    safety factor for numerical stability
+@torch.compile()
+def PolarExpress(X:Tensor)->Tensor:
+    need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
+    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X = X.bfloat16()                                # Need for Speed
+    X /= X.norm(dim=(-2,-1), keepdim=True)*1.01     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    for (a,b,c) in coeffs_list[:5]:
+        A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # X <- aX + bXˆ3 + cXˆ5
+    return X.mT if need_invert else X
+
 
 class Muon1GPU(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
@@ -280,21 +304,22 @@ class Muon1GPU(torch.optim.Optimizer):
     @torch.compiler.disable
     def step(self):
         for group in self.param_groups:
-            for p in group['params']:                           # với mỗi tham số p trong model
-                if p.grad is None: continue                     # bỏ qua nếu không có gradient
+            for p in group['params']:                   # với mỗi tham số p trong model
+                if p.grad is None: continue             # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]                   # lấy gradient và optim state và khởi tạo momentum nếu chưa có
+                g, st = p.grad, self.state[p]           # lấy gradient và optim state và khởi tạo momentum nếu chưa có
                 if 'mm' not in st: 
                     st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])              # momentum = momentum * 0.95 + gradient * 0.05
-                g = g.lerp_(st['mm'], group['mm'])              # gradient = gradient * 0.05 + momentum * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
-                if g.ndim != 2: g = g.view(len(g), -1)          # 2D hoá
-                g = zeropower_via_newtonschulz5(g.bfloat16())   # Trực giao Newton-Schulz
-                if g.shape != p.shape: g = g.view_as(p)         # Reshape back if needed
+                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
+                # g = zeropower_via_newtonschulz5(g)    # Trực giao Newton-Schulz
+                g = PolarExpress(g)                     # Trực giao Newton-Schulz bằng thuật toán Polar Express
+                if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
-                p.mul_(1 - group['lr']*group['wd'])  # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
-                rows, cols = p.size(-2), p.size(-1)  # 2) p -= g * lr * sqrt(max(1, rows / cols))
+                p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
+                rows, cols = p.size(-2), p.size(-1)     # 2) p -= g * lr * sqrt(max(1, rows / cols))
                 p.add_(g, alpha=-group['lr']*max(1, rows/cols)**0.5)
