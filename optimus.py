@@ -286,13 +286,13 @@ coeffs_list = [  (8.28721201814563   , -23.595886519098837  , 17.300387312530933
 coeffs_list = [(a/1.01,b/1.01**3,c/1.01**5) for (a,b,c) in coeffs_list] + [(1.875, -1.25 , 0.375)]*5
 #    safety factor for numerical stability
 @torch.compile()
-def PolarExpress(X:Tensor)->Tensor:
+def PolarExpress(X:Tensor, steps=7)->Tensor:
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
     X = X.bfloat16()                                # Need for Speed
     if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    # X /= X.norm(dim=(-2,-1), keepdim=True)*1.01   # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    for (a,b,c) in coeffs_list[:5]:
+    # X /= X.norm(dim=(-2,-1), keepdim=True)*1.01   # Ensure spectral norm ≤ 1, <= cách làm tròn này gây NaN
+    X   /= X.norm(dim=(-2,-1), keepdim=True)+1e-7   # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    for (a,b,c) in coeffs_list[:steps]:
         A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # X <- aX + bXˆ3 + cXˆ5
     return X.mT if need_invert else X
 
@@ -316,8 +316,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                # g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz
-                g = PolarExpress(g)                   # Thuật toán Polar Express => NaN ?!?
+                # g = zeropower_via_newtonschulz5(g)    # Trực giao Newton-Schulz gốc
+                g = PolarExpress(g)                     # Thuật toán Polar Express
                 if g.shape != p.shape: g = g.view_as(p) # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
