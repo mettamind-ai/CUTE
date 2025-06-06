@@ -280,8 +280,11 @@ import torch.nn.functional as F
 # from sage_attn import sageattn_qk_int8_pv_fp8_cuda
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
-except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
-print("FA3_ENABLED?", FA3_ENABLED)
+except:
+    FA3_ENABLED = False
+    try: from flash_attn import flash_attn_func, flash_attn_varlen_func; FA2_ENABLE = True
+    except: FA2_ENABLE = False
+print("FA3_ENABLED?", FA3_ENABLED, "FA2_ENABLE?", FA2_ENABLE)
 
 def generate_topk_indices(nheads_k, total_seqlen, seqlen_k, sparsity, block_size, device):
     """ Generate random topk indices for infllmv2_sparse_attention. Returns:
@@ -305,7 +308,8 @@ def generate_topk_indices(nheads_k, total_seqlen, seqlen_k, sparsity, block_size
     return indices
 
 if __name__ == "__main__":
-    lines = "pytorch flash_attn_varlen sageattn_varlen infllmv2_sparse_varlen".split()
+    lines = "pytorch sageattn_varlen infllmv2_sparse_varlen".split()
+    if FA3_ENABLE or FA2_ENABLE: lines += "flash_attn_varlen"
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
