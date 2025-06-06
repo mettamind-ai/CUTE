@@ -14,7 +14,7 @@
 ######################################################################
 ##  Torch 2.6 can install flash-attn, causal-conv1d and mamba-ssm
 ######################################################################
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
+pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --user
 MAX_JOBS=6 pip install flash-attn --no-build-isolation --no-cache-dir
 ## MAX_JOBS=6 pip install mamba-ssm causal-conv1d --no-build-isolation --no-cache-dir
 ## pip install --no-build-isolation transformer_engine[pytorch]

@@ -258,14 +258,19 @@ def zeropower_via_newtonschulz5(X:Tensor) -> Tensor:
     need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
     if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration
+    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 2: error ≈ ε²
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6:                                               (0.9, 1.1)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6: thêm 1 lần khử nhiễu đẻ ổn định hơn với int8? (0.9, 1.1) ?!?
     return X.mT if need_invert else X
+    '''Khi thực hiện phép tính A = X @ X.mT, chúng ta đang tạo ra một hiệu ứng trung bình hóa. Trong phép nhân ma trận này, mỗi phần tử của ma trận kết quả A được hình thành từ tổng của nhiều phép nhân giữa các phần tử khác nhau trong X. Noise ngẫu nhiên, do bản chất không có cấu trúc, có xu hướng triệt tiêu lẫn nhau trong quá trình cộng tổng này, trong khi tín hiệu thật có cấu trúc rõ ràng được củng cố và tăng cường.
+
+    Phép update X = aX + (bA + c*A@A) @ X làm mịn dữ liệu: Sau khi ma trận A đã được "lọc" với X ban đầu, chúng ta áp dụng một phép biến đổi mà trong đó mỗi phần tử mới được tạo thành từ sự kết hợp của nhiều phần tử cũ. Quá trình này tương tự như việc áp dụng bộ lọc không gian, nơi các giá trị lân cận ảnh hưởng và cân bằng lẫn nhau, từ đó làm mịn những biến động đột ngột và bất thường.
+
+    Cuối cùng, xu hướng convergence hướng về cấu trúc orthogonal tạo ra một cơ chế lọc tự nhiên. Sau nhiều iterations, X dần hội tụ về ma trận orthogonal, và quá trình này tự động "đẩy ra" những thành phần không phù hợp với cấu trúc orthogonal, bao gồm cả noise, trong khi bảo tồn những directions quan trọng và có ý nghĩa nhất.'''
 
 class Muon1GPU(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
