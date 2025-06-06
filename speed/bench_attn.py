@@ -278,13 +278,14 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
 
 import torch.nn.functional as F
 # from sage_attn import sageattn_qk_int8_pv_fp8_cuda
+from infllm_v2 import infllmv2_sparse_attn_func
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
 except:
     FA3_ENABLED = False
-    try: from flash_attn import flash_attn_func, flash_attn_varlen_func; FA2_ENABLE = True
-    except: FA2_ENABLE = False
-print("FA3_ENABLED?", FA3_ENABLED, "FA2_ENABLE?", FA2_ENABLE)
+    try: from flash_attn import flash_attn_func, flash_attn_varlen_func; FA2_ENABLED = True
+    except: FA2_ENABLED = flash_attn_func = flash_attn_varlen_func = False
+print("FA3_ENABLED?", FA3_ENABLED, "FA2_ENABLE?", FA2_ENABLED)
 
 def generate_topk_indices(nheads_k, total_seqlen, seqlen_k, sparsity, block_size, device):
     """ Generate random topk indices for infllmv2_sparse_attention. Returns:
@@ -309,7 +310,7 @@ def generate_topk_indices(nheads_k, total_seqlen, seqlen_k, sparsity, block_size
 
 if __name__ == "__main__":
     lines = "pytorch sageattn_varlen infllmv2_sparse_varlen".split()
-    if FA3_ENABLE or FA2_ENABLE: lines += "flash_attn_varlen"
+    if FA3_ENABLED or FA2_ENABLED: lines += "flash_attn_varlen"
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
@@ -348,9 +349,9 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            total_seqlen_q = qq.shape[0]; sparsity=0.7; block_size = 64
+            total_seqlen_q = qq.shape[0]; sparsity=0.7; block_size = 64; block_window_size = 0
             topk_idx = generate_topk_indices(N_HEADS, total_seqlen_q, max_seqlen, sparsity, block_size, "cuda")
-            return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen)
+            return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
             # return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
             #     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
@@ -377,20 +378,19 @@ if __name__ == "__main__":
         v = v.transpose(1, 2).reshape(4*1024, 32, 64) # seq_len, H, D
         o_triton = sageattn_varlen(q, k, v, c, m, sm_scale=1.3)
         o_triton = o_triton.reshape(4, 1024, 32, 64).transpose(1, 2)
-
-        o_flash = flash_attn_varlen_func(q, k, v, c, c, m, m, causal=True, softmax_scale=1.3)
-        o_flash = o_flash.reshape(4, 1024, 32, 64).transpose(1, 2)
-
         assert o_triton.shape == (4, 32, 1024, 64)
-        assert o_flash.shape  == (4, 32, 1024, 64)
 
-        x, y = o_triton[0][0], o_flash[0][0]
+        if flash_attn_varlen_func:
+            o_flash = flash_attn_varlen_func(q, k, v, c, c, m, m, causal=True, softmax_scale=1.3)
+            o_flash = o_flash.reshape(4, 1024, 32, 64).transpose(1, 2)
+            assert o_flash.shape  == (4, 32, 1024, 64)
+            x, y = o_torch[0][0], o_flash[0][0]
+            if not torch.allclose(x, y, rtol=0.25*1e-2, atol=0.3*1e-1):
+                print(f"torch ~= flash AssertionError:\n{x}\n{y}")
+
+        x, y = o_triton[0][0], o_torch[0][0]
         if not torch.allclose(x, y, rtol=0.25*1e-1, atol=0.3*1e-1):
-            print(f"sage ~= flash AssertionError:\n{x}\n{y}")
-
-        x, y = o_torch[0][0], o_flash[0][0]
-        if not torch.allclose(x, y, rtol=0.25*1e-2, atol=0.3*1e-1):
-            print(f"torch ~= flash AssertionError:\n{x}\n{y}")
+            print(f"sage ~= pytorch AssertionError:\n{x}\n{y}")
 
     assert_triton_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
