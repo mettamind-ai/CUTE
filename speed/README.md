@@ -70,6 +70,12 @@ The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's gra
 
 ## infllmv2_cuda (biến flash_attn thành sparse)
 Vì dựa trên code của flash attn nên nhanh hơn và linh hoạt như flast attn => super nice!
+```sh
+git clone -b feature_infer https://github.com/OpenBMB/infllmv2_cuda_impl.git
+cd infllmv2_cuda_impl
+git submodule update --init --recursive
+pip install -e . # or python setup.py install
+```
 ```py
 out_unpad = infllmv2_sparse_attn_func(
     q_unpad, k_unpad, v_unpad,
@@ -79,3 +85,14 @@ out_unpad = infllmv2_sparse_attn_func(
     block_window_size, 
 )
 ```
+
+![](https://pbs.twimg.com/media/GsxEgeOa0AAYvL3?format=png)
+![](https://pbs.twimg.com/media/GsxFmaTa0AAZ70F?format=jpg)
+![](https://pbs.twimg.com/media/GsxGcl_b0AALEVB?format=png)
+![](https://pbs.twimg.com/media/GsxHgUnbAAAnPV3?format=jpg)
+![](https://pbs.twimg.com/media/GsxInb6aQAAHXtB?format=jpg)
+![](https://pbs.twimg.com/media/GsxTQU-aQAAySEY?format=png)
+![](https://pbs.twimg.com/media/GsxUc82a4AAk4_g?format=jpg)
+
+![](https://pbs.twimg.com/media/GsxWtlDa0AA35ER?format=png)
+![](https://pbs.twimg.com/media/GsxZV1pbwAE_yBT?format=jpg)

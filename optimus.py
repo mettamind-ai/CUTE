@@ -104,7 +104,7 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
         return scaled_mm(A, B, As, Bs,)
 
     @staticmethod
@@ -117,7 +117,8 @@ class Int8MixedLinear(torch.autograd.Function):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None 
 
-        A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding để đạt độ ...
+        ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
+        A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
         B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
         grad_input = scaled_mm(A, B, As, Bs,)
 
@@ -129,7 +130,7 @@ class Int8MixedLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-''' Định tuyến lời gọi F.linear tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
+''' Chuyển tiếp F.linear func call tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
 dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch 2.
 '''
 class Int8MixedLWeight(Tensor):
