@@ -1,4 +1,4 @@
-import torch
+import torch, triton
 from torch import nn, Tensor
 
 ################################################################
@@ -104,7 +104,7 @@ MAX_ACTIVE_VOCAB = 1024 * 32  # 32k tối ưu cho speed, và vừa đủ 1:3 -> 
 class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab, bias=None):
         super().__init__()
-        self.active_vocab = vocab // 2
+        self.active_vocab = triton.next_power_of_2(vocab / 3)
 
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
             self.active_vocab = MAX_ACTIVE_VOCAB
