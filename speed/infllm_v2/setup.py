@@ -51,7 +51,7 @@ check_if_cuda_home_none("infllm_v2")
 assert CUDA_HOME is not None
 cc_flag = ["-gencode", "arch=compute_80,code=sm_80"]
 _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
-if bare_metal_version < Version("11.6"): raise RuntimeError("Only supported on CUDA 11.6 and above.")    
+if bare_metal_version < Version("11.6"): raise RuntimeError("Only supported on CUDA 11.6 and above.")
 # if bare_metal_version >= Version("11.8"): cc_flag += ["-gencode", "arch=compute_90,code=sm_90"] # h100
 
 ext_modules.append(
@@ -75,13 +75,12 @@ ext_modules.append(
                 "-U__CUDA_NO_HALF2_OPERATORS__",
                 "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
                 "-O3", "-std=c++17", "--use_fast_math",
-                "-lineinfo", "--threads", 16
+                "-lineinfo", "--threads", 16,
                 "--expt-relaxed-constexpr",
                 "--expt-extended-lambda",]
         },
         include_dirs=[
             Path(this_dir) / "flash_attn",
-            Path(this_dir) / "flash_attn" / "src", 
             Path(this_dir) / "cutlass" / "include",
         ],
     )
