@@ -30,7 +30,7 @@ class ReLuSquareMLP(nn.Module):
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
-        if use_gating: self.gate_proj = nn.Linear(dim, hdim)
+        if use_gate: self.gate_proj = nn.Linear(dim, hdim)
         
         with torch.no_grad():
             w = init_linear(torch.empty(hdim, dim))
