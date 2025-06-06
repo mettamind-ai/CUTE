@@ -277,14 +277,35 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
 
 
 import torch.nn.functional as F
-from sage_attn import sageattn_qk_int8_pv_fp8_cuda
+# from sage_attn import sageattn_qk_int8_pv_fp8_cuda
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = True
 except:        from flash_attn import flash_attn_func, flash_attn_varlen_func; FA3_ENABLED = False
 print("FA3_ENABLED?", FA3_ENABLED)
 
+def generate_topk_indices(nheads_k, total_seqlen, seqlen_k, sparsity, block_size, device):
+    """ Generate random topk indices for infllmv2_sparse_attention. Returns:
+        torch.Tensor: Topk indices with shape [nheads_k, total_seqlen, k]
+    """
+    # Calculate number of blocks in key dimension
+    k_blocks = (seqlen_k + block_size - 1) // block_size
+    
+    # Calculate how many blocks to keep (top-k)
+    k = max(0, int(k_blocks * (1 - sparsity)))
+    
+    # Option 1: Generate random valid indices for each query position
+    # For each head and query position, sample k random indices from 0 to k_blocks-1
+    indices = torch.stack([
+        torch.stack([ torch.randperm(k_blocks, device=device)[:k] for _ in range(total_seqlen) ])
+        for _ in range(nheads_k)
+    ])
+    
+    # Make sure indices are sorted for better performance
+    indices = indices.sort(dim=-1)[0].to(torch.int32)
+    return indices
+
 if __name__ == "__main__":
-    lines = "pytorch flash_attn_varlen sageattn_varlen flash_attn sageattn".split()
+    lines = "pytorch flash_attn_varlen sageattn_varlen infllmv2_sparse_varlen".split()
     BATCH, N_HEADS, HEAD_DIM = 8, 8, 128
 
     config = triton.testing.Benchmark(
@@ -313,11 +334,9 @@ if __name__ == "__main__":
             if "sageattn_varlen" == provider:
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            if "sageattn" == provider:
-                qqq = q.transpose(1, 2)
-                kkk = k.transpose(1, 2)
-                vvv = v.transpose(1, 2)
-                return lambda: sageattn_qk_int8_pv_fp8_cuda(qqq, kkk, vvv, is_causal=True, sm_scale=1.3)
+            # if "sageattn" == provider:
+            #     qqq = q.transpose(1, 2); kkk = k.transpose(1, 2); vvv = v.transpose(1, 2)
+            #     return lambda: sageattn_qk_int8_pv_fp8_cuda(qqq, kkk, vvv, is_causal=True, sm_scale=1.3)
 
             if provider == "pytorch":
                 return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
@@ -325,8 +344,12 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
-                causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+            total_seqlen_q = qq.shape[0]; sparsity=0.7; block_size = 64
+            topk_idx = generate_topk_indices(N_HEADS, total_seqlen_q, max_seqlen, sparsity, block_size, "cuda")
+            return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen)
+
+            # return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
+            #     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 

@@ -67,3 +67,15 @@ The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's gra
 
 |![](.save/sagebwd-00.png)|![](.save/sagebwd-01.png)|![](https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png)|
 |-|-|-|
+
+## infllmv2_cuda (biến flash_attn thành sparse)
+Vì dựa trên code của flash attn nên nhanh hơn và linh hoạt như flast attn => super nice!
+```py
+out_unpad = infllmv2_sparse_attn_func(
+    q_unpad, k_unpad, v_unpad,
+    cu_seqlens_q, cu_seqlens_k,
+    topk_idx,  # Use topk_idx directly instead of base_blockmask
+    max_seqlen_q, max_seqlen_k,
+    block_window_size, 
+)
+```
