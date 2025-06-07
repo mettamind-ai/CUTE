@@ -291,13 +291,13 @@ if __name__ == "__main__":
     lines = "sageattn_varlen infllmv2_varlen".split()
     lines = "infllmv2_varlen".split()
     if flash_attn_func: lines += "flash_attn_varlen".split()
-    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 64
+    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
         line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-        x_vals=[2**i for i in range(13, 17)], # 8192 16384 32k 64k   
+        x_vals=[2**i for i in range(13, 16)], # 8192 16384 32k   
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
         args=dict(H=N_HEADS, HQ=HQ, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
     )
