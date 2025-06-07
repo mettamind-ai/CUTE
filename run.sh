@@ -27,10 +27,11 @@ cd flash/infllmv2/cutlass;  git checkout a75b4ac483166189a45290783cb0a18af5ff0ea
 cd flash/attn/cutlass;      git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3
 cd flash/attn/cutlass;      git checkout 62750a2b75c802660e4894434dc55e839f322277;  cd ../../.. # flash_attn 2.7.4
 
+cd flash; ./bench_attn.py; cd ..
+./wingpt.py
+
 if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
     xz -d data6400.bin.xz
 fi
-
-./wingpt.py
-# ./pretrain.py --M --vocab 6400 --ohmai 2028
+./pretrain.py --M --ohmai 2028
