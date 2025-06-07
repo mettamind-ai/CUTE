@@ -14,8 +14,9 @@ from pathlib import Path
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
-max_jobs = round(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
-print(f"infllm_v2: free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
+max_jobs = round(free_memory_gb / 9)
+if free_memory_gb > 30: max_jobs += 1
+print(f"flash/attn: free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
 NVCC_FLAGS = [
@@ -25,16 +26,16 @@ NVCC_FLAGS = [
     "-U__CUDA_NO_HALF2_OPERATORS__",
     "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
     "--use_fast_math", "-lineinfo", "--threads=8",
-    "--expt-relaxed-constexpr", "--expt-extended-lambda",
-    "-Xptxas=-v", "-diag-suppress=174", # suppress the specific warning
+    "--expt-relaxed-constexpr", "--expt-extended-lambda", "-Xptxas=-v",
+    # "-diag-suppress=174", # suppress the specific warning
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
 
 abspath = Path(__file__).parent
-infllm_cuda = torch.utils.cpp_extension.load(
-    "CUTE_infllm_v2.C",
+cuda_binding = torch.utils.cpp_extension.load(
+    "CUTE_flash_attn_and_infllm_v2.C",
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
@@ -87,7 +88,7 @@ def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -
             uint64_memory = result
     else:   result = uint64_memory
     
-    infllm_cuda.topk_to_uint64(
+    cuda_binding.topk_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         topk_idx.data_ptr(),
         result.data_ptr(),
@@ -117,7 +118,7 @@ def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
     result = torch.zeros(output_shape, dtype=torch.int64, device=blockmask.device)
     flat_result = result.reshape(flat_dims, n_uint64_per_row)
     
-    infllm_cuda.blockmask_to_uint64(
+    cuda_binding.blockmask_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         flat_blockmask.data_ptr(),
         flat_result.data_ptr(),
@@ -143,7 +144,7 @@ def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tens
     result = torch.zeros(output_shape, dtype=torch.bool, device=uint64_array.device)
     flat_result = result.reshape(flat_dims, last_dim_size)
     
-    infllm_cuda.uint64_to_bool(
+    cuda_binding.uint64_to_bool(
         torch.cuda.current_stream().cuda_stream,
         flat_uint64_array.data_ptr(),
         flat_result.data_ptr(),
@@ -205,7 +206,7 @@ def _infllmv2_sparse_attn_forward(
     blockmask_uint64, last_dim_size = topk_to_uint64(topk_idx, max_seqlen_k_, n_block_dim)
     
     # CUDA operation
-    out, _, k_out, v_out, _, softmax_lse, _, rng_state = infllm_cuda.fwd_block(
+    out, _, k_out, v_out, _, softmax_lse, _, rng_state = cuda_binding.fwd_block(
         q_final, k, v,
         cu_seqlens_q_expanded, cu_seqlens_k,
         m_block_dim, n_block_dim,
@@ -289,7 +290,7 @@ def _infllmv2_sparse_attn_backward(
     dq_temp = torch.empty_like(q_final)
     
     # CUDA operation
-    _, _, _, softmax_d = infllm_cuda.bwd_block(
+    _, _, _, softmax_d = cuda_binding.bwd_block(
         dout_final,
         q_final, k, v,
         out_final,
@@ -598,7 +599,7 @@ def infllmv2_sparse_attn_kvcache_func(
     
     # Call the CUDA implementation
     # print(f"blockmask_uint64.shape: {blockmask_uint64.shape}, k_cache.shape[1]: {k_cache.shape[1]}, seqlen_k: {seqlen_k}, n_block_dim: {n_block_dim}")
-    out, softmax_lse = infllm_cuda.fwd_block_kvcache(
+    out, softmax_lse = cuda_binding.fwd_block_kvcache(
         q,
         k_cache,
         v_cache,

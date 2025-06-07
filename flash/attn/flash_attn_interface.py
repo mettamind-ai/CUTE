@@ -7,7 +7,7 @@ import torch.nn as nn
 import os
 
 # isort: off
-from .infllmv2_sparse_attention import infllm_cuda as flash_attn_gpu
+from .infllmv2_sparse_attn_interface import cuda_binding as flash_attn_gpu
 # isort: on
 
 def maybe_contiguous(x):
