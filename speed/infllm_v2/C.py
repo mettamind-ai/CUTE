@@ -1,11 +1,9 @@
-import torch, os, warnings, psutil, math
+import torch, os, warnings, psutil
 import torch.utils.cpp_extension
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
-os.environ['MAX_JOBS'] = "4"
-
 free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
-max_jobs = math.ceil(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
+max_jobs = int(free_memory_gb // 9)  # each JOB peak memory cost is ~9GB? when threads = 4
 print(f"Build _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
@@ -23,7 +21,7 @@ ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_{80},code=sm_{80}"]
 
-_infllmv2 = torch.utils.cpp_extension.load(
+infllm_cuda = torch.utils.cpp_extension.load(
     "infllmv2.C",
     sources=[
 	    "entry.cu",
