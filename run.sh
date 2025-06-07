@@ -11,8 +11,8 @@
 ######################################################################
 ##  Torch 2.6 can install flash-attn, causal-conv1d and mamba-ssm
 ######################################################################
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --user
-MAX_JOBS=6 pip install flash-attn --no-build-isolation --no-cache-dir
+# pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --user
+# MAX_JOBS=6 pip install flash-attn --no-build-isolation --no-cache-dir
 # MAX_JOBS=6 pip install mamba-ssm causal-conv1d --no-build-isolation --no-cache-dir
 # pip install --no-build-isolation transformer_engine[pytorch]
 
@@ -21,7 +21,8 @@ MAX_JOBS=6 pip install flash-attn --no-build-isolation --no-cache-dir
 ## Others, data, test run ...
 ######################################################################
 pip install numpy wandb einops
-git clone https://github.com/NVIDIA/cutlass.git /tmp/cutlass
+git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
+cd flash/cutlass; git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5; cd ../..
 
 if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
