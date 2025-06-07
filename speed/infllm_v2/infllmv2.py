@@ -6,7 +6,7 @@ os.environ['MAX_JOBS'] = "4"
 
 free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
 max_jobs = math.ceil(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
-print(f"free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
+print(f"Build _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
 NVCC_FLAGS = [
@@ -23,8 +23,8 @@ ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_{80},code=sm_{80}"]
 
-_infllm_v2 = torch.utils.cpp_extension.load(
-    "infllm_v2.CUTE",
+_infllmv2 = torch.utils.cpp_extension.load(
+    "infllmv2.C",
     sources=[
 	    "entry.cu",
 	    "flash_api.cpp",
