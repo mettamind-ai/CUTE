@@ -159,9 +159,8 @@ class Block(nn.Module):
         return x
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, active_vocab=None):
+    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-
         self.ohmai = ( active_vocab is not None )
         Embedding, Head = (OhMaiEmbedding, OhMaiHead) if self.ohmai else (nn.Embedding, nn.Linear)
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
@@ -248,7 +247,7 @@ if __name__ == "__main__":
     seq_len = 1024
     vocab_size = 6400
     dim, n_layers = 256, 8
-    num_heads, num_kv_heads = 32, 2
+    num_heads, num_kv_heads = 16, 1
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)
