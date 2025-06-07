@@ -28,13 +28,14 @@ NVCC_FLAGS = [
     "-U__CUDA_NO_HALF_CONVERSIONS__",
     "-U__CUDA_NO_HALF2_OPERATORS__",
     "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-    "--use_fast_math", "-lineinfo", "--threads=8",
-    "--expt-relaxed-constexpr", "--expt-extended-lambda", "-Xptxas=-v",
-    # "-diag-suppress=174", # suppress the specific warning
+    "--expt-relaxed-constexpr",
+    "--expt-extended-lambda",
+    "--use_fast_math",
+    "--threads=8", # "-diag-suppress=174", # suppress the specific warning
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
-NVCC_FLAGS += ["-gencode", f"arch=compute_89,code=sm_89"]
+NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
 
 abspath = Path(__file__).parent
 flash_attn_gpu = torch.utils.cpp_extension.load(
@@ -43,10 +44,14 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
         abspath / "flash_api.cpp",
         abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
         abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
         abspath / "src/flash_fwd_hdim64_bf16_sm80.cu",
         abspath / "src/flash_bwd_hdim64_bf16_sm80.cu",
+        abspath / "src/flash_fwd_hdim64_bf16_causal_sm80.cu",
+        abspath / "src/flash_bwd_hdim64_bf16_causal_sm80.cu",
+        abspath / "src/flash_fwd_hdim128_bf16_causal_sm80.cu",
+        abspath / "src/flash_bwd_hdim128_bf16_causal_sm80.cu",
         abspath / "src/flash_fwd_split_hdim64_bf16_sm80.cu",
+        abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ 
