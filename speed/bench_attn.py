@@ -332,11 +332,10 @@ if __name__ == "__main__":
                 q_, k_, v_, output_pad_fn, dq_pad_fn, dk_pad_fn,
             ) = generate_qkv(q, k, v, query_padding_mask, key_padding_mask, kvpacked=False) # q: (batch_size, seqlen_q, nheads, d)
             topk_idx = generate_topk_indices(HQ, q_unpad.shape[0], max_seqlen_k, sparsity, block_size, "cuda")
-            if provider == "sageattn_varlen": return lambda: sageattn_varlen(q_unpad, k_unpad, v_unpad, cu_seqlens_q, max_seqlen_q, sm_scale=1.3)
             return lambda: infllmv2_sparse_attn_func(q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, topk_idx, max_seqlen_q, max_seqlen_k, block_window_size)
 
-            # if provider == "sageattn_varlen":
-            #     return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
+            if provider == "sageattn_varlen":
+                return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
             # if provider == "pytorch":
             #     return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
             # if "sageattn" == provider:
