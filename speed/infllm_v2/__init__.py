@@ -1,6 +1,6 @@
 __version__ = "0.1.0"
 
-from .ext import (
+from .infllmv2_sparse_attention  import (
     blockmask_to_uint64,
     topk_to_uint64,
     uint64_to_bool,
