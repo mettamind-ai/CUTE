@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "namespace_config.h"
 #include <c10/cuda/CUDAException.h>  // For C10_CUDA_CHECK and C10_CUDA_KERNEL_LAUNCH_CHECK
 
 #include "static_switch.h"
@@ -12,8 +11,6 @@
 #include "flash.h"
 #include "flash_bwd_preprocess_kernel.h"
 #include "flash_bwd_kernel.h"
-
-namespace FLASH_NAMESPACE {
 
 // Determine if the architecture supports FLASH and define a macro to handle parameter modifiers
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
@@ -33,7 +30,7 @@ __global__ void kernelName(KERNEL_PARAM_MODIFIER const Flash_bwd_params params)
 
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_kernel, bool Is_dropout, bool Is_causal, bool Has_alibi, bool Is_even_M, bool Is_even_K) {
     #if defined(ARCH_SUPPORTS_FLASH)
-       FLASH_NAMESPACE::compute_dq_dk_dv<Kernel_traits, Is_dropout, Is_causal, Has_alibi, Is_even_M, Is_even_K>(params);
+       flash::compute_dq_dk_dv<Kernel_traits, Is_dropout, Is_causal, Has_alibi, Is_even_M, Is_even_K>(params);
     #else
         FLASH_UNSUPPORTED_ARCH
     #endif
@@ -42,7 +39,7 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_kernel, bool Is_dropout, bo
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
     #if defined(ARCH_SUPPORTS_FLASH)
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
-        FLASH_NAMESPACE::compute_dq_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+        flash::compute_dq_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
         FLASH_UNSUPPORTED_ARCH
     #endif
@@ -51,22 +48,22 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel, bool 
 
 template<bool Clear_dQaccum=true, typename Kernel_traits>
 __global__ void flash_bwd_dot_do_o_kernel(const Flash_bwd_params params) {
-    FLASH_NAMESPACE::compute_dot_do_o<Clear_dQaccum, Kernel_traits>(params);
+    flash::compute_dot_do_o<Clear_dQaccum, Kernel_traits>(params);
 }
 
 template<typename Kernel_traits>
 __global__ void flash_bwd_clear_dkvaccum_kernel(const Flash_bwd_params params) {
-    FLASH_NAMESPACE::clear_dKVaccum<Kernel_traits>(params);
+    flash::clear_dKVaccum<Kernel_traits>(params);
 }
 
 template<typename Kernel_traits>
 __global__ void flash_bwd_convert_dq_kernel(const Flash_bwd_params params, const int nsplits) {
-    FLASH_NAMESPACE::convert_dQ<Kernel_traits>(params, nsplits);
+    flash::convert_dQ<Kernel_traits>(params, nsplits);
 }
 
 template<typename Kernel_traits>
 __global__ void flash_bwd_convert_dkv_kernel(const Flash_bwd_params params) {
-    FLASH_NAMESPACE::convert_dKV<Kernel_traits>(params);
+    flash::convert_dKV<Kernel_traits>(params);
 }
 
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
@@ -102,7 +99,7 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, cudaStream_t stream) 
                         // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
                         // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
                         // If Is_local, set Is_causal to false
-                        auto kernel = &flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel<Kernel_traits, Is_dropout && !Is_softcap, Is_causal, Is_local && !Is_causal, Has_alibi, IsEvenMNConst && IsEvenKConst && !Is_local && !Has_alibi && Kernel_traits::kHeadDim <= 128, IsEvenKConst && !Has_alibi, Is_softcap>;
+                        auto kernel = &flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel<Kernel_traits, Is_dropout && !Is_softcap, Is_causal, Is_local && !Is_causal, Has_alibi, IsEvenMNConst && IsEvenKConst && !Is_local && Kernel_traits::kHeadDim <= 128, IsEvenKConst, Is_softcap>;
                         // auto kernel = &flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel<Kernel_traits, false, Is_causal, false, false, true, true>;
                         if (smem_size_dq_dk_dv >= 48 * 1024)  {
                             C10_CUDA_CHECK(cudaFuncSetAttribute(
@@ -262,6 +259,26 @@ void run_mha_bwd_hdim128(Flash_bwd_params &params, cudaStream_t stream) {
 }
 
 template<typename T, bool Is_causal>
+void run_mha_bwd_hdim160(Flash_bwd_params &params, cudaStream_t stream) {
+    constexpr static int Headdim = 160;
+    int device;
+    cudaGetDevice(&device);
+    int max_smem_per_block;
+    cudaError status_ = cudaDeviceGetAttribute(
+        &max_smem_per_block, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+    if (status_ != cudaSuccess) {
+      C10_CUDA_CHECK(status_);
+    }
+    DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        if (max_smem_per_block >= 116 * 1024) {
+            run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+        } else {
+            run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, true, T>, Is_dropout, Is_causal>(params, stream);
+        }
+    });
+}
+
+template<typename T, bool Is_causal>
 void run_mha_bwd_hdim192(Flash_bwd_params &params, cudaStream_t stream) {
     constexpr static int Headdim = 192;
     int device;
@@ -304,5 +321,3 @@ void run_mha_bwd_hdim256(Flash_bwd_params &params, cudaStream_t stream) {
         }
     });
 }
-
-} // namespace FLASH_NAMESPACE {

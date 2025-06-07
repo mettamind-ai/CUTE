@@ -21,11 +21,9 @@
 #include <cutlass/numeric_conversion.h>
 #include <cutlass/numeric_types.h>
 
-#include "namespace_config.h"
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace FLASH_NAMESPACE {
+namespace flash {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -270,8 +268,8 @@ __forceinline__ __device__ auto convert_type_relu(Tensor<Engine, Layout> const &
     }
     Tensor out = make_tensor(make_rmem_ptr<To_type>(out_uint32.data()), tensor.layout());
 #else
-    Tensor out = FLASH_NAMESPACE::convert_type<To_type>(tensor);
-    FLASH_NAMESPACE::relu_(out);
+    Tensor out = flash::convert_type<To_type>(tensor);
+    flash::relu_(out);
 #endif
     return out;
 }
@@ -410,4 +408,4 @@ __forceinline__ __device__ void calculate_dtanh(Tensor<Engine0, Layout0> &src_te
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-}  // namespace FLASH_NAMESPACE
+}  // namespace flash
