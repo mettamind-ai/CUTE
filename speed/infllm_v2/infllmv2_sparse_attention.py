@@ -14,7 +14,7 @@ from pathlib import Path
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
-max_jobs = math.ceil(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
+max_jobs = math.ceil(free_memory_gb / 8)  # each JOB peak memory cost is ~9GB? when threads = 4
 print(f"infllm_v2: free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
