@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 MAX_HEADDIM_SM8x = 192
 block_size = 64
-is_sm75 = torch.cuda.get_device_capability("cuda") == (7, 5)
 is_sm8x = torch.cuda.get_device_capability("cuda")[0] == 8
 is_sm80 = torch.cuda.get_device_capability("cuda") == (8, 0)
 is_sm90 = torch.cuda.get_device_capability("cuda") == (9, 0)

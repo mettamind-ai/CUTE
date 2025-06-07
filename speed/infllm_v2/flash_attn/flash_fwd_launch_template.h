@@ -392,5 +392,3 @@ void run_mha_fwd_splitkv_block_dispatch(Flash_fwd_params &params, cudaStream_t s
     // Use the run_flash_splitkv_fwd function with Flash_fwd_kernel_traits specialized for block-sparse attention
     run_flash_splitkv_block_fwd<Flash_fwd_kernel_traits<Headdim, kBlockM, kBlockN, 1, false, false, T>>(params, stream);
 }
-
-

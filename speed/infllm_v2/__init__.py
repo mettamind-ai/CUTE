@@ -6,6 +6,11 @@ from .infllmv2_sparse_attention  import (
     uint64_to_bool,
     infllmv2_sparse_attn_func,
     infllmv2_sparse_attn_kvcache_func,
-    InfLLMv2SparseAttnFun
+    InfLLMv2SparseAttnFun,
 )
 from .utils import generate_topk_indices
+
+from .flash_attn_interface import (
+    flash_attn_varlen_func,
+    flash_attn_with_kvcache,
+)
