@@ -290,8 +290,8 @@ if __name__ == "__main__":
 
     lines = "sageattn_varlen infllmv2_sparse_varlen".split()
     if flash_attn_func: lines += "flash_attn_varlen"
-    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 2, 128
-    assert N_HEADS // HQ >= 16
+    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
+    assert N_HEADS // HQ == 16
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
