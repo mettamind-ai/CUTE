@@ -21,10 +21,11 @@
 ######################################################################
 pip install numpy wandb einops
 
-git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
-cd flash/cutlass; git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5; cd ../.. # infllmv2
-cd flash/cutlass; git checkout c506e16788cb08416a4a57e11a9067beeee29420; cd ../.. # flash_attn 2.7.3
-cd flash/cutlass; git checkout 62750a2b75c802660e4894434dc55e839f322277; cd ../.. # flash_attn 2.7.4
+git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
+git clone https://github.com/NVIDIA/cutlass.git flash/attn/cutlass
+cd flash/cutlass/infllmv2;  git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5;  cd ../../.. # infllmv2
+cd flash/cutlass/attn;      git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3
+cd flash/cutlass/attn;      git checkout 62750a2b75c802660e4894434dc55e839f322277;  cd ../../.. # flash_attn 2.7.4
 
 if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz

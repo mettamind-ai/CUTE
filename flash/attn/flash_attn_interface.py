@@ -50,7 +50,7 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ 
         str(abspath / "src"), 
-        str(abspath.parent / "cutlass/include"),
+        str(abspath / "cutlass/include"),
     ],
 )
 print(f"flash_attn_2: DONE.")

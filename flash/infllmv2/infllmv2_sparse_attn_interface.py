@@ -49,7 +49,7 @@ cuda_binding = torch.utils.cpp_extension.load(
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ 
         str(abspath / "flash_attn"), 
-        str(abspath.parent / "cutlass/include"),
+        str(abspath / "cutlass/include"),
     ],
 )
 print(f"infllmv2: DONE.")
