@@ -290,12 +290,13 @@ if __name__ == "__main__":
 
     lines = "sageattn_varlen infllmv2_sparse_varlen".split()
     if flash_attn_func: lines += "flash_attn_varlen"
-    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 32, 2, 128
+    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 2, 128
+    assert N_HEADS // HQ >= 16
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
         line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-        x_vals=[2**i for i in range(10, 15)], # 1024 2048 4096 8192 16384   
+        x_vals=[2**i for i in range(13, 17)], # 8192 16384 32k 64k   
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
         args=dict(H=N_HEADS, HQ=HQ, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
     )
@@ -321,19 +322,6 @@ if __name__ == "__main__":
             ## infllmv2_sparse_attn_func
             from einops import rearrange, repeat
             sparsity=0.8; block_size=64; block_window_size=3
-            batch_size = BATCH; seqlen_q = seqlen_k = N_CTX
-            q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-
-            # Generate masks - simple full masks
-            query_padding_mask = generate_random_padding_mask(seqlen_q, batch_size, device, mode="random")
-            key_padding_mask = generate_random_padding_mask(seqlen_k, batch_size, device, mode="random")
-
-            ( q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k,
-                q_, k_, v_, output_pad_fn, dq_pad_fn, dk_pad_fn,
-            ) = generate_qkv(q, k, v, query_padding_mask, key_padding_mask, kvpacked=False) # q: (batch_size, seqlen_q, nheads, d)
-            # topk_idx = generate_topk_indices(HQ, q_unpad.shape[0], max_seqlen_k, sparsity, block_size, "cuda")
-            # return lambda: infllmv2_sparse_attn_func(q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, topk_idx, max_seqlen_q, max_seqlen_k, block_window_size)
-
             topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
             return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
