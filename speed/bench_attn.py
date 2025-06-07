@@ -288,15 +288,16 @@ print("Flash Attn?", FA_ENABLED)
 
 if __name__ == "__main__":
 
-    lines = "sageattn_varlen infllmv2_sparse_varlen".split()
-    if flash_attn_func: lines += "flash_attn_varlen"
+    lines = "sageattn_varlen infllmv2_varlen".split()
+    lines = "infllmv2_varlen".split()
+    if flash_attn_func: lines += "flash_attn_varlen flash_attn".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
-    assert N_HEADS // HQ == 16
+    assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
         line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-        x_vals=[2**i for i in range(13, 17)], # 8192 16384 32k 64k   
+        x_vals=[2**i for i in range(13, 16)], # 8192 16384 32k 64k   
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
         args=dict(H=N_HEADS, HQ=HQ, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
     )
@@ -319,21 +320,19 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            ## infllmv2_sparse_attn_func
-            from einops import rearrange, repeat
-            sparsity=0.8; block_size=64; block_window_size=3
-            topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-            return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
+            iff provider == "infllmv2_varlen":
+                from einops import rearrange, repeat
+                sparsity=0.8; block_size=64; block_window_size=3
+                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
-            if provider == "sageattn_varlen":
-                return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
+            if provider == "flash_attn":
+                return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+
+            # if provider == "sageattn_varlen":
+            #     return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
             # if provider == "pytorch":
             #     return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
-            # if "sageattn" == provider:
-            #     qqq = q.transpose(1, 2); kkk = k.transpose(1, 2); vvv = v.transpose(1, 2)
-            #     return lambda: sageattn_qk_int8_pv_fp8_cuda(qqq, kkk, vvv, is_causal=True, sm_scale=1.3)
-            # return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
-            #     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
