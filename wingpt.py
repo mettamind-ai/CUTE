@@ -5,7 +5,8 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 from ohmai import OhMaiEmbedding, OhMaiHead
-from flash_attn import flash_attn_varlen_func
+# from flash_attn import flash_attn_varlen_func
+from speed.infllm_v2 import infllmv2_sparse_attn_func, generate_topk_indices
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -131,9 +132,10 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)
 
-        y = flash_attn_varlen_func( q, k, v,
-            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        sparsity=0.8; block_size=64; block_window_size=3
+        topk_idx = generate_topk_indices(self.num_kv_heads, q.shape[0], max_seqlen, sparsity, block_size, "cuda")
+        y = infllmv2_sparse_attn_func(
+            q, k, v, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size, softmax_scale=self.attn_scale,
         ).contiguous()
         y = y.reshape(T, H * D)
         return self.o_proj(y)
@@ -246,7 +248,7 @@ if __name__ == "__main__":
     seq_len = 1024
     vocab_size = 6400
     dim, n_layers = 256, 8
-    num_heads, num_kv_heads = 8, 4
+    num_heads, num_kv_heads = 32, 2
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)

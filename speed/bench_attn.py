@@ -277,8 +277,7 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
 
 
 import torch.nn.functional as F
-from infllm_v2 import infllmv2_sparse_attn_func
-from utils import generate_random_padding_mask, generate_base_sparsity_mask, generate_qkv, prepare_mixed_mask, convert_flash_attn_S_to_softmax, normalize_flash_attn_S, get_dropout_fraction, attention_blocksparse_ref, convert_topk_to_base_blockmask, generate_topk_indices
+from infllm_v2 import infllmv2_sparse_attn_func, generate_topk_indices
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except:

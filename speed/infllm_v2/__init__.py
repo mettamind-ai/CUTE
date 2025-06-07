@@ -8,3 +8,4 @@ from .infllmv2_sparse_attention import (
     infllmv2_sparse_attn_kvcache_func,
     InfLLMv2SparseAttnFun
 )
+from .utils import generate_topk_indices
