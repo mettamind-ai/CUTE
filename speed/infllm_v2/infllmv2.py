@@ -10,7 +10,7 @@ print(f"Build _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
 NVCC_FLAGS = [
-	"-O3", "-std=c++17", "--jobs=4",
+	"-O3", "-std=c++17",
 	"-U__CUDA_NO_HALF_OPERATORS__",
 	"-U__CUDA_NO_HALF_CONVERSIONS__",
 	"-U__CUDA_NO_HALF2_OPERATORS__",
