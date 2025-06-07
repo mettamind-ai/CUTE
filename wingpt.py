@@ -315,7 +315,7 @@ if __name__ == "__main__":
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         a = ohmai.embeddings(input_seq).cpu()
         b = ohmai.embeddings.weight[input_seq.cpu().long()]
-        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp, {a}\n{b}"
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp"
 
         loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         loss_ohmai = fused_loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
@@ -324,7 +324,7 @@ if __name__ == "__main__":
         a = ohmai.lm_head.weight.cuda()[target]
         inverse = ohmai.lm_head.activate(target)
         b = ohmai.lm_head.active_weight[inverse]
-        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp, {a}\n{b}"
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp"
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
@@ -339,8 +339,8 @@ if __name__ == "__main__":
 
     tok_emb_after = ohmai.embeddings.weight.data
     diff = (tok_emb_before != tok_emb_after).sum().item()
-    assert diff > 0, f"Số lượng thay đổi {diff}\n{tok_emb_before}\n{tok_emb_after}"
+    assert diff > 0, f"Số lượng embedding thay đổi {diff}"
 
     head_after = ohmai.lm_head.weight.data
     diff = (head_before != head_after).sum().item()
-    assert diff > 0, f"Số lượng thay đổi {diff}\n{head_before}\n{head_after}"
+    assert diff > 0, f"Số lượng head thay đổi {diff}"

@@ -27,4 +27,5 @@ if [ ! -f data6400.bin ]; then
     xz -d data6400.bin.xz
 fi
 
-./pretrain.py --M --vocab 6400 --ohmai 2028
+./wingpt.py
+# ./pretrain.py --M --vocab 6400 --ohmai 2028
