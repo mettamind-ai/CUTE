@@ -15,7 +15,7 @@ from pathlib import Path
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 max_jobs = round(free_memory_gb / 9)
-if free_memory_gb > 30: max_jobs += 1
+if free_memory_gb > 28: max_jobs += 1
 print(f"flash/attn: free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
