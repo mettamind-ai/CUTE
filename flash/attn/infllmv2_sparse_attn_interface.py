@@ -35,7 +35,7 @@ NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
 
 abspath = Path(__file__).parent
 cuda_binding = torch.utils.cpp_extension.load(
-    "CUTE_flash_attn_and_infllm_v2.C",
+    "flash_attn_and_infllm_v2.C",
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
@@ -47,10 +47,7 @@ cuda_binding = torch.utils.cpp_extension.load(
         abspath / "flash_attn/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
-    extra_include_paths=[
-        str(abspath / "flash_attn"),
-        str(abspath.parent / "cutlass/include"),
-    ],
+    extra_include_paths=[ str(abspath / "flash_attn"), str("/tmp/cutlass/include"),],
 )
 
 uint64_memory = None

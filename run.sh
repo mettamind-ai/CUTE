@@ -5,7 +5,7 @@
 # sudo sh cuda_12.8.0_570.86.10_linux.run
 # pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128 -U
 pip3 install torch==2.7.1 -U --user
-cd flash; git clone https://github.com/NVIDIA/cutlass.git; cd ..
+git clone https://github.com/NVIDIA/cutlass.git /tmp/cutlass
 
 
 ######################################################################
