@@ -22,7 +22,7 @@ NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_{80},code=sm_{80}"]
 
 infllm_cuda = torch.utils.cpp_extension.load(
-    "infllmv2.C",
+    "infllm_v2.C",
     sources=[
 	    "entry.cu",
 	    "flash_api.cpp",

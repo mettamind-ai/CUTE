@@ -7,7 +7,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
 
 # Import from infllm_v2's C extension and local modules
-from . import C as infllm_cuda
+from .c import infllm_cuda
 from .blockmask import blockmask_to_uint64
 from .topk_to_uint64 import topk_to_uint64
 from .uint64_to_bool import uint64_to_bool
