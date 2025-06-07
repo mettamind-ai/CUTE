@@ -87,8 +87,6 @@ out_unpad = infllmv2_sparse_attn_func(
 |![](https://pbs.twimg.com/media/GsxUc82a4AAk4_g?format=jpg)|![](https://pbs.twimg.com/media/GsxWtlDa0AA35ER?format=png)|
 |![](https://pbs.twimg.com/media/GsxZV1pbwAE_yBT?format=jpg)|
 
-## infllmv2_cuda phát triển dựa trên Block-Sparse-Attention 
-- https://github.com/mit-han-lab/Block-Sparse-Attention
-- https://www.alphaxiv.org/abs/2309.17453
-
+## MesaNet: Sequence Modeling by Locally Optimal Test-Time Training 
+- https://www.alphaxiv.org/abs/2506.05233
 
