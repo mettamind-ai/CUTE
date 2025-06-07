@@ -291,7 +291,7 @@ if __name__ == "__main__":
     lines = "sageattn_varlen infllmv2_varlen".split()
     lines = "infllmv2_varlen".split()
     if flash_attn_func: lines += "flash_attn_varlen".split()
-    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
+    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 64
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
     config = triton.testing.Benchmark(
