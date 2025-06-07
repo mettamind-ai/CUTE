@@ -331,8 +331,11 @@ if __name__ == "__main__":
             ( q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k,
                 q_, k_, v_, output_pad_fn, dq_pad_fn, dk_pad_fn,
             ) = generate_qkv(q, k, v, query_padding_mask, key_padding_mask, kvpacked=False) # q: (batch_size, seqlen_q, nheads, d)
-            topk_idx = generate_topk_indices(HQ, q_unpad.shape[0], max_seqlen_k, sparsity, block_size, "cuda")
-            return lambda: infllmv2_sparse_attn_func(q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, topk_idx, max_seqlen_q, max_seqlen_k, block_window_size)
+            # topk_idx = generate_topk_indices(HQ, q_unpad.shape[0], max_seqlen_k, sparsity, block_size, "cuda")
+            # return lambda: infllmv2_sparse_attn_func(q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, topk_idx, max_seqlen_q, max_seqlen_k, block_window_size)
+
+            topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+            return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
             if provider == "sageattn_varlen":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
