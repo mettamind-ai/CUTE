@@ -19,11 +19,12 @@ lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
 cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
-    (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), (128,  32,  32, 4, 4),
-    (128, 128, 128, 4, 4), (128,  64,  64, 4, 4), ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4),
-    ( 64,  64,  32, 2, 4), (128, 128,  32, 2, 8), ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8),
-    (128, 128,  16, 2, 8), ( 64,  64,  16, 2, 4), (256, 128,  64, 4, 8), (128, 256,  64, 4, 8),
-    (128, 128,  64, 3, 8), ( 64,  64,  64, 3, 4), ( 32, 128,  32, 2, 4), (128,  32,  32, 2, 4),
+    (128, 128,  32, 4, 4), (128,  64,  32, 4, 4), ( 64, 128,  32, 4, 4), 
+    (128,  32,  32, 4, 4), (128, 128, 128, 4, 4), (128,  64,  64, 4, 4),
+    ( 64, 128,  64, 4, 4), (128,  32,  64, 4, 4), ( 64,  64,  32, 2, 4),
+    (128, 128,  32, 2, 8), ( 64, 128,  32, 4, 8), (128,  64,  32, 4, 8), 
+    (256, 128,  64, 4, 8), (128, 256,  64, 4, 8), (128, 128,  64, 3, 8), 
+    ( 64,  64,  64, 3, 4), ( 32, 128,  32, 2, 4), (128,  32,  32, 2, 4),
 ], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
 
@@ -57,9 +58,7 @@ def _scaled_mm_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        a = tl.load(A)
-        b = tl.load(B)
-        acc += tl.dot(a, b)
+        acc += tl.dot(tl.load(A), tl.load(B))
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 

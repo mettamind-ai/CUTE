@@ -244,7 +244,7 @@ if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
     from optimus import convert_int8_mixed_precision
 
-    seed = 1982
+    seed = 1981
     seq_len = 1024
     vocab_size = 6400
     dim, n_layers = 256, 8
