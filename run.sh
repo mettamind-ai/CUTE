@@ -1,12 +1,10 @@
 ###################################################################### 
-##  CUDA Toolkit 12.8 and latest torch with flash-attn
+##  CUDA Toolkit 12.8 and latest torch
 ######################################################################
 # wget https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_570.86.10_linux.run
 # sudo sh cuda_12.8.0_570.86.10_linux.run
 # pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128 -U
-# pip3 install torch==2.7.1 -U --user
 # NVTE_FRAMEWORK=pytorch pip install git+https://github.com/NVIDIA/TransformerEngine.git@stable
-
 
 ######################################################################
 ##  Torch 2.6 can install flash-attn, causal-conv1d and mamba-ssm
@@ -16,11 +14,11 @@
 # MAX_JOBS=6 pip install mamba-ssm causal-conv1d --no-build-isolation --no-cache-dir
 # pip install --no-build-isolation transformer_engine[pytorch]
 
-
 ######################################################################
 ## Others, data, test run ...
 ######################################################################
-pip install numpy wandb einops
+pip install numpy wandb einops torch==2.7.1 -U --user
+
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
 cd flash/cutlass; git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5; cd ../..
 
