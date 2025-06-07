@@ -5,13 +5,135 @@ import torch.nn as nn
 import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
+from torch import Tensor
+from typing import Tuple
 
+#######################################################
 # Import from infllm_v2's C extension and local modules
-from c import infllm_cuda
-from blockmask import blockmask_to_uint64
-from topk_to_uint64 import topk_to_uint64
-from uint64_to_bool import uint64_to_bool
+#######################################################
 
+from c import infllm_cuda
+
+def max_pooling_1d(input:Tensor, cache_len:int, local_blocks:int, init_blocks:int, block_size:int=64, stride:int=16,) -> Tensor:
+    assert input.dtype == torch.float16 or input.dtype == torch.bfloat16, "Chỉ hỗ trợ bf16"
+    num_heads, q_len, k_len = input.shape[0], input.shape[1], input.shape[2]
+
+    stride = block_size // stride
+    kernel_size = stride + 1
+    padding = 1
+    total_len = q_len + cache_len
+    out_len = (total_len + block_size - 1) // block_size
+    output = torch.zeros(num_heads, q_len, out_len, device=input.device, dtype=input.dtype)
+    infllm_cuda.max_pooling_1d(
+        torch.cuda.current_stream().cuda_stream, input.data_ptr(), output.data_ptr(),
+        input.dtype == torch.bfloat16, num_heads, q_len, k_len, out_len, cache_len,
+        kernel_size, stride, padding, block_size, local_blocks, init_blocks,
+    )
+    return output
+
+
+uint64_memory = None
+def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
+    """ Convert topk indices directly to uint64 representation without intermediate bool mask """
+    assert topk_idx.dtype == torch.int32
+    k_blocks = (max_seqlen_k + block_size - 1) // block_size  # Ceiling division
+    
+    # Record original shape
+    original_shape = topk_idx.shape
+    
+    # Check if we have a batch dimension
+    has_batch = len(original_shape) == 4
+    
+    if has_batch:
+        batch_size, num_heads, total_seqlen, k = original_shape
+    else:
+        num_heads, total_seqlen, k = original_shape
+        batch_size = 1
+    
+    # Compute how many uint64 values are needed per row
+    n_uint64_per_row = (k_blocks + 63) // 64
+
+    # Flatten batch dimensions
+    if has_batch:
+        flat_dims = batch_size * num_heads * total_seqlen
+        output_shape = (batch_size, num_heads, total_seqlen, n_uint64_per_row)
+    else:
+        flat_dims = num_heads * total_seqlen
+        output_shape = (num_heads, total_seqlen, n_uint64_per_row)
+    
+    global uint64_memory
+    if uint64_memory is None or uint64_memory.shape != output_shape:
+            result = torch.zeros(output_shape, dtype=torch.int64, device=topk_idx.device)
+            uint64_memory = result
+    else:   result = uint64_memory
+    
+    infllm_cuda.topk_to_uint64(
+        torch.cuda.current_stream().cuda_stream,
+        topk_idx.data_ptr(),
+        result.data_ptr(),
+        flat_dims,
+        k,
+        k_blocks,
+        n_uint64_per_row
+    )
+    return result, k_blocks
+
+
+def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
+    """ Convert PyTorch boolean mask to uint64 representation using CUDA kernel """ 
+    # Record original shape
+    original_shape = blockmask.shape
+    last_dim_size = original_shape[-1]
+    
+    # Compute how many uint64 values are needed per row
+    n_uint64_per_row = (last_dim_size + 63) // 64
+    
+    # Flatten all batch dimensions
+    flat_dims = torch.prod(torch.tensor(original_shape[:-1], dtype=torch.int64)).item()
+    flat_blockmask = blockmask.reshape(flat_dims, last_dim_size)
+    
+    # Create output tensor
+    output_shape = original_shape[:-1] + (n_uint64_per_row,)
+    result = torch.zeros(output_shape, dtype=torch.int64, device=blockmask.device)
+    flat_result = result.reshape(flat_dims, n_uint64_per_row)
+    
+    infllm_cuda.blockmask_to_uint64(
+        torch.cuda.current_stream().cuda_stream,
+        flat_blockmask.data_ptr(),
+        flat_result.data_ptr(),
+        flat_dims,
+        last_dim_size,
+        n_uint64_per_row
+    )
+    return result, last_dim_size 
+
+
+def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tensor:
+    """ Convert uint64 representation back to PyTorch boolean mask using CUDA kernel """
+    # Record original shape of uint64 array
+    original_shape = uint64_array.shape
+    n_uint64_per_row = original_shape[-1]
+    
+    # Flatten all batch dimensions
+    flat_dims = torch.prod(torch.tensor(original_shape[:-1], dtype=torch.int64)).item()
+    flat_uint64_array = uint64_array.reshape(flat_dims, n_uint64_per_row)
+    
+    # Create output tensor
+    output_shape = original_shape[:-1] + (last_dim_size,)
+    result = torch.zeros(output_shape, dtype=torch.bool, device=uint64_array.device)
+    flat_result = result.reshape(flat_dims, last_dim_size)
+    
+    infllm_cuda.uint64_to_bool(
+        torch.cuda.current_stream().cuda_stream,
+        flat_uint64_array.data_ptr(),
+        flat_result.data_ptr(),
+        flat_dims,
+        last_dim_size,
+        n_uint64_per_row
+    )
+    return result 
+
+#######################################################
 
 def replace_ones_with_count(tensor):
     ones_mask = tensor == 1

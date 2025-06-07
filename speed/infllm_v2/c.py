@@ -4,7 +4,7 @@ import torch.utils.cpp_extension
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
 max_jobs = int(free_memory_gb // 9)  # each JOB peak memory cost is ~9GB? when threads = 4
-print(f"Build _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
+print(f"infllm_v2/c.py: _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
 NVCC_FLAGS = [

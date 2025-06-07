@@ -1,6 +1,6 @@
 import torch
 from typing import Tuple, Optional
-from . import C
+from c import infllm_cuda as C
 
 uint64_memory = None
 

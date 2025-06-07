@@ -1,10 +1,9 @@
 import torch
 from typing import Tuple
-from . import C
+from c import infllm_cuda as C
 
 def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tensor:
-    """
-    Convert uint64 representation back to PyTorch boolean mask using CUDA kernel
+    """ Convert uint64 representation back to PyTorch boolean mask using CUDA kernel """
     
     Args:
         uint64_array: Tensor with uint64 values

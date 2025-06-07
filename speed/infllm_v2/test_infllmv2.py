@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/tests/test_flash_attn.py
 
 import torch
@@ -5,7 +6,7 @@ from einops import repeat
 from infllm_v2 import (
     infllmv2_sparse_attn_func,
 )
-from utils import (
+from test_utils import (
     generate_random_padding_mask,
     generate_base_sparsity_mask,
     generate_qkv,
