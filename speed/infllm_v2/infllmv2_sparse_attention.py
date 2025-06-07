@@ -34,7 +34,7 @@ NVCC_FLAGS += ["-gencode", f"arch=compute_{80},code=sm_{80}"]
 
 abspath = Path(__file__).parent
 infllm_cuda = torch.utils.cpp_extension.load(
-    "infllm_v2.CUTE",
+    "CUTE_infllm_v2.C",
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
