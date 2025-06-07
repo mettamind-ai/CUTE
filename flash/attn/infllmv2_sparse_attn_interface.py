@@ -27,7 +27,7 @@ NVCC_FLAGS = [
     "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
     "--use_fast_math", "-lineinfo", "--threads=8",
     "--expt-relaxed-constexpr", "--expt-extended-lambda", "-Xptxas=-v",
-    # "-diag-suppress=174", # suppress the specific warning
+    "-diag-suppress=174", # suppress the specific warning
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
@@ -49,7 +49,7 @@ cuda_binding = torch.utils.cpp_extension.load(
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[
         str(abspath / "flash_attn"),
-        str(abspath.parent / "cutlass/include"),
+        str(abspath / "../cutlass/include"),
     ],
 )
 
