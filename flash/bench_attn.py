@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 import torch.nn.functional as F
-from sage_attn_triton import sageattn_varlen
-from infllm_v2 import infllmv2_sparse_attn_func, generate_topk_indices
+from sageattn_triton import sageattn_varlen
+from attn import infllmv2_sparse_attn_func, generate_topk_indices
 
 try: from flash_attn_interface import flash_attn_varlen_func; FA_ENABLED = 3
-except:
-    try: from infllm_v2 import flash_attn_varlen_func; FA_ENABLED = 2
-    except: FA_ENABLED = flash_attn_varlen_func = False
-print("Flash Attn?", FA_ENABLED)
+except: from attn import flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
