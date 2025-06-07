@@ -38,7 +38,7 @@ NVCC_FLAGS += ["-gencode", f"arch=compute_89,code=sm_89"]
 
 abspath = Path(__file__).parent
 flash_attn_gpu = torch.utils.cpp_extension.load(
-    "CUTE_flash_attn_2.C",
+    "CUTE_flash_attn_2.7.3",
     sources=[
         abspath / "flash_api.cpp",
         abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
