@@ -1,15 +1,10 @@
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_blocksparse_attn_interface.py
 
-import block_sparse_attn_cuda
-import torch
-import torch.nn as nn
-
-
 ####################
 # Import C extension
 ####################
 
-import torch.utils.cpp_extension
+import os, psutil, torch.utils.cpp_extension
 from pathlib import Path
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
@@ -35,16 +30,14 @@ NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
 
 abspath = Path(__file__).parent
 block_sparse_attn_cuda = torch.utils.cpp_extension.load(
-    "block_sparse_attn_cuda.C",
+    "CUTE_block_sparse_attn_cuda.C",
     sources=[
-        abspath / "entry.cu",
         abspath / "flash_api.cpp",
-        abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_fwd_block_hdim128_bf16_sm80.cu",
         abspath / "src/flash_bwd_block_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_block_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ 
@@ -53,6 +46,8 @@ block_sparse_attn_cuda = torch.utils.cpp_extension.load(
     ],
 )
 
+import torch
+import torch.nn as nn
 
 def convert_blockmask(blockmask, causal):
     """Convert from the 0-1 format to the format used by the CUDA code.
