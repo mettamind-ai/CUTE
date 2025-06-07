@@ -320,7 +320,7 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            iff provider == "infllmv2_varlen":
+            if provider == "infllmv2_varlen":
                 from einops import rearrange, repeat
                 sparsity=0.8; block_size=64; block_window_size=3
                 topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
