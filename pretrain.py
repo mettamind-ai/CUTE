@@ -105,7 +105,8 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ## TRANING  ##
 ##############
 lossf = torch.compile(lossf)
-for x in model.blocks: x.compile()
+model = torch.compile(model)
+# for x in model.blocks: x.compile()
 
 model = model.cuda()
 model.train()
