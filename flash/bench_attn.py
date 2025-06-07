@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import torch.nn.functional as F
+import triton, torch, torch.nn.functional as F
 from sageattn_triton import sageattn_varlen
 from attn import infllmv2_sparse_attn_func, generate_topk_indices
 
@@ -10,7 +10,7 @@ if __name__ == "__main__":
 
     lines = "sageattn_varlen infllmv2_varlen".split()
     lines = "infllmv2_varlen".split()
-    if flash_attn_func: lines += "flash_attn_varlen".split()
+    if flash_attn_varlen_func: lines += "flash_attn_varlen".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
