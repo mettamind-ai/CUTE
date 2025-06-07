@@ -25,7 +25,7 @@ class NinjaBuildExtension(BuildExtension):
             import psutil
             max_num_jobs_cores = max(1, os.cpu_count() // 2)
             free_memory_gb = psutil.virtual_memory().available / (1024 ** 3)  # free memory in GB
-            max_num_jobs_memory = int(free_memory_gb / 5)  # each JOB peak memory cost is ~6GB? when threads = 4
+            max_num_jobs_memory = int(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
             max_jobs = max(1, min(max_num_jobs_cores, max_num_jobs_memory))
             os.environ["MAX_JOBS"] = str(max_jobs)
         super().__init__(*args, **kwargs)
@@ -75,7 +75,7 @@ ext_modules.append(
                 "-U__CUDA_NO_HALF2_OPERATORS__",
                 "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
                 "-O3", "-std=c++17", "--use_fast_math",
-                "-lineinfo", "--threads", "16",
+                "-lineinfo", "--threads", "8",
                 "--expt-relaxed-constexpr",
                 "--expt-extended-lambda",]
         },
