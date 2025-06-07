@@ -52,6 +52,7 @@ cuda_binding = torch.utils.cpp_extension.load(
         str(abspath.parent / "cutlass/include"),
     ],
 )
+print(f"infllmv2: DONE.")
 
 uint64_memory = None
 def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
