@@ -17,8 +17,8 @@ MAX_JOBS=6 pip install flash-attn --no-build-isolation --no-cache-dir
 ######################################################################
 ## Others, data, test run ...
 ######################################################################
-# pip install numpy wandb einops torch==2.7.1 -U --user
-
+pip install numpy wandb einops torch==2.7.1 -U --user
+MAX_JOBS=6 pip install flash-attn==2.7.3 --no-build-isolation --no-cache-dir --use-pep517
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
 cd flash/cutlass; git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5; cd ../..
 
