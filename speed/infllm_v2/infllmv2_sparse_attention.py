@@ -1,36 +1,56 @@
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_blocksparse_attn_interface.py
 
-import torch
-import torch.nn as nn
-import numpy as np
+import torch, os, warnings, psutil, torch.nn as nn, numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
 from torch import Tensor
 from typing import Tuple
+import torch.utils.cpp_extension
+from pathlib import Path
 
-#######################################################
-# Import from infllm_v2's C extension and local modules
-#######################################################
+#####################################
+# Import from infllm_v2's C extension
+#####################################
 
-from c import infllm_cuda
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
+free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
+max_jobs = int(free_memory_gb // 9)  # each JOB peak memory cost is ~9GB? when threads = 4
+print(f"infllm_v2/c.py: _infllmv2. free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
+os.environ["MAX_JOBS"] = str(max_jobs)
 
-def max_pooling_1d(input:Tensor, cache_len:int, local_blocks:int, init_blocks:int, block_size:int=64, stride:int=16,) -> Tensor:
-    assert input.dtype == torch.float16 or input.dtype == torch.bfloat16, "Chỉ hỗ trợ bf16"
-    num_heads, q_len, k_len = input.shape[0], input.shape[1], input.shape[2]
+NVCC_FLAGS = [
+    "-O3", "-std=c++17",
+    "-U__CUDA_NO_HALF_OPERATORS__",
+    "-U__CUDA_NO_HALF_CONVERSIONS__",
+    "-U__CUDA_NO_HALF2_OPERATORS__",
+    "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+    "--use_fast_math", "-lineinfo", "--threads=8",
+    "--expt-relaxed-constexpr", "--expt-extended-lambda",
+    "-Xptxas=-v", "-diag-suppress=174", # suppress the specific warning
+]
+ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
+NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
+NVCC_FLAGS += ["-gencode", f"arch=compute_{80},code=sm_{80}"]
 
-    stride = block_size // stride
-    kernel_size = stride + 1
-    padding = 1
-    total_len = q_len + cache_len
-    out_len = (total_len + block_size - 1) // block_size
-    output = torch.zeros(num_heads, q_len, out_len, device=input.device, dtype=input.dtype)
-    infllm_cuda.max_pooling_1d(
-        torch.cuda.current_stream().cuda_stream, input.data_ptr(), output.data_ptr(),
-        input.dtype == torch.bfloat16, num_heads, q_len, k_len, out_len, cache_len,
-        kernel_size, stride, padding, block_size, local_blocks, init_blocks,
-    )
-    return output
-
+abspath = Path(__file__).parent
+infllm_cuda = torch.utils.cpp_extension.load(
+    "infllm_v2.CUTE",
+    sources=[
+        abspath / "entry.cu",
+        abspath / "flash_api.cpp",
+        abspath / "flash_attn/flash_fwd_hdim128_bf16_sm80.cu",
+        abspath / "flash_attn/flash_bwd_hdim128_bf16_sm80.cu",
+        abspath / "flash_attn/flash_fwd_split_hdim128_bf16_sm80.cu",
+        abspath / "flash_attn/flash_fwd_block_hdim128_bf16_sm80.cu",
+        abspath / "flash_attn/flash_bwd_block_hdim128_bf16_sm80.cu",
+        abspath / "flash_attn/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
+    ],
+    extra_cuda_cflags=NVCC_FLAGS,
+    extra_include_paths=[
+        str(abspath / "flash_attn"),
+        str(abspath / "cutlass/include"),
+    ],
+)
 
 uint64_memory = None
 def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
