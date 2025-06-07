@@ -8,9 +8,9 @@ from typing import Tuple
 import torch.utils.cpp_extension
 from pathlib import Path
 
-#####################################
-# Import from infllm_v2's C extension
-#####################################
+####################
+# Import C extension
+####################
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
