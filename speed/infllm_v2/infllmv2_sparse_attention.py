@@ -1,6 +1,6 @@
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_blocksparse_attn_interface.py
 
-import torch, os, warnings, psutil, torch.nn as nn, numpy as np
+import math, torch, os, warnings, psutil, torch.nn as nn, numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
 from torch import Tensor
@@ -14,7 +14,7 @@ from pathlib import Path
 
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = int(psutil.virtual_memory().available) // (1024 ** 3)
-max_jobs = int(free_memory_gb // 9)  # each JOB peak memory cost is ~9GB? when threads = 4
+max_jobs = math.ceil(free_memory_gb / 9)  # each JOB peak memory cost is ~9GB? when threads = 4
 print(f"infllm_v2: free_memory_gb {free_memory_gb}, max_jobs {max_jobs}")
 os.environ["MAX_JOBS"] = str(max_jobs)
 
