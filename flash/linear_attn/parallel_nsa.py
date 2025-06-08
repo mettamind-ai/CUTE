@@ -6,12 +6,12 @@ from torch import Tensor, LongTensor
 from typing import Optional, Union
 from einops import rearrange
 
-from parallel_attn import parallel_attn_bwd_preprocess
-from compression import parallel_nsa_compression
-from pooling import mean_pooling
-from utils import _bitonic_merge, exp, log
-from utils import prepare_chunk_indices, prepare_chunk_offsets, prepare_lens, prepare_token_indices
-from utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
+from .parallel_attn import parallel_attn_bwd_preprocess
+from .compression import parallel_nsa_compression
+from .pooling import mean_pooling
+from .utils import _bitonic_merge, exp, log
+from .utils import prepare_chunk_indices, prepare_chunk_offsets, prepare_lens, prepare_token_indices
+from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
 
 
 @triton.heuristics({ 'IS_VARLEN': lambda args: args['cu_seqlens'] is not None })

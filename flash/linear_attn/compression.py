@@ -4,9 +4,9 @@
 from typing import Optional
 import torch, triton, triton.language as tl
 
-from parallel_attn import parallel_attn_bwd_preprocess
-from utils import prepare_chunk_indices, prepare_chunk_offsets, prepare_token_indices, exp, log
-from utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
+from .parallel_attn import parallel_attn_bwd_preprocess
+from .utils import prepare_chunk_indices, prepare_chunk_offsets, prepare_token_indices, exp, log
+from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
 
 
 @triton.heuristics({

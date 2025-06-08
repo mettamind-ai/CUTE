@@ -5,8 +5,7 @@
 import warnings, torch, triton, triton.language as tl
 from typing import Optional
 
-from utils import prepare_chunk_indices
-from utils import check_shared_mem, input_guard
+from .utils import prepare_chunk_indices, check_shared_mem, input_guard
 
 BS_LIST = [32, 64] if check_shared_mem() else [16, 32]
 

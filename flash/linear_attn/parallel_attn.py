@@ -5,9 +5,9 @@ import warnings, torch, triton, triton.language as tl
 from einops import rearrange, reduce
 from typing import Optional
 
-from cumsum import chunk_global_cumsum
-from utils import prepare_chunk_indices, exp, log, safe_exp
-from utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
+from .cumsum import chunk_global_cumsum
+from .utils import prepare_chunk_indices, exp, log, safe_exp
+from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
 
 @triton.heuristics({
     'USE_G': lambda args: args['g_cumsum'] is not None,

@@ -4,8 +4,8 @@
 import torch, triton, triton.language as tl
 from typing import Optional, Tuple
 
-from utils import prepare_chunk_indices
-from utils import autocast_custom_bwd, autocast_custom_fwd, input_guard
+from .utils import prepare_chunk_indices
+from .utils import autocast_custom_bwd, autocast_custom_fwd, input_guard
 
 
 @triton.heuristics({
