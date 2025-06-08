@@ -152,7 +152,7 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
-                        head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 5 ngắn + 1 dài
+                        head_dim=head_dim, long=layer_id % 5 == 4, layer_id=layer_id) # 4 ngắn + 1 dài
 
     # @torch.compile()
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
@@ -165,19 +165,19 @@ class Block(nn.Module):
 class DoubleBlock(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
-        self.block1 = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id)
-        self.block2 = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id+1)
+        self.A = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id)
+        self.B = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id+1)
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x = self.block1(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = self.block2(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
+        x = self.A(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
+        x = self.B(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
         return x
 
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-        assert n_layers % 2 == 0
+        n_layers -= 2 # save params for 2 future mlps
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
@@ -185,10 +185,9 @@ class WinGPT(nn.Module):
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        # self.blocks = nn.ModuleList([Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers)])
-        self.double_blocks = nn.ModuleList([
-            DoubleBlock(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers // 2)
-        ])
+        blks = [ DoubleBlock(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i*2) for i in range(n_layers // 2) ]
+        if len(blks) < n_layers: blks.append(Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=n_layers-1))
+        self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2

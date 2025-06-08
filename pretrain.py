@@ -55,7 +55,7 @@ else:       # (S)mall ~ 333m
 
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 def find_key(s):
-    m = re.search(r'(blocks\.\d+\.)?(.*)', s)
+    m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
 total_params = sum(p.numel() for p in model.parameters())
 short_names = sorted(set(find_key(x) for x in names))
