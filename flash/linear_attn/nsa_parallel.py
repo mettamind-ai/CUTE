@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
 import warnings, torch, triton, triton.language as tl
+from torch import Tensor, LongTensor
 from typing import Optional, Union
 from einops import rearrange
 
@@ -139,7 +140,7 @@ def parallel_nsa_kernel_topk(
 
 @triton.heuristics({
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
-    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], torch.Tensor),
+    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], Tensor),
 })
 @triton.autotune(
     configs=[
@@ -236,7 +237,7 @@ def parallel_nsa_fwd_kernel(
 
 
 @triton.heuristics({
-    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], torch.Tensor)
+    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], Tensor)
 })
 @triton.jit(do_not_specialize=['T'])
 def parallel_nsa_kernel_mask(
@@ -265,7 +266,7 @@ def parallel_nsa_kernel_mask(
 
 @triton.heuristics({
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
-    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], torch.Tensor)
+    'USE_BLOCK_COUNTS': lambda args: isinstance(args['block_counts'], Tensor)
 })
 @triton.autotune(
     configs=[
@@ -464,14 +465,14 @@ def parallel_nsa_bwd_kernel_dkv(
 
 
 def parallel_nsa_topk(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    lse: torch.Tensor,
-    block_counts: Union[torch.LongTensor, int],
+    q: Tensor,
+    k: Tensor,
+    lse: Tensor,
+    block_counts: Union[LongTensor, int],
     block_size: int = 64,
     scale: float = None,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-) -> torch.LongTensor:
+    cu_seqlens: Optional[LongTensor] = None,
+) -> LongTensor:
     B, T, HQ, K = q.shape
     H = k.shape[2]
     G = HQ // H
@@ -508,15 +509,15 @@ def parallel_nsa_topk(
 
 
 def parallel_nsa_fwd(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    block_indices: torch.LongTensor,
-    block_counts: Union[torch.LongTensor, int],
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    block_indices: LongTensor,
+    block_counts: Union[LongTensor, int],
     block_size: int,
     scale: float,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-    token_indices: Optional[torch.LongTensor] = None,
+    cu_seqlens: Optional[LongTensor] = None,
+    token_indices: Optional[LongTensor] = None,
 ):
     B, T, H, K, V, S = *k.shape, v.shape[-1], block_indices.shape[-1]
     HQ = q.shape[2]
@@ -562,9 +563,9 @@ def parallel_nsa_fwd(
 
 
 def parallel_nsa_block_mask(
-    block_indices: torch.LongTensor,
-    block_counts: Union[torch.LongTensor, int],
-    cu_seqlens: torch.LongTensor,
+    block_indices: LongTensor,
+    block_counts: Union[LongTensor, int],
+    cu_seqlens: LongTensor,
     block_size: int,
 ):
     B, T, H, S = block_indices.shape
@@ -589,18 +590,18 @@ def parallel_nsa_block_mask(
 
 
 def parallel_nsa_bwd(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    o: torch.Tensor,
-    lse: torch.Tensor,
-    do: torch.Tensor,
-    block_indices: torch.Tensor,
-    block_counts: Union[torch.LongTensor, int],
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    o: Tensor,
+    lse: Tensor,
+    do: Tensor,
+    block_indices: Tensor,
+    block_counts: Union[LongTensor, int],
     block_size: int = 64,
     scale: float = None,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-    token_indices: Optional[torch.LongTensor] = None,
+    cu_seqlens: Optional[LongTensor] = None,
+    token_indices: Optional[LongTensor] = None,
 ):
     B, T, H, K, V, S = *k.shape, v.shape[-1], block_indices.shape[-1]
     HQ = q.shape[2]
@@ -741,36 +742,35 @@ class ParallelNSAFunction(torch.autograd.Function):
 
 @torch.compile()
 def parallel_nsa(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    g_cmp: Optional[torch.Tensor] = None,
-    g_slc: Optional[torch.Tensor] = None,
-    g_swa: Optional[torch.Tensor] = None,
-    block_indices: Optional[torch.LongTensor] = None,
-    block_counts: Union[torch.LongTensor, int] = 16,
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    g_cmp: Tensor = None,
+    g_slc: Tensor = None,
+    g_swa: Tensor = None,
+    block_indices: LongTensor = None,
+    block_counts: Union[LongTensor, int] = 16,
     block_size: int = 64,
     window_size: int = 0,
-    scale: Optional[float] = None,
-    cu_seqlens: Optional[torch.LongTensor] = None,
+    scale: float = None,
+    cu_seqlens: LongTensor = None,
     head_first: bool = False
-) -> torch.Tensor:
+) -> Tensor:
     r""" Args:
-    q (torch.Tensor): queries of shape `[B, T, HQ, K]` if `head_first=False` else `[B, HQ, T, K]`.
-    k (torch.Tensor):    keys of shape `[B, T, H,  K]` if `head_first=False` else `[B, H,  T, K]`.
-    v (torch.Tensor):  values of shape `[B, T, H,  V]` if `head_first=False` else `[B, H,  T, V]`.
+    q (Tensor): queries of shape `[B, T, HQ, K]` if `head_first=False` else `[B, HQ, T, K]`.
+    k (Tensor):    keys of shape `[B, T, H,  K]` if `head_first=False` else `[B, H,  T, K]`.
+    v (Tensor):  values of shape `[B, T, H,  V]` if `head_first=False` else `[B, H,  T, V]`.
     GQA is enforced here. The ratio of query heads (HQ) to key/value heads (H) must be a power of 2 and >=16.
     
-    g_cmp (torch.Tensor): Gate score for compressed attention of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
-    g_slc (torch.Tensor): Gate score for selected attention   of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
-    g_swa (torch.Tensor): Gate score for sliding attention    of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
+    g_cmp (Tensor): Gate score for compressed attention of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
+    g_slc (Tensor): Gate score for selected attention   of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
+    g_swa (Tensor): Gate score for sliding attention    of shape `[B, T, HQ]` if `head_first=False` else `[B, HQ, T]`.
 
-    block_indices (torch.LongTensor): Block indices of shape `[B, T, H, S]` if `head_first=False` else `[B, H, T, S]`.
+    block_indices (LongTensor): Block indices of shape `[B, T, H, S]` if `head_first=False` else `[B, H, T, S]`.
         `S` is the number of selected blocks for each query token, which is set to 16 in the paper.
         If `g_cmp` is provided, the passed `block_indices` will be ignored.
 
-    block_counts (Optional[Union[torch.LongTensor, int]]):
-        Number of selected blocks for each query.
+    block_counts LongTensor|int|None: Number of selected blocks for each query.
         If a tensor is provided, with shape `[B, T, H]` if `head_first=False` else `[B, H, T]`,
         each query can select the same number of blocks.
         If not provided, it will default to 16.
@@ -780,11 +780,11 @@ def parallel_nsa(
     scale (int):        Scale factor for attention scores. Default to `1 / sqrt(K)`. Default: `None`.
     head_first (bool):  Whether the inputs are in the head-first format. Default: `False`.
 
-    cu_seqlens (torch.LongTensor):
+    cu_seqlens (LongTensor):
         Cumulative sequence lengths of shape `[N+1]` used for variable-length training,
         consistent with the FlashAttention API.
 
-    Returns: o (torch.Tensor): Outputs of shape `[B, T, HQ, V]` if `head_first=False` else `[B, HQ, T, V]`.
+    Returns: o (Tensor): Outputs of shape `[B, T, HQ, V]` if `head_first=False` else `[B, HQ, T, V]`.
     """
     assert block_counts is not None, "block counts must be provided for selection"
     if scale is None: scale = k.shape[-1] ** -0.5
