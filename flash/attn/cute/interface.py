@@ -22,7 +22,7 @@ import cutlass
 import cutlass.cute as cute
 
 from flash_attn.cute import utils
-from flash_attn.cute.flash_fwd import FlashAttentionForwardSm80, FlashAttentionForwardSm90
+from flash_attn.cute.flash_fwd import FlashAttentionForwardSm80
 from flash_attn.cute.flash_bwd_preprocess import FlashAttentionBackwardPreprocess
 from flash_attn.cute.flash_bwd import FlashAttentionBackwardSm80
 from flash_attn.cute.flash_bwd_postprocess import FlashAttentionBackwardPostprocess
