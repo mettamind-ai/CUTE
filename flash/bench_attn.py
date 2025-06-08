@@ -8,7 +8,7 @@ except: from attn import flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "pytorch flash_attn_varlen".split()
+    lines = "flash_attn_varlen".split()
     # lines = "infllmv2_varlen sageattn_varlen".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
