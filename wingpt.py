@@ -162,22 +162,9 @@ class Block(nn.Module):
         x = x + self.mlp(norm(x))
         return x
 
-class DoubleBlock(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
-        super().__init__()
-        self.A = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id)
-        self.B = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id+1)
-
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x = self.A(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = self.B(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        return x
-
-
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-        n_layers -= 2 # save params for 2 future mlps
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
@@ -185,8 +172,7 @@ class WinGPT(nn.Module):
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        blks = [ DoubleBlock(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i*2) for i in range(n_layers // 2) ]
-        if len(blks) < n_layers: blks.append(Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=n_layers-1))
+        blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
