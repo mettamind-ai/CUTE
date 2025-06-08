@@ -48,7 +48,7 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision (2/4/8/16 bits) + Size + Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
+## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
@@ -56,4 +56,14 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-- [ ] Tìm hiểu byte level LLM (BLT, EveByte)
+- [ ] Tìm hiểu các cách Attn trong NSA
+- [ ] CUTE flash attn
+- [ ] LongCE và cách làm giảm hạn chế của Causual Attn
+- [ ] Token được tự do lựa chọn:
+  - cách nó attn
+  - cách nó chọn số computing / hidden dim để biểu diễn chính nó
+
+- [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể kết hợp logits distill + pre-train để:
+  - giảm dataset phải chuẩn bị cho nó học?
+  - học cách phân bổ dữ liệu nhanh hơn?
+  

@@ -156,4 +156,6 @@
 
 --------
 
-- [ ] Tìm hiểu byte level LLM (BLT, EveByte)
+- [x] Tìm hiểu byte level LLM (BLT, EveByte)
+- [x] Biên dịch nhanh flash-attn-2 on-the-fly
+- [x] Thử block sparse attn (infllmv2 và NSA)
