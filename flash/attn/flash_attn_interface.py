@@ -11,7 +11,7 @@ import os
 # Import C extension
 ####################
 
-import psutil, torch.utils.cpp_extension
+import time, psutil, torch.utils.cpp_extension
 from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
@@ -38,7 +38,9 @@ NVCC_FLAGS += ["-gencode", f"arch=compute_86,code=sm_86"]
 os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
 
 abspath = Path(__file__).parent
-flash_attn_gpu = torch.utils.cpp_extension.load(
+started_at = time.time()
+
+CUDA_EXEC = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
         abspath / "flash_api.cpp",
@@ -52,7 +54,7 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
     ],
 )
 # ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
-print(f"flash_attn_2: DONE.")
+print(f"flash_attn_2: DONE. In {int(time.time() - started_at)} seconds.")
 
 
 def maybe_contiguous(x): return x.contiguous() if x is not None and x.stride(-1) != 1 else x
@@ -89,7 +91,7 @@ def _flash_attn_varlen_forward(
     zero_tensors: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse, S_dmask, rng_state = flash_attn_gpu.varlen_fwd(
+    out, softmax_lse, S_dmask, rng_state = CUDA_EXEC.varlen_fwd(
         q,
         k,
         v,
@@ -190,7 +192,7 @@ def _flash_attn_varlen_backward(
         dk,
         dv,
         softmax_d,
-    ) = flash_attn_gpu.varlen_bwd(
+    ) = CUDA_EXEC.varlen_bwd(
         dout,
         q,
         k,
@@ -584,7 +586,7 @@ def flash_attn_with_kvcache(
         cache_seqlens = maybe_contiguous(cache_seqlens)
     cache_batch_idx = maybe_contiguous(cache_batch_idx)
     block_table = maybe_contiguous(block_table)
-    out, softmax_lse = flash_attn_gpu.fwd_kvcache(
+    out, softmax_lse = CUDA_EXEC.fwd_kvcache(
         q,
         k_cache,
         v_cache,
