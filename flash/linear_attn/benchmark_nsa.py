@@ -2,7 +2,9 @@
 
 import torch, triton
 from parallel_nsa import parallel_nsa
-from ..attn.flash_attn_interface import flash_attn_func
+
+import sys; sys.path.append('../')
+from attn.flash_attn_interface import flash_attn_func
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
@@ -71,4 +73,4 @@ def benchmark(T, provider):
 
 
 if __name__ == '__main__':
-    benchmark.run(print_data=True, save_path='.')
+    benchmark.run(print_data=True, save_path='/tmp')
