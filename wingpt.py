@@ -181,7 +181,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2)
+        self.future_mlp = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
