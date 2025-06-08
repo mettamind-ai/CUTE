@@ -6,12 +6,12 @@ from linear_attn.parallel_nsa import parallel_nsa
 
 from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
 
-try: from flash_attn_interface import flash_attn_varlen_func; FA_ENABLED = 3
+try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen parallel_nsa infllmv2_varlen sageattn_varlen".split()
+    lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen parallel_nsa flash_attn".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
@@ -64,6 +64,9 @@ if __name__ == "__main__":
 
             if provider == "pytorch":
                 return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
+
+            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
+                causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
