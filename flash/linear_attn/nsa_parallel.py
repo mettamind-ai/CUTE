@@ -742,14 +742,12 @@ class ParallelNSAFunction(torch.autograd.Function):
 
 @torch.compile()
 def parallel_nsa(
-    q: Tensor,
-    k: Tensor,
-    v: Tensor,
+    q, k, v,
     g_cmp: Tensor = None,
     g_slc: Tensor = None,
     g_swa: Tensor = None,
     block_indices: LongTensor = None,
-    block_counts: Union[LongTensor, int] = 16,
+    block_counts: LongTensor|int = 16,
     block_size: int = 64,
     window_size: int = 0,
     scale: float = None,
