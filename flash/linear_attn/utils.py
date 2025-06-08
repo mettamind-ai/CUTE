@@ -114,6 +114,8 @@ device = "cuda"
 autocast_custom_fwd = functools.partial(torch.amp.custom_fwd, device_type=device)
 autocast_custom_bwd = functools.partial(torch.amp.custom_bwd, device_type=device)
 
+def custom_device_ctx(index: int): return torch.cuda.device(index)
+
 def tensor_cache(fn: Callable[..., torch.Tensor] ) -> Callable[..., torch.Tensor]:
     """ A decorator that caches the most recent result of a function with tensor inputs."""
     last_args: Optional[Tuple] = None

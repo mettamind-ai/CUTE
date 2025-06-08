@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import torch
-import triton
-from flash_attn import flash_attn_func
-
-from fla.ops.nsa import parallel_nsa
+import torch, triton
+from parallel_nsa import parallel_nsa
 
 
 @triton.testing.perf_report(
@@ -16,9 +13,9 @@ from fla.ops.nsa import parallel_nsa
         # argument name whose value corresponds to a different line in the plot
         line_arg='provider',
         # possible values for `line_arg``
-        line_vals=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
+        line_vals=['nsa', 'nsa_bwd'],
         # label name for the lines
-        line_names=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
+        line_names=['nsa', 'nsa_bwd'],
         # line styles
         styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('green', 'dotted'),
                 ('blue', 'dotted'), ('red', 'dotted'), ('cyan', '-'), ('cyan', 'dotted')],
@@ -29,7 +26,7 @@ from fla.ops.nsa import parallel_nsa
     )
 )
 def benchmark(T, provider):
-    from fla.utils import device
+    from utils import device
     dtype = torch.bfloat16
     requires_grad = True
     B, H, HQ, D, S = 4, 4, 64, 128, 16

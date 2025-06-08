@@ -6,7 +6,7 @@ from torch import Tensor, LongTensor
 from typing import Optional, Union
 from einops import rearrange
 
-from attn_parallel import parallel_attn_bwd_preprocess
+from parallel_attn import parallel_attn_bwd_preprocess
 from compression import parallel_nsa_compression
 from pooling import mean_pooling
 from utils import _bitonic_merge, exp, log
