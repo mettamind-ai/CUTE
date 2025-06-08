@@ -2,7 +2,7 @@
 
 import torch, triton
 from parallel_nsa import parallel_nsa
-
+from ..attn.flash_attn_interface import flash_attn_func
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
