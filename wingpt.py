@@ -156,23 +156,39 @@ class Block(nn.Module):
 
     # @torch.compile()
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
-        if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
-        x = x + self.attn(x, ve, ve_lambdas, cu_seqlens, max_seqlen, rotary)
+        x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
+        if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
+        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
         return x
+
+class DoubleBlock(nn.Module):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
+        super().__init__()
+        self.block1 = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id)
+        self.block2 = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=layer_id+1)
+
+    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+        x = self.block1(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
+        x = self.block2(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
+        return x
+
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-        n_layers -= 1 # dành params cho 2 future heads
+        assert n_layers % 2 == 0
+        self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
         Embedding, Head = (OhMaiEmbedding, OhMaiHead) if self.ohmai else (nn.Embedding, nn.Linear)
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        self.blocks = nn.ModuleList([Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers)])
+        # self.blocks = nn.ModuleList([Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers)])
+        self.double_blocks = nn.ModuleList([
+            DoubleBlock(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers // 2)
+        ])
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2
@@ -196,7 +212,7 @@ class WinGPT(nn.Module):
 
     # @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        n_blks = len(self.blocks)
+        n_blks = self.n_layers
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
 
@@ -214,9 +230,9 @@ class WinGPT(nn.Module):
         te_lambdas = self.scalars[0*n_blks : 2*n_blks].view(-1, 2)
         ve_lambdas = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
         
-        for i in range(n_blks):
+        for i in range(n_blks//2):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
+            f = fwd(self.double_blocks[i], x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
         return x, x0
 
@@ -228,10 +244,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     # Prepare to predict future token và câu giờ cho upload ...
     xx = torch.cat([x[:-1], x0[1:]], dim=1)
-    y  = x[:-1] + checkpoint(model.future_mlp1, norm(xx), use_reentrant=False)
+    y  = x[:-1] + model.future_mlp1(norm(xx))
 
     yy = torch.cat([y[:-1], x0[2:]], dim=1)
-    z  = y[:-1] + checkpoint(model.future_mlp2, norm(yy), use_reentrant=False)
+    z  = y[:-1] + model.future_mlp2(norm(yy))
 
     future1, future2 = target[1:], target[2:]
     x, y, z = norm(x), norm(y), norm(z)
