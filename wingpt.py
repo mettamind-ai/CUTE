@@ -185,7 +185,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
-        self.future_mlp2 = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
+        self.future_mlp2 = ReLuSquareMLP(3*dim, odim=dim, expansion_factor=2, use_gate=True)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -227,20 +227,22 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    xx = torch.cat([x[:-1], x0[1:]], dim=1)
-    y  = x[:-1] + model.future_mlp1(norm(xx))
+    def see_futher(x):
+        xx = torch.cat([x[:-1], x0[1:]], dim=1)
+        y  = x[:-1] + model.future_mlp1(norm(xx))
 
-    yy = torch.cat([y[:-1], x0[2:]], dim=1)
-    z  = y[:-1] + model.future_mlp2(norm(yy))
+        yy = torch.cat([x[:-2], y[:-1], x0[2:]], dim=1)
+        z  = y[:-1] + model.future_mlp2(norm(yy))
 
-    future1, future2 = target[1:], target[2:]
-    x, y, z = norm(x), norm(y), norm(z)
-    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+        future1, future2 = target[1:], target[2:]
+        x, y, z = norm(x), norm(y), norm(z)
+        w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
 
-    xloss = FusedLinearCrossEntropy.apply(x, w, target,  n_ignore, ignore)
-    yloss = FusedLinearCrossEntropy.apply(y, w, future1, n_ignore, ignore)
-    zloss = FusedLinearCrossEntropy.apply(z, w, future2, n_ignore, ignore)
-    return (xloss*0.6 + yloss*0.25 + zloss*0.15)
+        xloss = FusedLinearCrossEntropy.apply(x, w, target,  n_ignore, ignore)
+        yloss = FusedLinearCrossEntropy.apply(y, w, future1, n_ignore, ignore)
+        zloss = FusedLinearCrossEntropy.apply(z, w, future2, n_ignore, ignore)
+        return (xloss*0.6 + yloss*0.25 + zloss*0.15)
+    return checkpoint(see_futher, x, use_reentrant=False)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
