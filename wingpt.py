@@ -231,7 +231,7 @@ class WinGPT(nn.Module):
         
         for i in range(n_blks//2):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
-            f = fwd(self.double_blocks[i], x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen)
+            f = fwd(self.blocks[i], x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
         return x, x0
 
