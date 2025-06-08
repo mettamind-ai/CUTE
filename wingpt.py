@@ -25,25 +25,28 @@ def init_linear(w: Tensor):
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False):
         super().__init__()
+        self.use_gate = use_gate
+
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
-        if use_gate: self.gate_proj = nn.Linear(dim, hdim)
-        
+
+        # Add weight decay multiplier attribute to the weights
+        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
+
+        if use_gate:
+            self.gate_proj = nn.Linear(dim, hdim, bias=False)
+            self.gate_proj.wd_mul = 2.0
+
         with torch.no_grad():
             w = init_linear(torch.empty(hdim, dim))
             self.fc1_proj.weight.copy_(w)
             if use_gate: self.gate_proj.weight.copy_(w)
             self.fc2_proj.weight.zero_()
         
-        # Add weight decay multiplier attribute to the weights
-        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
-        if use_gate: self.gate_proj.wd_mul = 2.0
-        self.use_gate = use_gate
-
     # @torch.compile()
     def forward(self, x):
         y = self.fc1_proj(x)
@@ -219,14 +222,14 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x, x0 = model(input_seq, cu_seqlens, max_seqlen)
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
-    # Predict future và câu giờ cho upload ...
-    x0 = x0.roll(-1)
-    future = target.roll(-1); future[-1] = ignore
+    # Prepare to predict future token và câu giờ cho upload ...
+    x  = x[:-1]; x0 = x0[1:]; future = target[1:]
     xx = torch.cat([x, x0], dim=1)
-    y = x + model.future_mlp(xx)
+    y  = x + model.future_mlp(xx)
 
     x, y = norm(x), norm(y)
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+
     xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, future, n_ignore, ignore)
     return (xloss*0.8 + yloss*0.2)
