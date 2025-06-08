@@ -6,24 +6,17 @@ from parallel_nsa import parallel_nsa
 import sys; sys.path.append('../')
 from attn.flash_attn_interface import flash_attn_func
 
+lines = ['nsa', 'flash', 'nsa_bwd', 'flash_bwd']
 @triton.testing.perf_report(
-    triton.testing.Benchmark(
-        # argument names to use as an x-axis for the plot
-        x_names=['T'],
-        # different possible values for `x_name`
-        x_vals=[128 * 2 ** i for i in range(0, 8)],
-        # argument name whose value corresponds to a different line in the plot
+    triton.testing.Benchmark(        
+        x_names=['T'], # argument names to use as an x-axis for the plot
+        x_vals=[128 * 2 ** i for i in range(5, 9)], # different possible values for `x_name`
         line_arg='provider',
-        # possible values for `line_arg``
-        line_vals=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
-        # label name for the lines
-        line_names=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
-        # line styles
-        styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('green', 'dotted'),
-                ('blue', 'dotted'), ('red', 'dotted'), ('cyan', '-'), ('cyan', 'dotted')],
-        ylabel="Execution Time (ms)",  # label name for the y-axis
-        # name for the plot. Used also as a file name for saving the plot.
-        plot_name="Performance",
+        line_vals=lines,    # possible values for `line_arg``    
+        line_names=lines,   # label name for the lines
+        styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('green', 'dotted'), ('blue', 'dotted'), ('red', 'dotted'), ('cyan', '-'), ('cyan', 'dotted')],
+        ylabel="Execution Time (ms)",   # label name for the y-axis
+        plot_name="Performance",        # name for the plot. Used also as a file name for saving the plot.
         args={},
     )
 )
