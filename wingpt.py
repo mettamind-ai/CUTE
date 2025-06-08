@@ -70,7 +70,7 @@ class Rotary(nn.Module):
         self.cos = nn.Buffer(theta.cos(), persistent=False)
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
-
+    @torch.compile()
     def forward(self, x_THD: Tensor):
         seq_len = x_THD.size(-3) # T seq_len, head, dim (of head)
         assert self.cos.size(0) >= seq_len, f"{self.cos.size(0)} >= {seq_len}?"
@@ -150,6 +150,7 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
                         head_dim=head_dim, long=layer_id % 6 == 5, layer_id=layer_id) # 5 ngắn + 1 dài
 
+    @torch.compile()
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[1] * x0 # trộn với tok emb gốc
@@ -185,7 +186,7 @@ class WinGPT(nn.Module):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
         if isinstance(self.lm_head, OhMaiHead): self.lm_head.update_async_weight()
 
-    # @torch.compile()
+    @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         n_blks = len(self.blocks)
         embs = self.embeddings(input_seq.long())

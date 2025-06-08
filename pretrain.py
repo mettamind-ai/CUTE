@@ -105,13 +105,13 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 ## TRANING  ##
 ##############
 lossf = torch.compile(lossf)
-model = torch.compile(model)
+# model = torch.compile(model)
 # for x in model.blocks: x.compile()
 
 model = model.cuda()
 model.train()
 
-print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\nGPU(s) {world_size}, {tokens_per_batch//1024}k seq/step\n\n")
+print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* GPU(s) {world_size}\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 

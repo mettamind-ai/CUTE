@@ -1,4 +1,4 @@
-__version__ = "2.7.4.post1"
+__version__ = "2.7.3" # bản này cài được với torch==2.7.1 từ pip
 
 from .flash_attn_interface import (
     # flash_attn_func,
