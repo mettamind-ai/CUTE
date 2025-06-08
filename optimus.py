@@ -203,11 +203,11 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
         X  = tl.exp(X - m)/d                        # softmax(x_i)
         lse_square_scale = 1e-4                     # scaler of logsumexp(_input)^2; adding for stability
 
+        z_loss = lse_square_scale*LSE*LSE           # An auxiliary loss, Refer to Page14 Loss function section ...
+        loss  += z_loss                             # ... in the paper https://www.jmlr.org/papers/v24/22-1144.html
+
         X *= 1 + 2*lse_square_scale*LSE             # derivative of z-loss: 2*lse_square_scale*lse*softmax(x_i)
         X  = tl.where(offs != true_label, X, X - 1) # gradient bị tác động bởi true_label_logit
-
-        z_loss = lse_square_scale*LSE*LSE   # An auxiliary loss, Refer to Page14 Loss function section ...
-        loss  += z_loss                     # ... in the paper https://www.jmlr.org/papers/v24/22-1144.html
 
         tl.store(X_ptr, X/n_non_ignore, mask=mask)  # mean reduction
         tl.store(loss_ptr, loss/n_non_ignore)       # mean reduction

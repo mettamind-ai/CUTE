@@ -165,6 +165,8 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
+        n_layers -= 1 # dành params cho 2 future heads
+
         self.ohmai = ( active_vocab is not None )
         Embedding, Head = (OhMaiEmbedding, OhMaiHead) if self.ohmai else (nn.Embedding, nn.Linear)
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
@@ -181,7 +183,9 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
+        self.future_mlp2 = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
+
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
@@ -223,16 +227,20 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    x0 = x0[1:]; future = target[1:]
-    xx = torch.cat([x[:-1], x0], dim=1)
-    y  = x[:-1] + model.future_mlp(norm(xx))
+    xx = torch.cat([x[:-1], x0[1:]], dim=1)
+    y  = x[:-1] + model.future_mlp1(norm(xx))
 
-    x, y = norm(x), norm(y)
+    yx = torch.cat([y[:-1], x0[2:]], dim=1)
+    z  = y[:-1] + model.future_mlp2(norm(yx))
+
+    future1, future2 = target[1:], target[2:]
+    x, y, z = norm(x), norm(y), norm(z)
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
 
     xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
-    yloss = FusedLinearCrossEntropy.apply(y, w, future, n_ignore, ignore)
-    return (xloss*0.8 + yloss*0.2)
+    yloss = FusedLinearCrossEntropy.apply(y, w, future1, n_ignore, ignore)
+    zloss = FusedLinearCrossEntropy.apply(z, w, future2, n_ignore, ignore)
+    return (xloss*0.6 + yloss*0.25 + zloss*0.15)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
