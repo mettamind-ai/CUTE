@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
             if provider == "infllmv2_varlen":
                 from einops import rearrange, repeat
-                sparsity=0.8; block_size=64; block_window_size=3
+                sparsity=0.8; block_window_size=3
                 topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
                 return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
