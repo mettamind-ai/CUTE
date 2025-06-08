@@ -44,10 +44,10 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
         abspath / "flash_api.cpp",
-        abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
-        abspath / "src/flash_fwd_hdim64_bf16_sm80.cu",
-        abspath / "src/flash_bwd_hdim64_bf16_sm80.cu",
+        # abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
+        # abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
+        # abspath / "src/flash_fwd_hdim64_bf16_sm80.cu",
+        # abspath / "src/flash_bwd_hdim64_bf16_sm80.cu",
         abspath / "src/flash_fwd_hdim64_bf16_causal_sm80.cu",
         abspath / "src/flash_bwd_hdim64_bf16_causal_sm80.cu",
         abspath / "src/flash_fwd_hdim128_bf16_causal_sm80.cu",
@@ -65,30 +65,8 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
 print(f"flash_attn_2: DONE.")
 
 
-
-def maybe_contiguous(x):
-    return x.contiguous() if x is not None and x.stride(-1) != 1 else x
-
-
-def _get_block_size_n(device, head_dim, is_dropout, is_causal):
-    # This should match the block sizes in the CUDA kernel
-    assert head_dim <= 256
-    major, minor = torch.cuda.get_device_capability(device)
-    is_sm8x = major == 8 and minor > 0  # Only include sm86 and sm89, exclude sm80 (A100)
-    if head_dim <= 32: return 128
-    if head_dim <= 64: return 128 if not is_dropout else 64
-    if head_dim <= 96: return 64
-    if head_dim <= 128:
-        if is_sm8x: return 64 if (not is_dropout and is_causal) else 32
-        else:       return 64 if not is_dropout else 32
-    if head_dim <= 192: return 64
-    if head_dim <= 224: return 64
-    if head_dim <= 256: return 64
-
-
-def round_multiple(x, m):
-    return (x + m - 1) // m * m
-
+def maybe_contiguous(x): return x.contiguous() if x is not None and x.stride(-1) != 1 else x
+def round_multiple(x, m): return (x + m - 1) // m * m
 
 # torch.compile() support is only enabled for pytorch >= 2.4
 # The reason for this is that we are using the new custom_op and register_fake
@@ -109,7 +87,7 @@ def _flash_attn_varlen_forward(
     max_seqlen_k: int,
     dropout_p: float,
     softmax_scale: float,
-    causal: bool,
+    causal: bool = True,
     window_size_left: int = -1,
     window_size_right: int = -1,
     softcap: float = 0.0,
@@ -160,7 +138,7 @@ def _flash_attn_varlen_forward_fake(
     max_seqlen_k: int,
     dropout_p: float,
     softmax_scale: float,
-    causal: bool,
+    causal: bool = True,
     window_size_left: int = -1,
     window_size_right: int = -1,
     softcap: float = 0.0,
@@ -206,7 +184,7 @@ def _flash_attn_varlen_backward(
     max_seqlen_k: int,
     dropout_p: float,
     softmax_scale: float,
-    causal: bool,
+    causal: bool = True,
     window_size_left: int,
     window_size_right: int,
     softcap: float,
@@ -270,7 +248,7 @@ def _flash_attn_varlen_backward_fake(
     max_seqlen_k: int,
     dropout_p: float,
     softmax_scale: float,
-    causal: bool,
+    causal: bool = True,
     window_size_left: int,
     window_size_right: int,
     softcap: float,
@@ -412,7 +390,7 @@ def flash_attn_varlen_func(
     max_seqlen_k,
     dropout_p=0.0,
     softmax_scale=None,
-    causal=False,
+    causal=True,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
     alibi_slopes=None,
@@ -509,7 +487,7 @@ def flash_attn_with_kvcache(
     cache_leftpad: Optional[torch.Tensor] = None,
     block_table: Optional[torch.Tensor] = None,
     softmax_scale=None,
-    causal=False,
+    causal=True,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
     rotary_interleaved=True,
