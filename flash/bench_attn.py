@@ -2,14 +2,14 @@
 import triton, torch, torch.nn.functional as F
 from sageattn_triton import sageattn_varlen
 
-# from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
+from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
 try: from flash_attn_interface import flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen".split()
-    # lines = "infllmv2_varlen sageattn_varlen".split()
+    lines = "flash_attn_varlen infllmv2_varlen".split()
+    # lines = "sageattn_varlen".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
@@ -39,11 +39,11 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            # if provider == "infllmv2_varlen":
-            #     from einops import rearrange, repeat
-            #     sparsity=0.8; block_size=64; block_window_size=3
-            #     topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-            #     return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
+            if provider == "infllmv2_varlen":
+                from einops import rearrange, repeat
+                sparsity=0.8; block_size=64; block_window_size=3
+                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
 
             if provider == "flash_attn":
                 return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)

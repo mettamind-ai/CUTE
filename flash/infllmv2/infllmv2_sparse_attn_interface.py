@@ -12,7 +12,6 @@ from pathlib import Path
 # Import C extension
 ####################
 
-os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9"  # 3050ti, 4090
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
     max_jobs = round(free_memory_gb / 9)
@@ -33,7 +32,8 @@ NVCC_FLAGS = [
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
-NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
+NVCC_FLAGS += ["-gencode", f"arch=compute_86,code=sm_86"]
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
 
 abspath = Path(__file__).parent
 cuda_binding = torch.utils.cpp_extension.load(
@@ -41,10 +41,6 @@ cuda_binding = torch.utils.cpp_extension.load(
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
-        abspath / "flash_attn/flash_fwd_hdim128_bf16_sm80.cu",
-        abspath / "flash_attn/flash_bwd_hdim128_bf16_sm80.cu",
-        abspath / "flash_attn/flash_fwd_split_hdim128_bf16_sm80.cu",
-        abspath / "flash_attn/flash_fwd_block_hdim128_bf16_sm80.cu",
         abspath / "flash_attn/flash_bwd_block_hdim128_bf16_sm80.cu",
         abspath / "flash_attn/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
     ],
