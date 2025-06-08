@@ -739,7 +739,7 @@ class ParallelNSAFunction(torch.autograd.Function):
         )
         return dq.to(q), dk.to(k), dv.to(v), None, None, None, None, None, None, None, None
 
-
+@torch.compile()
 def parallel_nsa(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -826,7 +826,6 @@ def parallel_nsa(
             max_seqlen, max_seqlen,
             causal=True, window_size=(window_size-1, 0)
         ).unsqueeze(0)
-
-    o = torch.addcmul(o, o_swa, g_swa.unsqueeze(-1))
+        o = torch.addcmul(o, o_swa, g_swa.unsqueeze(-1))
     if head_first: o = rearrange(o, 'b t h d -> b h t d')
     return o
