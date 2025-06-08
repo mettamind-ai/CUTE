@@ -15,9 +15,9 @@ from attn.flash_attn_interface import flash_attn_func
         # argument name whose value corresponds to a different line in the plot
         line_arg='provider',
         # possible values for `line_arg``
-        line_vals=['nsa', 'nsa_bwd'],
+        line_vals=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
         # label name for the lines
-        line_names=['nsa', 'nsa_bwd'],
+        line_names=['nsa', 'nsa_bwd', 'flash', 'flash_bwd'],
         # line styles
         styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('green', 'dotted'),
                 ('blue', 'dotted'), ('red', 'dotted'), ('cyan', '-'), ('cyan', 'dotted')],
