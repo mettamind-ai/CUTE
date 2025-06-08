@@ -206,13 +206,13 @@ void set_params_dgrad(Flash_bwd_params &params,
 void run_mha_fwd_block(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
     FP16_SWITCH(!params.is_bf16, [&] {
         FWD_BLOCK_HEADDIM_SWITCH(params.d, [&] {
-            if (params.num_splits <= 1 && !force_split_kernel) {
+            // if (params.num_splits <= 1 && !force_split_kernel) {
                 run_mha_fwd_block_<elem_type, kHeadDim>(params, stream);
-            }
-            else {
-                // Support split kernel for block-sparse attention
-                run_mha_fwd_splitkv_block_dispatch<elem_type, kHeadDim>(params, stream);
-            }
+            // }
+            // else {
+            //     // Support split kernel for block-sparse attention
+            //     run_mha_fwd_splitkv_block_dispatch<elem_type, kHeadDim>(params, stream);
+            // }
         });
     });
 }
