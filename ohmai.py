@@ -105,6 +105,7 @@ class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab, bias=None):
         super().__init__()
         self.active_vocab = triton.next_power_of_2(vocab // 3)
+        print(f"OhMaiHead: active_vocab = {self.active_vocab} / {vocab}")
 
         if  self.active_vocab > MAX_ACTIVE_VOCAB:
             self.active_vocab = MAX_ACTIVE_VOCAB
