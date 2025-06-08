@@ -61,6 +61,7 @@ flash_attn_gpu = torch.utils.cpp_extension.load(
         str(abspath / "cutlass/include"),
     ],
 )
+# ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
 print(f"flash_attn_2: DONE.")
 
 
