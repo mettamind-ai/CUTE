@@ -3,8 +3,8 @@
 
 import torch
 from einops import repeat
-from infllmv2_sparse_attn_interface import infllmv2_sparse_attn_func
-from utils import (
+from infllmv2.infllmv2_sparse_attn_interface import infllmv2_sparse_attn_func
+from infllmv2.utils import (
     generate_random_padding_mask,
     generate_base_sparsity_mask,
     generate_qkv,

@@ -41,13 +41,13 @@ cuda_binding = torch.utils.cpp_extension.load(
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
-        abspath / "flash_attn/flash_fwd_block_hdim128_bf16_sm80.cu",
-        abspath / "flash_attn/flash_bwd_block_hdim128_bf16_sm80.cu",
-        # abspath / "flash_attn/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_block_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_bwd_block_hdim128_bf16_sm80.cu",
+        # abspath / "src/flash_fwd_splitkv_block_hdim128_bf16_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ 
-        str(abspath / "flash_attn"), 
+        str(abspath / "src"), 
         str(abspath / "cutlass/include"),
     ],
 )
