@@ -1,16 +1,11 @@
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_blocksparse_attn_interface.py
 
-import torch, os, warnings, psutil, torch.nn as nn, numpy as np
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.checkpoint import checkpoint
-from torch import Tensor
-from typing import Tuple
-import torch.utils.cpp_extension
-from pathlib import Path
-
 ####################
 # Import C extension
 ####################
+
+import os, time, psutil, torch.utils.cpp_extension
+from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
@@ -38,7 +33,7 @@ os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
 abspath = Path(__file__).parent
 started_at = time.time()
 
-CUDA_EXEC = torch.utils.cpp_extension.load(
+CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_infllm_v2.C",
     sources=[
         abspath / "entry.cu",
@@ -54,8 +49,15 @@ CUDA_EXEC = torch.utils.cpp_extension.load(
     ],
 )
 print(f"infllmv2: DONE. In {int(time.time() - started_at)} seconds.")
+#####################################################################
 
+import torch, warnings, torch.nn as nn, numpy as np
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.checkpoint import checkpoint
+from torch import Tensor
+from typing import Tuple
 uint64_memory = None
+
 def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
     """ Convert topk indices directly to uint64 representation without intermediate bool mask """
     assert topk_idx.dtype == torch.int32
@@ -90,7 +92,7 @@ def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -
             uint64_memory = result
     else:   result = uint64_memory
     
-    CUDA_EXEC.topk_to_uint64(
+    CUTE_EXT.topk_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         topk_idx.data_ptr(),
         result.data_ptr(),
@@ -120,7 +122,7 @@ def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
     result = torch.zeros(output_shape, dtype=torch.int64, device=blockmask.device)
     flat_result = result.reshape(flat_dims, n_uint64_per_row)
     
-    CUDA_EXEC.blockmask_to_uint64(
+    CUTE_EXT.blockmask_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         flat_blockmask.data_ptr(),
         flat_result.data_ptr(),
@@ -146,7 +148,7 @@ def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tens
     result = torch.zeros(output_shape, dtype=torch.bool, device=uint64_array.device)
     flat_result = result.reshape(flat_dims, last_dim_size)
     
-    CUDA_EXEC.uint64_to_bool(
+    CUTE_EXT.uint64_to_bool(
         torch.cuda.current_stream().cuda_stream,
         flat_uint64_array.data_ptr(),
         flat_result.data_ptr(),
@@ -208,7 +210,7 @@ def _infllmv2_sparse_attn_forward(
     blockmask_uint64, last_dim_size = topk_to_uint64(topk_idx, max_seqlen_k_, n_block_dim)
     
     # CUDA operation
-    out, _, k_out, v_out, _, softmax_lse, _, rng_state = CUDA_EXEC.fwd_block(
+    out, _, k_out, v_out, _, softmax_lse, _, rng_state = CUTE_EXT.fwd_block(
         q_final, k, v,
         cu_seqlens_q_expanded, cu_seqlens_k,
         m_block_dim, n_block_dim,
@@ -292,7 +294,7 @@ def _infllmv2_sparse_attn_backward(
     dq_temp = torch.empty_like(q_final)
     
     # CUDA operation
-    _, _, _, softmax_d = CUDA_EXEC.bwd_block(
+    _, _, _, softmax_d = CUTE_EXT.bwd_block(
         dout_final,
         q_final, k, v,
         out_final,
@@ -601,7 +603,7 @@ def infllmv2_sparse_attn_kvcache_func(
     
     # Call the CUDA implementation
     # print(f"blockmask_uint64.shape: {blockmask_uint64.shape}, k_cache.shape[1]: {k_cache.shape[1]}, seqlen_k: {seqlen_k}, n_block_dim: {n_block_dim}")
-    out, softmax_lse = CUDA_EXEC.fwd_block_kvcache(
+    out, softmax_lse = CUTE_EXT.fwd_block_kvcache(
         q,
         k_cache,
         v_cache,

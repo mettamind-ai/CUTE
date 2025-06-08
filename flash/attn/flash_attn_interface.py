@@ -1,17 +1,10 @@
 # Copyright (c) 2023, Tri Dao.
 
-from typing import Optional, Sequence, Tuple, Union
-
-import torch
-import torch.nn as nn
-import os
-
-
 ####################
 # Import C extension
 ####################
 
-import time, psutil, torch.utils.cpp_extension
+import os, time, psutil, torch.utils.cpp_extension
 from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
@@ -40,7 +33,7 @@ os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
 abspath = Path(__file__).parent
 started_at = time.time()
 
-CUDA_EXEC = torch.utils.cpp_extension.load(
+CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
         abspath / "flash_api.cpp",
@@ -55,7 +48,11 @@ CUDA_EXEC = torch.utils.cpp_extension.load(
 )
 # ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
 print(f"flash_attn_2: DONE. In {int(time.time() - started_at)} seconds.")
+#########################################################################
 
+
+from typing import Optional, Sequence, Tuple, Union
+import torch, torch.nn as nn
 
 def maybe_contiguous(x): return x.contiguous() if x is not None and x.stride(-1) != 1 else x
 def round_multiple(x, m): return (x + m - 1) // m * m
@@ -91,7 +88,7 @@ def _flash_attn_varlen_forward(
     zero_tensors: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse, S_dmask, rng_state = CUDA_EXEC.varlen_fwd(
+    out, softmax_lse, S_dmask, rng_state = CUTE_EXT.varlen_fwd(
         q,
         k,
         v,
@@ -192,7 +189,7 @@ def _flash_attn_varlen_backward(
         dk,
         dv,
         softmax_d,
-    ) = CUDA_EXEC.varlen_bwd(
+    ) = CUTE_EXT.varlen_bwd(
         dout,
         q,
         k,
@@ -586,7 +583,7 @@ def flash_attn_with_kvcache(
         cache_seqlens = maybe_contiguous(cache_seqlens)
     cache_batch_idx = maybe_contiguous(cache_batch_idx)
     block_table = maybe_contiguous(block_table)
-    out, softmax_lse = CUDA_EXEC.fwd_kvcache(
+    out, softmax_lse = CUTE_EXT.fwd_kvcache(
         q,
         k_cache,
         v_cache,
