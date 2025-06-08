@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import triton, torch, torch.nn.functional as F
 
-from sageattn_triton import sageattn_varlen
+from sagefwd import sageattn_varlen
 from linear_attn.parallel_nsa import parallel_nsa
-
-from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
@@ -53,17 +51,8 @@ if __name__ == "__main__":
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-            if provider == "infllmv2_varlen":
-                from einops import rearrange, repeat
-                sparsity=0.8; block_window_size=3
-                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-                return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
-
             if provider == "sageattn_varlen":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
-
-            if provider == "pytorch":
-                return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
 
             return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                 causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
@@ -107,3 +96,16 @@ if __name__ == "__main__":
     assert_sage_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
     print("total_flops, higher is better.")
+
+'''
+git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
+cd flash/infllmv2/cutlass;  git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5;  cd ../../.. # infllmv2
+from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
+            if provider == "infllmv2_varlen":
+                from einops import rearrange, repeat
+                sparsity=0.8; block_window_size=3
+                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
+            if provider == "pytorch":
+                return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
+'''

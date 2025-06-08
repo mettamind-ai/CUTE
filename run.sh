@@ -21,9 +21,7 @@
 ######################################################################
 pip install numpy wandb einops
 pip install torch==2.7.1 -U --user
-git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
 git clone https://github.com/NVIDIA/cutlass.git flash/attn/cutlass
-cd flash/infllmv2/cutlass;  git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5;  cd ../../.. # infllmv2
 cd flash/attn/cutlass;      git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3
 cd flash; ./bench_attn.py; cd ..
 
