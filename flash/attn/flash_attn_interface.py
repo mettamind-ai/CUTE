@@ -22,7 +22,7 @@ if not os.environ.get("MAX_JOBS"):
     max_jobs = round(free_memory_gb / 9)
     if free_memory_gb > 28: max_jobs += 2
     os.environ["MAX_JOBS"] = str(max_jobs)
-print(f"flash_attn_2: free_memory_gb {free_memory_gb}, max_jobs {os.environ["MAX_JOBS"]}")
+print(f"flash_attn_2: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
 
 NVCC_FLAGS = [
     "-O3", "-std=c++17",
