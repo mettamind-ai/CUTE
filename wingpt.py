@@ -223,9 +223,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    x  = x[:-1]; x0 = x0[1:]; future = target[1:]
-    xx = torch.cat([x, x0], dim=1)
-    y  = x + model.future_mlp(xx)
+    x0 = x0[1:]; future = target[1:]
+    xx = torch.cat([x[:-1], x0], dim=1)
+    y  = x + model.future_mlp(norm(xx))
 
     x, y = norm(x), norm(y)
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight

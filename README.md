@@ -66,4 +66,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể kết hợp logits distill + pre-train để:
   - giảm dataset phải chuẩn bị cho nó học?
   - học cách phân bổ dữ liệu nhanh hơn?
-  
+  - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
+  - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
+    hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
