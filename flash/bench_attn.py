@@ -3,12 +3,14 @@ import triton, torch, torch.nn.functional as F
 from sageattn_triton import sageattn_varlen
 
 from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
+from linear_attn.parallel_nsa import parallel_nsa
+
 try: from flash_attn_interface import flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen".split()
+    lines = "flash_attn_varlen parallel_nsa infllmv2_varlen sageattn_varlen".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
 
@@ -27,6 +29,14 @@ if __name__ == "__main__":
         k = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
         v = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
+        indices = torch.full((BATCH, HQ, N_CTX, 16), N_CTX, dtype=torch.long, device=device)
+        for b in range(BATCH):
+            for h in range(HQ):
+                for t in range(N_CTX):
+                    i_i = torch.randperm(max(1, triton.cdiv(t, block_size)))[:S]
+                    indices[b, h, t, :len(i_i)] = i_i
+        indices = indices.sort(-1)[0]
+
         max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
         cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
         cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device="cuda")
@@ -35,6 +45,9 @@ if __name__ == "__main__":
         vv = v.transpose(1, 2).reshape(seq_len, HQ, HEAD_DIM) # seq_len, H, D
 
         def attn_fn(provider, q, k, v):
+            if provider == "parallel_nsa":
+                return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=64)
+
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 

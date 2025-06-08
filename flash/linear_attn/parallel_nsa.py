@@ -13,9 +13,6 @@ from utils import _bitonic_merge, exp, log
 from utils import prepare_chunk_indices, prepare_chunk_offsets, prepare_lens, prepare_token_indices
 from utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
 
-try: from ..flash.attn import flash_attn_varlen_func
-except ImportError: warnings.warn("Flash Attention is not installed.", category=ImportWarning)
-
 
 @triton.heuristics({ 'IS_VARLEN': lambda args: args['cu_seqlens'] is not None })
 @triton.autotune(configs=[ triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4] ], key=['BS', 'BK'],)
@@ -749,7 +746,6 @@ def parallel_nsa(
     block_indices: LongTensor = None,
     block_counts: LongTensor|int = 16,
     block_size: int = 64,
-    window_size: int = 0,
     scale: float = None,
     cu_seqlens: LongTensor = None,
     head_first: bool = False
@@ -774,7 +770,6 @@ def parallel_nsa(
         If not provided, it will default to 16.
 
     block_size (int):   Selected block size. Default: 64.
-    window_size (int):  Sliding window size. Default: 0.
     scale (int):        Scale factor for attention scores. Default to `1 / sqrt(K)`. Default: `None`.
     head_first (bool):  Whether the inputs are in the head-first format. Default: `False`.
 
@@ -815,15 +810,5 @@ def parallel_nsa(
     if g_slc is not None: o = o_slc * g_slc.unsqueeze(-1)
     if o_cmp is not None: o = torch.addcmul(o, o_cmp, g_cmp.unsqueeze(-1))
 
-    if window_size > 0:
-        assert cu_seqlens is not None
-        max_seqlen = q.shape[1]
-        o_swa = flash_attn_varlen_func(
-            q.squeeze(0), k.squeeze(0), v.squeeze(0),
-            cu_seqlens, cu_seqlens,
-            max_seqlen, max_seqlen,
-            causal=True, window_size=(window_size-1, 0)
-        ).unsqueeze(0)
-        o = torch.addcmul(o, o_swa, g_swa.unsqueeze(-1))
     if head_first: o = rearrange(o, 'b t h d -> b h t d')
     return o
