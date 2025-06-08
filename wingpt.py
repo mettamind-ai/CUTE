@@ -228,16 +228,16 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     # Prepare to predict future token và câu giờ cho upload ...
     xx = torch.cat([x[:-1], x0[1:]], dim=1)
-    y  = x[:-1] + model.future_mlp1(norm(xx))
+    y  = x[:-1] + checkpoint(model.future_mlp1, norm(xx), reentrant=False)
 
-    yx = torch.cat([y[:-1], x0[2:]], dim=1)
-    z  = y[:-1] + model.future_mlp2(norm(yx))
+    yy = torch.cat([y[:-1], x0[2:]], dim=1)
+    z  = y[:-1] + checkpoint(model.future_mlp2, norm(yy), reentrant=False)
 
     future1, future2 = target[1:], target[2:]
     x, y, z = norm(x), norm(y), norm(z)
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
 
-    xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
+    xloss = FusedLinearCrossEntropy.apply(x, w, target,  n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, future1, n_ignore, ignore)
     zloss = FusedLinearCrossEntropy.apply(z, w, future2, n_ignore, ignore)
     return (xloss*0.6 + yloss*0.25 + zloss*0.15)
