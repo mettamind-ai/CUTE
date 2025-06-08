@@ -48,7 +48,8 @@ class ReLuSquareMLP(nn.Module):
     def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
-        if self.use_gate: y = y * self.gate_proj(x) # Selective activation giúp mô hình tự động học cách lọc thông tin quan trọng
+        # Selective activation giúp mô hình tự động học cách lọc thông tin quan trọng
+        if self.use_gate: y = y * self.gate_proj(x)
         y = self.fc2_proj(y)
         return y
 
@@ -177,7 +178,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp = ReLuSquareMLP(dim, expansion_factor=4, use_gate=True) # thêm gating để dự đoán future tốt hơn? và câu giờ lâu hơn :)
+        self.future_mlp = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2)
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
@@ -210,17 +211,21 @@ class WinGPT(nn.Module):
             def fwd(blk, x0, ve, tl, vl, c, m): return lambda x: blk(x, x0, ve, tl, vl, c, m, self.rotary)
             f = fwd(self.blocks[i], x0, v_embs[i], te_lambdas[i], ve_lambdas[i], cu_seqlens, max_seqlen)
             x = checkpoint(f, x, use_reentrant=False)
-        return x
+        return x, x0
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     if model.ohmai: target = model.lm_head.activate(target)  # async offload old token weight ...
-    x = model(input_seq, cu_seqlens, max_seqlen)
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
-    x=norm(x); y=x+model.future_mlp(x); y=norm(y)
-    future=target.roll(-1); future[-1]=ignore # câu giờ cho upload ...
+    # Predict future và câu giờ cho upload ...
+    x0 = x0.roll(-1)
+    future = target.roll(-1); future[-1] = ignore
+    xx = torch.cat([x, x0], dim=1)
+    y = x + model.future_mlp(xx)
 
+    x, y = norm(x), norm(y)
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
     xloss = FusedLinearCrossEntropy.apply(x, w, target, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, future, n_ignore, ignore)
