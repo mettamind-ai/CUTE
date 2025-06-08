@@ -111,7 +111,7 @@ model = torch.compile(model)
 model = model.cuda()
 model.train()
 
-print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\nGPU(s) {world_size}, {tokens_per_batch//1024}k seq/step")
+print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\nGPU(s) {world_size}, {tokens_per_batch//1024}k seq/step\n\n")
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 

@@ -16,8 +16,7 @@ from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
-    max_jobs = round(free_memory_gb / 6)
-    if free_memory_gb > 28: max_jobs += 2
+    max_jobs = int(free_memory_gb / 5)
     os.environ["MAX_JOBS"] = str(max_jobs)
 print(f"flash_attn_2: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
 
