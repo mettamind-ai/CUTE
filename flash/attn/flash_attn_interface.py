@@ -623,7 +623,7 @@ def _flash_attn_forward(
     return_softmax: bool
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse, S_dmask, rng_state = flash_attn_gpu.fwd(
+    out, softmax_lse, S_dmask, rng_state = CUTE_EXT.fwd(
         q,
         k,
         v,
@@ -698,7 +698,7 @@ def _flash_attn_backward(
         dk,
         dv,
         softmax_d,
-    ) = flash_attn_gpu.bwd(
+    ) = CUTE_EXT.bwd(
         dout,
         q,
         k,
