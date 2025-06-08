@@ -32,4 +32,4 @@ if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
     xz -d data6400.bin.xz
 fi
-./pretrain.py --M --ohmai 2028 --bs 1
+./pretrain.py --ohmai 2028 --bs 2
