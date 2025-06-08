@@ -30,7 +30,8 @@ if __name__ == "__main__":
         k = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
         v = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
-        indices = torch.full((BATCH, HQ, N_CTX, 16), N_CTX, dtype=torch.long, device=device)
+        block_size, S = 64, 16
+        indices = torch.full((BATCH, HQ, N_CTX, S), N_CTX, dtype=torch.long, device=device)
         for b in range(BATCH):
             for h in range(HQ):
                 for t in range(N_CTX):
@@ -47,7 +48,7 @@ if __name__ == "__main__":
 
         def attn_fn(provider, q, k, v):
             if provider == "parallel_nsa":
-                return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=64)
+                return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=block_size)
 
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
