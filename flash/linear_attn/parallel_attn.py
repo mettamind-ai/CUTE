@@ -23,10 +23,7 @@ from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, c
 )
 @triton.jit
 def parallel_attn_fwd_kernel(
-    q,
-    k,
-    v,
-    o,
+    q, k, v, o,
     g_cumsum,
     lse,
     scale,

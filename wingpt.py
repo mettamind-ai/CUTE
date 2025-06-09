@@ -168,8 +168,8 @@ class WinGPT(nn.Module):
 
         ohmai = ( active_vocab is not None )
         Embedding = OhMaiEmbedding if ohmai else nn.Embedding
-        Head = OhMaiHead if ohmai and vocab_size > 64*1024 else nn.Linear
-        print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
+        Head = OhMaiHead if ohmai and vocab_size >= 64*1024 else nn.Linear
+        print(f"OhMai? {ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
         blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
     seed = 1981
     seq_len = 1024
-    vocab_size = 6400
+    vocab_size = 64*1024
     dim, n_layers = 256, 8
     num_heads, num_kv_heads = 16, 1
     print(f"Model config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     # Đảm bảo toàn bộ 2 models đều là bf16
     for m in [model, ohmai]:
         for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
-        print(f"All {'ohmai' if m.ohmai else 'model'} params are in bfloat16.")
+        print(f"All {'ohmai' if m == ohmai else 'model'} params are in bfloat16.")
 
     convert_int8_mixed_precision(model)
     convert_int8_mixed_precision(ohmai)
