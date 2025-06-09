@@ -177,7 +177,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ############################
 
 @triton.jit
-def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, vocab, CHUNK: tl.constexpr):
+def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, vocab, CHUNK: tl.constexpr):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
@@ -224,7 +224,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         grad_input = torch.empty_like(_input, device=_input.device)
         
         n = _input.shape[0]
-        loss_1d = torch.zeros(n, dtype=torch.float32, device=_input.device)
+        losses = torch.zeros(n, dtype=torch.float32, device=_input.device)
 
         for start in range( 0, n, 2048 ):
             chunk = range(start, min(start + 2048, n))
@@ -233,18 +233,16 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             N,  V = ( logits_chunk.shape[0], logits_chunk.shape[1] )    # N là số labels, V là vocab
             ni, C = ( N - n_ignores, triton.next_power_of_2(V) )        # TODO: ni cần tính toán chính xác theo chunk
 
-        loss_1d_chunk = loss_1d[chunk]
-        ###
-        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2), label_ptr=target[chunk], 
-            loss_ptr=loss_1d_chunk, n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
-        ###
-        loss_1d[chunk] = loss_1d_chunk
+        losses_chunk = losses[chunk] ### chuẩn bị 1 phần nhỏ để ghi dữ liệu đầu ra
+        per_label_cross_entropy[(N,)]( X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2), label_ptr=target[chunk].contiguous(), 
+            loss_ptr=losses_chunk, n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
+        losses[chunk] = losses_chunk ### và phải update ngược lại sau khi tính toán
 
         grad_input[chunk] = logits_chunk @ weight
         if weight.requires_grad: grad_weight += logits_chunk.t() @ _input[chunk]
 
         ctx.save_for_backward(grad_input.detach(), grad_weight.detach() if weight.requires_grad else None)
-        return torch.sum(loss_1d)  # final loss
+        return torch.sum(losses)  # final loss
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
