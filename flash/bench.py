@@ -3,13 +3,14 @@ import triton, torch, torch.nn.functional as F
 
 from sagefwd import sageattn_varlen
 from linear_attn.parallel_nsa import parallel_nsa
+from linear_attn.parallel_attn import parallel_attn
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen sageattn_varlen parallel_nsa flash_attn".split()
+    lines = "flash_attn_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_varlen chạy
 
@@ -47,6 +48,10 @@ if __name__ == "__main__":
         def attn_fn(provider, q, k, v):
             if provider == "parallel_nsa":
                 return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=block_size)
+
+            if provider == "parallel_attn":
+                # parallel_attn expects [B, T, H, D] format when head_first=False
+                return lambda: parallel_attn(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), scale=1.3, head_first=False)
 
             if provider == "flash_attn_varlen":
                 return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
