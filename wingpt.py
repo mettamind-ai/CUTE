@@ -228,7 +228,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
  
     w = model.lm_head.active_weight if ohmaihead else model.lm_head.weight
     xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
-    yloss = 0 # yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
+    yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
     return (xloss*0.7 + yloss*0.3)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
