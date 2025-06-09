@@ -42,9 +42,8 @@ class ReLuSquareMLP(nn.Module):
             self.gate_proj.wd_mul = 2.0
 
         with torch.no_grad():
-            w = init_linear(torch.empty(hdim, dim))
-            self.fc1_proj.weight.copy_(w)
-            if use_gate: self.gate_proj.weight.copy_(w)
+            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            if use_gate: self.gate_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.fc2_proj.weight.zero_()
         
     # @torch.compile()
