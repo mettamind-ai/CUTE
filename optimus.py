@@ -219,8 +219,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
-        grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
-        grad_input = torch.zeros_like(_input, device=device)
+        grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
+        grad_input = torch.zeros_like(_input, device=_input.device)
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
 
         for chunk_id in range( triton.cdiv(_input.shape[0], 2048) ):
