@@ -167,7 +167,7 @@ class WinGPT(nn.Module):
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
-        Embedding, Head = (OhMaiEmbedding, OhMaiHead) if self.ohmai else (nn.Embedding, nn.Linear)
+        Embedding, Head = (OhMaiEmbedding, nn.Linear) if self.ohmai else (nn.Embedding, nn.Linear)
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
