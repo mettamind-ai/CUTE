@@ -187,7 +187,7 @@ class WinGPT(nn.Module):
         self.rotary = Rotary(head_dim, max_seq_len)
 
         blks = [ MultiBlocks(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=3*i) for i in range(n_layers//3) ]
-        blks = blks + [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=n_layers-2) ] * (n_layers-len(blks))*3]
+        blks = blks + [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=n_layers-2) ]*(n_layers-len(blks)*3)
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
