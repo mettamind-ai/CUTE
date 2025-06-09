@@ -230,7 +230,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             e = min(s + 2048, n_labels)
             logits = ( _input[s:e] @ weight.t() ).contiguous()
 
-            N,  V = logits.shape[0]                             # N là số labels, V là vocab
+            N,  V = logits.shape                                # N là số labels, V là vocab
             ni, C = (N - n_ignores, triton.next_power_of_2(V))  # TODO: ni cần tính toán chính xác theo chunk
 
             per_label_cross_entropy[(N,)](
