@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 from torch import Tensor, nn
+from torch.optim import Adam
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
@@ -91,15 +92,17 @@ class LRSchedule:
             if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
             else: param_group["lr"] = self.get_lr(step)
 
-adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
-muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-
-adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
-muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
-
 muon_lr_schedule = LRSchedule(args.muonlr, args.steps, **args.schedule)
 adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 
+# https://docs.pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html#how-everything-fits-together-in-10-lines
+optims = {}
+for n, p in model.named_parameters():
+    optims[p] = Adam([p], foreach=False, lr=args.adamlr, weight_decay=args.wd) if "proj" not in n else \
+                Muon([p], foreach=False, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
+
+def optim_hook(p): optims[p].step(); optims[p].zero_grad()
+for p in model.parameters(): p.register_post_accumulate_grad_hook(optim_hook)
 
 ##############
 ## TRANING  ##
@@ -123,14 +126,14 @@ for step in range(args.steps):  # training loop
 
     loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch
-    loss.backward()
+    loss.backward()    
 
-    adam_lr_schedule.set_lr(step, adam_optim)
-    muon_lr_schedule.set_lr(step, muon_optim)
+    for o in optims.values():
+        if isinstance(o, Adam): adam_lr_schedule.set_lr(step, o)
+        if isinstance(o, Muon): muon_lr_schedule.set_lr(step, o)
 
-    params = [p for n, p in model.named_parameters() if "embed" not in n and "head" not in n]
-    grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0) # ko norm ohmaihead và ohmaiembedding grads
-    # grad_norm = sum(p.grad.square().sum() for p in params if p.grad is not None) ** 0.5
+    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm (ohmai)head và embeddings
+    grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None) ** 0.5
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
@@ -140,9 +143,6 @@ for step in range(args.steps):  # training loop
 
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
-
-    muon_optim.step(); muon_optim.zero_grad()
-    adam_optim.step(); adam_optim.zero_grad()
  
     if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
