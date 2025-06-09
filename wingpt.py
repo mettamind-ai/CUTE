@@ -215,9 +215,10 @@ class WinGPT(nn.Module):
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
-    if model.ohmai: target = model.lm_head.activate(target)  # async offload old token weight ...
+    ohmaihead = isinstance(model.lm_head, OhMaiHead)
+    if ohmaihead: target = model.lm_head.activate(target)  # async offload old token weight ...
     x, x0 = model(input_seq, cu_seqlens, max_seqlen)
-    if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
+    if ohmaihead: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
@@ -225,7 +226,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x, y = norm(x), norm(y)
     tx, ty = target, target[1:]
  
-    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+    w = model.lm_head.active_weight if ohmaihead else model.lm_head.weight
     xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
     return (xloss*0.7 + yloss*0.3)
