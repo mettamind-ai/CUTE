@@ -165,6 +165,7 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
+        n_layers -= 2 # save params for 2 future_mlps
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
@@ -227,22 +228,20 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if model.ohmai: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    def see_futher(x):
-        xx = torch.cat([x[:-1], x0[1:]], dim=1)
-        y  = x[:-1] + model.future_mlp1(norm(xx))
+    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
+    y   = x[:-1] + model.future_mlp1(xy0)
 
-        yy = torch.cat([x[:-2], y[:-1], x0[2:]], dim=1)
-        z  = y[:-1] + model.future_mlp2(norm(yy))
+    xyz0 = torch.cat([x[:-2], y[:-1], x0[2:]], dim=1)
+    z    = y[:-1] + model.future_mlp2(xyz0)
 
-        future1, future2 = target[1:], target[2:]
-        x, y, z = norm(x), norm(y), norm(z)
-        w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
+    x, y, z = norm(x), norm(y), norm(z)
+    tx, ty, tz = target, target[1:], target[2:]
+    w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
 
-        xloss = FusedLinearCrossEntropy.apply(x, w, target,  n_ignore, ignore)
-        yloss = FusedLinearCrossEntropy.apply(y, w, future1, n_ignore, ignore)
-        zloss = FusedLinearCrossEntropy.apply(z, w, future2, n_ignore, ignore)
-        return (xloss*0.6 + yloss*0.25 + zloss*0.15)
-    return checkpoint(see_futher, x, use_reentrant=False)
+    xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
+    yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
+    zloss = FusedLinearCrossEntropy.apply(z, w, tz, n_ignore, ignore)
+    return (xloss*0.6 + yloss*0.25 + zloss*0.15)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
