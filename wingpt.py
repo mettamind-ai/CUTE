@@ -195,23 +195,18 @@ class WinGPT(nn.Module):
 
     # @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        n_blks = self.n_layers
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
 
         v_embs = embs[..., -self.kv_dim*self.ve : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        skips = [None]*(n_blks - 2*len(v_embs))
+        skips = [None]*(self.n_layers - 2*len(v_embs))
         v_embs = v_embs + skips + v_embs
-        assert len(v_embs) == n_blks
+        assert len(v_embs) == self.n_layers
 
-        ## Độn None cho đầy v_embs
-        v_embs += [None]*(n_blks - len(v_embs))
-        assert len(v_embs) == n_blks
-
-        te_lambdas = self.scalars[0*n_blks : 2*n_blks].view(-1, 2)
-        ve_lambdas = self.scalars[2*n_blks : 4*n_blks].view(-1, 2)
+        te_lambdas = self.scalars[0*self.n_layers : 2*self.n_layers].view(-1, 2)
+        ve_lambdas = self.scalars[2*self.n_layers : 4*self.n_layers].view(-1, 2)
         
         for blk in self.blocks:
             def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
