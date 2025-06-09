@@ -224,7 +224,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
 
         for chunk_id in range( triton.cdiv(_input.shape[0], 2048) ):
-            chunk = chunk_id * 2048 : min(chunk_id * 2048 + 2048, _input.shape[0])
+            chunk = range(chunk_id * 2048, min(chunk_id * 2048 + 2048, _input.shape[0]))
             chunk_input = _input[chunk]
             chunk_logits  = chunk_input @ weight.t()
 
