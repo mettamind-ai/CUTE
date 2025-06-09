@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 from torch import Tensor, nn
-from torch.optim import Adam
+from torch.optim import AdamW as Adam
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
