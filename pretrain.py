@@ -132,8 +132,9 @@ for step in range(args.steps):  # training loop
         if isinstance(o, Adam): adam_lr_schedule.set_lr(step, o)
         if isinstance(o, Muon): muon_lr_schedule.set_lr(step, o)
 
-    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm (ohmai)head và embeddings
-    grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None) ** 0.5
+    params = [p for n, p in model.named_parameters() if "head" not in n and "embed" not in n]
+    # grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0) # ko grad norm (ohmai)head và embeddings
+    grad_norm = sum(p.grad.square().sum() for p in params if p.grad is not None) ** 0.5
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
