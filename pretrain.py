@@ -91,16 +91,14 @@ class LRSchedule:
             if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
             else: param_group["lr"] = self.get_lr(step)
 
-adam_params = [p for n, p in model.named_parameters() if "proj" not in n and "head" not in n]
-muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-
-adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
-head_optim = torch.optim.AdamW(model.lm_head.parameters(), lr=args.adamlr, weight_decay=args.wd)
-muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
-
 muon_lr_schedule = LRSchedule(args.muonlr, args.steps, **args.schedule)
 adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 
+adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
+muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+
+adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
+muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
 
 ##############
 ## TRANING  ##
@@ -125,10 +123,6 @@ for step in range(args.steps):  # training loop
     loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch
     loss.backward()
-
-    adam_lr_schedule.set_lr(step, adam_optim)
-    adam_lr_schedule.set_lr(step, head_optim)
-    muon_lr_schedule.set_lr(step, muon_optim)
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
     # grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None).item() ** 0.5
