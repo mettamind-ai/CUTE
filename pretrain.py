@@ -128,10 +128,14 @@ for step in range(args.steps):  # training loop
     batch = get_batch() # async prefetch next batch
     loss.backward()    
 
-    adam_lr = muon_lr = None
+    adam_lr = muon_lr = False
     for o in optims.values():
-        if isinstance(o, Adam): adam_lr_schedule.set_lr(step, o); if not adam_lr: adam_lr = o.param_groups[0]["lr"]
-        if isinstance(o, Muon): muon_lr_schedule.set_lr(step, o); if not muon_lr: muon_lr = o.param_groups[0]["lr"]
+        if isinstance(o, Adam):
+            adam_lr_schedule.set_lr(step, o)
+            if not adam_lr: adam_lr = o.param_groups[0]["lr"]
+        if isinstance(o, Muon):
+            muon_lr_schedule.set_lr(step, o)
+            if not muon_lr: muon_lr = o.param_groups[0]["lr"]
 
     params = [p for n, p in model.named_parameters() if "head" not in n and "embed" not in n]
     # grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0) # ko grad norm (ohmai)head và embeddings
