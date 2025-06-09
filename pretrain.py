@@ -98,11 +98,15 @@ adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
 # https://docs.pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html#how-everything-fits-together-in-10-lines
 optims = {}
 for n, p in model.named_parameters():
-    optims[p] = Adam([p], foreach=False, lr=args.adamlr, weight_decay=args.wd) if "proj" not in n else \
+    optims[p] = Adam([p], foreach=False, lr=args.adamlr, weight_decay=args.wd, fused=True) if "proj" not in n else \
                 Muon([p], foreach=False, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
 
-def optim_hook(p): optims[p].step(); optims[p].zero_grad()
-for p in model.parameters(): p.register_post_accumulate_grad_hook(optim_hook)
+def optim_hook(p):
+    optims[p].step()
+    optims[p].zero_grad()
+
+for p in model.parameters():
+    p.register_post_accumulate_grad_hook(optim_hook)
 
 ##############
 ## TRANING  ##
@@ -134,13 +138,13 @@ for step in range(args.steps):  # training loop
 
     params = [p for n, p in model.named_parameters() if "head" not in n and "embed" not in n]
     # grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0) # ko grad norm (ohmai)head và embeddings
-    grad_norm = sum(p.grad.square().sum() for p in params if p.grad is not None).item() ** 0.5
+    # grad_norm = sum(p.grad.square().sum() for p in params if p.grad is not None).item() ** 0.5
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         adam_lr = adam_lr_schedule.get_lr(step)
         muon_lr = muon_lr_schedule.get_lr(step)
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossv, grad_norm=0, muon_lr=muon_lr, adam_lr=adam_lr)
 
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
