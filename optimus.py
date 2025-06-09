@@ -216,21 +216,28 @@ def per_label_cross_entropy_kernel(X_ptr, X_stride, label_ptr, loss_ptr, n_non_i
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu input và target cho backward """
     @staticmethod
+    @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
+        grad_weight = torch.zeros_like(weight, device=device) if weight.requires_grad else None
+        grad_input = torch.zeros_like(_input, device=device)
         loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
-        logits  = _input @ weight.t()
 
-        N,  V = ( logits.shape[0], logits.shape[1] ) # N là số labels, V là vocab
-        ni, C = ( N-n_ignores, triton.next_power_of_2(V) )
+        for chunk_id in range( triton.cdiv(_input.shape[0], 2048) ):
+            chunk = chunk_id * 2048 : min(chunk_id * 2048 + 2048, _input.shape[0])
+            chunk_input = _input[chunk]
+            chunk_logits  = chunk_input @ weight.t()
 
-        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target, 
-            loss_ptr=loss_1d, n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
+            N,  V = ( chunk_logits.shape[0], chunk_logits.shape[1] )         # N là số labels, V là vocab
+            ni, C = ( N - n_ignores, triton.next_power_of_2(V) ) # TODO: ni cần tính toán chính xác theo chunk
 
-        grad_input  = ( logits     @ weight ).detach()
-        grad_weight = ( logits.t() @ _input ).detach()
+            per_label_cross_entropy_kernel[(N,)]( X_ptr=chunk_logits, X_stride=chunk_logits.stride(-2), label_ptr=target[chunk], 
+                loss_ptr=loss_1d[chunk], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
 
-        ctx.save_for_backward(grad_input, grad_weight)
+            grad_input[chunk] = chunk_logits @ weight
+            if weight.requires_grad: grad_weight += chunk_logits.t() @ chunk_input
+
+        ctx.save_for_backward(grad_input.detach(), grad_weight.detach() if weight.requires_grad else None)
         return torch.sum(loss_1d)  # final loss
 
     @staticmethod
