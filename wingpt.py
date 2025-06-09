@@ -164,7 +164,6 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-        n_layers -= 2 # save params for future_mlp
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
