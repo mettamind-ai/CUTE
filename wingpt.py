@@ -166,8 +166,9 @@ class WinGPT(nn.Module):
         super().__init__()
         self.n_layers = n_layers
 
-        self.ohmai = ( active_vocab is not None )
-        Embedding, Head = (OhMaiEmbedding, nn.Linear) if self.ohmai else (nn.Embedding, nn.Linear)
+        ohmai = ( active_vocab is not None )
+        Embedding = OhMaiEmbedding if ohmai else nn.Embedding
+        Head = OhMaiHead if ohmai and vocab_size > 64*1024 else nn.Linear
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
