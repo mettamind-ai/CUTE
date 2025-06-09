@@ -11,7 +11,7 @@ from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, c
 tlc = tl.constexpr
 
 @triton.heuristics({
-    'USE_G': lambda args: args['g_cumsum'] is not None,
+    'USE_GATE': lambda args: args['g_cumsum'] is not None,
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
 })
 @triton.autotune(
@@ -20,7 +20,7 @@ tlc = tl.constexpr
         for num_warps in [1, 2, 4] + ([8] if check_shared_mem('hopper') else [])
         for num_stages in [2, 3, 4, 5]
     ],
-    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_G', 'IS_VARLEN'],
+    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_GATE', 'IS_VARLEN'],
 )
 @triton.jit
 def parallel_attn_fwd_kernel(
@@ -37,7 +37,7 @@ def parallel_attn_fwd_kernel(
     BS: tl.constexpr,       # block size cho source sequence trong inner loop
     BK: tl.constexpr,       # block size cho key dimension
     BV: tl.constexpr,       # block size cho value dimension
-    USE_G: tl.constexpr,    # có sử dụng gating mechanism không
+    USE_GATE: tl.constexpr, # có sử dụng gating mechanism không
     IS_VARLEN: tl.constexpr,# có phải variable-length sequences không
 ):
     # === 1. GIẢI MÃ THREAD/BLOCK INDICES ===
@@ -83,7 +83,7 @@ def parallel_attn_fwd_kernel(
     b_acc = tl.zeros([BT], dtype=tl.float32)              # running sum of exp(x - max)
 
     # === 6. XỬ LÝ GATING MECHANISM (nếu có) ===
-    if USE_G:
+    if USE_GATE:
         # Load gating values cho Q tokens
         p_g = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         b_gq = tl.load(p_g, boundary_check=(0,)).to(tl.float32)
@@ -104,7 +104,7 @@ def parallel_attn_fwd_kernel(
         b_s = tl.dot(b_q, b_k)  # [BT, BS] - attention scores
 
         # Apply gating nếu có (linear attention variant)
-        if USE_G:
+        if USE_GATE:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[:, None] - b_gk[None, :]  # add gating bias
@@ -146,7 +146,7 @@ def parallel_attn_fwd_kernel(
         b_s = tl.where(o_q[:, None] >= o_k[None, :], b_s, float('-inf'))
 
         # Apply gating
-        if USE_G:
+        if USE_GATE:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[:, None] - b_gk[None, :]
@@ -190,7 +190,7 @@ def parallel_attn_bwd_kernel_preprocess(
 
 
 @triton.heuristics({
-    'USE_G': lambda args: args['g_cumsum'] is not None,
+    'USE_GATE': lambda args: args['g_cumsum'] is not None,
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
 })
 @triton.autotune(
@@ -199,7 +199,7 @@ def parallel_attn_bwd_kernel_preprocess(
         for num_warps in [1, 2, 4] + ([8] if check_shared_mem('hopper') else [])
         for num_stages in [2, 3, 4, 5]
     ],
-    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_G', 'IS_VARLEN'],
+    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_GATE', 'IS_VARLEN'],
 )
 @triton.jit(do_not_specialize=['T'])
 def parallel_attn_bwd_kernel_dq(
@@ -227,7 +227,7 @@ def parallel_attn_bwd_kernel_dq(
     BK: tl.constexpr,
     BV: tl.constexpr,
     IS_VARLEN: tl.constexpr,
-    USE_G: tl.constexpr
+    USE_GATE: tl.constexpr
 ):
     i_v, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_hq = i_bh // HQ, i_bh % HQ
@@ -258,7 +258,7 @@ def parallel_attn_bwd_kernel_dq(
 
     # [BT, BK]
     b_dq = tl.zeros([BT, BK], dtype=tl.float32)
-    if USE_G:
+    if USE_GATE:
         b_dg = tl.zeros([BT, ], dtype=tl.float32)
         p_gq = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         b_gq = tl.load(p_gq, boundary_check=(0,)).to(tl.float32)
@@ -275,7 +275,7 @@ def parallel_attn_bwd_kernel_dq(
         b_v = tl.load(p_v, boundary_check=(0, 1))
         # [BT, BS]
         b_s = tl.dot(b_q, b_k)
-        if USE_G:
+        if USE_GATE:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[:, None] - b_gk[None, :]
@@ -286,7 +286,7 @@ def parallel_attn_bwd_kernel_dq(
         b_ds = b_p * (b_dp.to(tl.float32) - b_delta[:, None])
         # [BT, BS] @ [BS, BK] -> [BT, BK]
         b_dq += tl.dot(b_ds.to(b_k.dtype), tl.trans(b_k))
-        if USE_G:
+        if USE_GATE:
             b_dg += tl.sum(b_ds, 1)
 
     # [BT]
@@ -303,7 +303,7 @@ def parallel_attn_bwd_kernel_dq(
         # [BT, BS]
         b_s = tl.dot(b_q, b_k)
 
-        if USE_G:
+        if USE_GATE:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[:, None] - b_gk[None, :]
@@ -317,18 +317,18 @@ def parallel_attn_bwd_kernel_dq(
         b_ds = b_p * (b_dp.to(tl.float32) - b_delta[:, None])
         # [BT, BS] @ [BS, BK] -> [BT, BK]
         b_dq += tl.dot(b_ds.to(b_k.dtype), tl.trans(b_k))
-        if USE_G:
+        if USE_GATE:
             b_dg += tl.sum(b_ds, 1)
 
     b_dq *= scale
     tl.store(p_dq, b_dq.to(p_dq.dtype.element_ty), boundary_check=(0, 1))
-    if USE_G:
+    if USE_GATE:
         p_dg = tl.make_block_ptr(dg_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         tl.store(p_dg, b_dg.to(p_dg.dtype.element_ty), boundary_check=(0,))
 
 
 @triton.heuristics({
-    'USE_G': lambda args: args['g_cumsum'] is not None,
+    'USE_GATE': lambda args: args['g_cumsum'] is not None,
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
 })
 @triton.autotune(
@@ -337,7 +337,7 @@ def parallel_attn_bwd_kernel_dq(
         for num_warps in [1, 2, 4] + ([8] if check_shared_mem('hopper') else [])
         for num_stages in [2, 3, 4, 5]
     ],
-    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_G', 'IS_VARLEN'],
+    key=['B', 'H', 'HQ', 'G', 'K', 'V', 'BK', 'BV', 'USE_GATE', 'IS_VARLEN'],
 )
 @triton.jit(do_not_specialize=['T'])
 def parallel_attn_bwd_kernel_dkv(
@@ -365,7 +365,7 @@ def parallel_attn_bwd_kernel_dkv(
     BS: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    USE_G: tl.constexpr,
+    USE_GATE: tl.constexpr,
     IS_VARLEN: tl.constexpr
 ):
     i_v, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
@@ -394,7 +394,7 @@ def parallel_attn_bwd_kernel_dkv(
 
     o_k = i_t * BT + tl.arange(0, BT)
 
-    if USE_G:
+    if USE_GATE:
         p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
         b_dg = tl.zeros([BT,], dtype=tl.float32)
@@ -420,7 +420,7 @@ def parallel_attn_bwd_kernel_dkv(
         b_delta = tl.load(p_delta, boundary_check=(0,))
         # [BT, BS]
         b_s = tl.dot(b_k, tl.trans(b_q))
-        if USE_G:
+        if USE_GATE:
             p_gq = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gq = tl.load(p_gq, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[None, :] - b_gk[:, None]
@@ -435,7 +435,7 @@ def parallel_attn_bwd_kernel_dkv(
         b_ds = b_p * (b_dp - b_delta[None, :])
         # [BT, BS] @ [BS, BK] -> [BT, BK]
         b_dk += tl.dot(b_ds.to(b_q.dtype), b_q)
-        if USE_G:
+        if USE_GATE:
             b_dg -= tl.sum(b_ds, 1)
 
     for i_s in range((i_t + 1) * BT, tl.cdiv(T, BS) * BS, BS):
@@ -456,7 +456,7 @@ def parallel_attn_bwd_kernel_dkv(
         b_delta = tl.load(p_delta, boundary_check=(0,))
         # [BT, BS]
         b_s = tl.dot(b_k, tl.trans(b_q))
-        if USE_G:
+        if USE_GATE:
             p_gq = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gq = tl.load(p_gq, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[None, :] - b_gk[:, None]
@@ -469,12 +469,12 @@ def parallel_attn_bwd_kernel_dkv(
         b_ds = b_p * (b_dp - b_delta[None, :])
         # [BT, BS] @ [BS, BK] -> [BT, BK]
         b_dk += tl.dot(b_ds.to(b_q.dtype), b_q)
-        if USE_G:
+        if USE_GATE:
             b_dg -= tl.sum(b_ds, 1)
 
     tl.store(p_dk, b_dk.to(p_dk.dtype.element_ty), boundary_check=(0, 1))
     tl.store(p_dv, b_dv.to(p_dv.dtype.element_ty), boundary_check=(0, 1))
-    if USE_G:
+    if USE_GATE:
         p_dg = tl.make_block_ptr(dg_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         tl.store(p_dg, b_dg.to(p_dg.dtype.element_ty), boundary_check=(0,))
 

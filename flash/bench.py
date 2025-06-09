@@ -9,9 +9,9 @@ except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen parallel_nsa flash_attn".split()
+    lines = "flash_attn_varlen sageattn_varlen parallel_nsa flash_attn".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
-    assert N_HEADS // HQ == 16 # cần để infllmv2_sparse_attn chạy
+    assert N_HEADS // HQ == 16 # cần để infllmv2_varlen chạy
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
@@ -54,8 +54,9 @@ if __name__ == "__main__":
             if provider == "sageattn_varlen":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
-                causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+            if provider == "flash_attn":
+                return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
+                    causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
