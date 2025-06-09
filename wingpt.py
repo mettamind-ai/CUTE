@@ -187,7 +187,19 @@ class WinGPT(nn.Module):
         self.rotary = Rotary(head_dim, max_seq_len)
 
         blks = [ MultiBlocks(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=3*i) for i in range(n_layers//3) ]
-        blks = blks + [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=n_layers-2) ]*(n_layers-len(blks)*3)
+        for i in range(len(blks)*3,  n_layers): blks.append( Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) )
+
+        # Đảm bảo đã init đủ số layers và đúng số thứ tự
+        count = 0
+        for x in blks:
+            if isinstance(x, MultiBlocks):
+                assert x.A.layer_id == count and x.B.layer_id == count + 1 and x.C.layer_id == count + 2
+                count += 3
+            else:
+                assert x.layer_id == count
+                count += 1
+        assert count == n_layers
+
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
