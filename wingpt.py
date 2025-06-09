@@ -212,7 +212,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, use_gate=True)
-        self.future_mlp2 = ReLuSquareMLP(3*dim, hdim=6*dim, use_gate=False)
+        self.future_mlp2 = ReLuSquareMLP(3*dim, hdim=4*dim, use_gate=True)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -255,10 +255,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     # Prepare to predict future token và câu giờ cho upload ...
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
-    y   = x[:-1] + model.future_mlp1(xy0)
+    y   = x[:-1] + model.future_mlp1(norm(xy0))
 
     xyz0 = torch.cat([x[:-2], y[:-1], x0[2:]], dim=1)
-    z    = y[:-1] + model.future_mlp2(xyz0)
+    z    = y[:-1] + model.future_mlp2(norm(xyz0))
 
     x, y, z = norm(x), norm(y), norm(z)
     tx, ty, tz = target, target[1:], target[2:]
