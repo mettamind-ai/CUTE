@@ -224,20 +224,24 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         grad_input = torch.empty_like(_input, device=_input.device)
         
         n = _input.shape[0]
-        loss_1d = torch.empty(n, dtype=torch.float32, device=_input.device)        
+        loss_1d = torch.zeros(n, dtype=torch.float32, device=_input.device)
 
         for start in range( 0, n, 2048 ):
             chunk = range(start, min(start + 2048, n))
-            chunk_logits  = ( _input[chunk, :] @ weight.t() ).contiguous()
+            logits_chunk = ( _input[chunk, :] @ weight.t() ).contiguous()
 
-            N,  V = ( chunk_logits.shape[0], chunk_logits.shape[1] )    # N là số labels, V là vocab
+            N,  V = ( logits_chunk.shape[0], logits_chunk.shape[1] )    # N là số labels, V là vocab
             ni, C = ( N - n_ignores, triton.next_power_of_2(V) )        # TODO: ni cần tính toán chính xác theo chunk
 
-            per_label_cross_entropy_kernel[(N,)]( X_ptr=chunk_logits, X_stride=chunk_logits.stride(-2), label_ptr=target[chunk], 
-                loss_ptr=loss_1d[chunk], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
+        loss_1d_chunk = loss_1d[chunk]
+        ###
+        per_label_cross_entropy_kernel[(N,)]( X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2), label_ptr=target[chunk], 
+            loss_ptr=loss_1d_chunk, n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
+        ###
+        loss_1d[chunk] = loss_1d_chunk
 
-            grad_input[chunk] = chunk_logits @ weight
-            if weight.requires_grad: grad_weight += chunk_logits.t() @ _input[chunk]
+        grad_input[chunk] = logits_chunk @ weight
+        if weight.requires_grad: grad_weight += logits_chunk.t() @ _input[chunk]
 
         ctx.save_for_backward(grad_input.detach(), grad_weight.detach() if weight.requires_grad else None)
         return torch.sum(loss_1d)  # final loss
