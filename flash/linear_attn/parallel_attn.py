@@ -24,115 +24,148 @@ tlc = tl.constexpr
 )
 @triton.jit
 def parallel_attn_fwd_kernel(
-    q, k, v, o,             # query, key, value, ouput
-    g_cumsum,               # gradient cumulative sum
-    lse,                    # LogSumExp
-    scale,                  # softmax / attn scale?
-    cu_seqlens,             # cumulative sequence lengths
-    chunk_indices,          # varlen chunks
-    T, B: tlc, H: tlc,      # T độ dài chuỗi, (B)atch size, kv (H)head dim
-    HQ: tl.constexpr,       # (Head) dim of (Q)uery (qo head dim)
-    G: tlc, K: tlc, V: tlc, # G?
-    BT: tl.constexpr,
-    BS: tl.constexpr,
-    BK: tl.constexpr,
-    BV: tl.constexpr,
-    USE_G: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
+    q, k, v, o,             # query, key, value, output tensors
+    g_cumsum,               # gradient cumulative sum (cho gating mechanism)
+    lse,                    # LogSumExp (lưu cho backward pass)
+    scale,                  # attention scale factor (thường là 1/sqrt(d_k))
+    cu_seqlens,             # cumulative sequence lengths (cho variable-length sequences)
+    chunk_indices,          # chỉ số chunks cho varlen processing
+    T, B: tlc, H: tlc,      # T=seq_len, B=batch_size, H=num_kv_heads
+    HQ: tl.constexpr,       # số query heads (có thể khác H cho GQA)
+    G: tlc, K: tlc, V: tlc, # G=group_size (HQ//H), K=key_dim, V=value_dim
+    BT: tl.constexpr,       # block size cho sequence dimension
+    BS: tl.constexpr,       # block size cho source sequence trong inner loop
+    BK: tl.constexpr,       # block size cho key dimension
+    BV: tl.constexpr,       # block size cho value dimension
+    USE_G: tl.constexpr,    # có sử dụng gating mechanism không
+    IS_VARLEN: tl.constexpr,# có phải variable-length sequences không
 ):
+    # === 1. GIẢI MÃ THREAD/BLOCK INDICES ===
     i_v, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
-    i_b, i_hq = i_bh // HQ, i_bh % HQ
-    i_h = i_hq // G
+    # i_v: block index cho value dimension (để xử lý V theo chunks)
+    # i_t: block index cho time/sequence dimension (BT tokens mỗi block)
+    # i_bh: block index cho batch * head dimension
+    
+    i_b, i_hq = i_bh // HQ, i_bh % HQ  # batch index và query head index
+    i_h = i_hq // G                    # key/value head index (cho GQA: nhiều Q heads dùng chung 1 KV head)
 
+    # === 2. XÁC ĐỊNH SEQUENCE BOUNDARIES ===
     if IS_VARLEN:
+        # Variable-length: mỗi sequence có độ dài khác nhau
         i_n, i_t = tl.load(chunk_indices + i_t * 2).to(tl.int32), tl.load(chunk_indices + i_t * 2 + 1).to(tl.int32)
         bos, eos = tl.load(cu_seqlens + i_n).to(tl.int32), tl.load(cu_seqlens + i_n + 1).to(tl.int32)
-        T = eos - bos
+        T = eos - bos  # chiều dài thực tế của sequence này
     else:
+        # Fixed-length: tất cả sequences đều có độ dài T
         i_n = i_b
         bos, eos = i_n * T, i_n * T + T
 
+    # === 3. TẠO BLOCK POINTERS CHO MEMORY ACCESS ===
+    # Pointer cho Q block hiện tại: [BT, BK]
     p_q = tl.make_block_ptr(q + (bos * HQ + i_hq) * K, (T, K), (HQ*K, 1), (i_t * BT, 0), (BT, BK), (1, 0))
+    # Pointer cho output block: [BT, BV] 
     p_o = tl.make_block_ptr(o + (bos * HQ + i_hq) * V, (T, V), (HQ*V, 1), (i_t * BT, i_v * BV), (BT, BV), (1, 0))
+    # Pointer cho LogSumExp (để numerical stability): [BT]
     p_lse = tl.make_block_ptr(lse + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
 
-    # the Q block is kept in the shared memory throughout the whole kernel
-    # [BT, BK]
+    # === 4. LOAD Q BLOCK VÀO SHARED MEMORY ===
+    # Q block được giữ nguyên trong shared memory suốt quá trình tính toán
+    # [BT, BK] - BT tokens, BK key dimensions
     b_q = tl.load(p_q, boundary_check=(0, 1))
-    b_q = (b_q * scale).to(b_q.dtype)
-    # [BT, BV]
+    b_q = (b_q * scale).to(b_q.dtype)  # apply attention scale (1/sqrt(d_k))
+    
+    # === 5. KHỞI TẠO ACCUMULATORS CHO ONLINE SOFTMAX ===
+    # Output accumulator: [BT, BV] - tích lũy weighted values 
     b_o = tl.zeros([BT, BV], dtype=tl.float32)
+    
+    # Online softmax state - giữ running max và sum cho numerical stability
+    b_m = tl.full([BT], float('-inf'), dtype=tl.float32)  # running max values
+    b_acc = tl.zeros([BT], dtype=tl.float32)              # running sum of exp(x - max)
 
-    b_m = tl.full([BT], float('-inf'), dtype=tl.float32)
-    b_acc = tl.zeros([BT], dtype=tl.float32)
-
+    # === 6. XỬ LÝ GATING MECHANISM (nếu có) ===
     if USE_G:
+        # Load gating values cho Q tokens
         p_g = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_t * BT,), (BT,), (0,))
         b_gq = tl.load(p_g, boundary_check=(0,)).to(tl.float32)
     else:
         b_gq = None
 
+    # === 7. LOOP QUA CÁC K,V BLOCKS TRƯỚC CURRENT POSITION (FULL ATTENTION) ===
     for i_s in range(0, i_t * BT, BS):
+        # Tạo pointers cho K,V blocks hiện tại
         p_k = tl.make_block_ptr(k + (bos * H + i_h) * K, (K, T), (1, H*K), (0, i_s), (BK, BS), (0, 1))
         p_v = tl.make_block_ptr(v + (bos * H + i_h) * V, (T, V), (H*V, 1), (i_s, i_v * BV), (BS, BV), (1, 0))
-        # [BK, BS]
-        b_k = tl.load(p_k, boundary_check=(0, 1))
-        # [BS, BV]
-        b_v = tl.load(p_v, boundary_check=(0, 1))
-        # [BT, BS]
-        b_s = tl.dot(b_q, b_k)
+        
+        # Load K,V blocks từ global memory
+        b_k = tl.load(p_k, boundary_check=(0, 1))  # [BK, BS] - transposed cho efficient matmul
+        b_v = tl.load(p_v, boundary_check=(0, 1))  # [BS, BV]
+        
+        # Tính attention scores: Q @ K^T 
+        b_s = tl.dot(b_q, b_k)  # [BT, BS] - attention scores
 
+        # Apply gating nếu có (linear attention variant)
         if USE_G:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
-            b_s += b_gq[:, None] - b_gk[None, :]
+            b_s += b_gq[:, None] - b_gk[None, :]  # add gating bias
 
-        # [BT, BS]
-        b_m, b_mp = tl.maximum(b_m, tl.max(b_s, 1)), b_m
-        b_r = exp(b_mp - b_m)
-        # [BT, BS]
-        b_p = safe_exp(b_s - b_m[:, None])
-        # [BT]
-        b_acc = b_acc * b_r + tl.sum(b_p, 1)
-        # [BT, BV]
-        b_o = b_o * b_r[:, None] + tl.dot(b_p.to(b_q.dtype), b_v)
+        # === ONLINE SOFTMAX UPDATE ===
+        # Cập nhật running maximum cho numerical stability
+        b_m, b_mp = tl.maximum(b_m, tl.max(b_s, 1)), b_m  # new_max, old_max
+        b_r = exp(b_mp - b_m)  # renormalization factor = exp(old_max - new_max)
+        
+        # Tính attention weights với new maximum
+        b_p = safe_exp(b_s - b_m[:, None])  # [BT, BS] - attention weights
+        
+        # Cập nhật running sum và output
+        b_acc = b_acc * b_r + tl.sum(b_p, 1)              # update normalizer
+        b_o = b_o * b_r[:, None] + tl.dot(b_p.to(b_q.dtype), b_v)  # update weighted sum
 
-        b_mp = b_m
+        b_mp = b_m  # save for next iteration
 
-    # [BT]
-    o_q = i_t * BT + tl.arange(0, BT)
+    # === 8. LOOP QUA CURRENT BLOCK VỚI CAUSAL MASKING ===
+    # Chỉ xử lý positions trong current block, với causal constraint
+    o_q = i_t * BT + tl.arange(0, BT)  # absolute positions của Q tokens
     for i_s in range(i_t * BT, min((i_t + 1) * BT, T), BS):
+        # Tạo pointers cho K,V trong current block
         p_k = tl.make_block_ptr(k + (bos * H + i_h) * K, (K, T), (1, H*K), (0, i_s), (BK, BS), (0, 1))
         p_v = tl.make_block_ptr(v + (bos * H + i_h) * V, (T, V), (H*V, 1), (i_s, i_v * BV), (BS, BV), (1, 0))
 
-        # [BS]
+        # Absolute positions của K tokens
         o_k = i_s + tl.arange(0, BS)
-        # [BK, BS]
-        b_k = tl.load(p_k, boundary_check=(0, 1))
-        # [BS, BV]
-        b_v = tl.load(p_v, boundary_check=(0, 1))
-        # [BT, BS]
-        b_s = tl.dot(b_q, b_k)
+        
+        # Load K,V blocks
+        b_k = tl.load(p_k, boundary_check=(0, 1))  # [BK, BS]
+        b_v = tl.load(p_v, boundary_check=(0, 1))  # [BS, BV]
+        
+        # Tính attention scores
+        b_s = tl.dot(b_q, b_k)  # [BT, BS]
+        
+        # === CAUSAL MASKING ===
+        # Chỉ cho phép attend đến positions <= current position
         b_s = tl.where(o_q[:, None] >= o_k[None, :], b_s, float('-inf'))
 
+        # Apply gating
         if USE_G:
             p_gk = tl.make_block_ptr(g_cumsum + bos * HQ + i_hq, (T,), (HQ,), (i_s,), (BS,), (0,))
             b_gk = tl.load(p_gk, boundary_check=(0,)).to(tl.float32)
             b_s += b_gq[:, None] - b_gk[None, :]
 
-        # [BT]
+        # Online softmax update (tương tự như loop trước)
         b_m, b_mp = tl.maximum(b_m, tl.max(b_s, 1)), b_m
         b_r = exp(b_mp - b_m)
-        # [BT, BS]
         b_p = safe_exp(b_s - b_m[:, None])
-        # [BT]
         b_acc = b_acc * b_r + tl.sum(b_p, 1)
-        # [BT, BV]
         b_o = b_o * b_r[:, None] + tl.dot(b_p.to(b_q.dtype), b_v)
         b_mp = b_m
 
+    # === 9. FINALIZATION ===
+    # Normalize output bằng accumulated softmax denominator
     b_o = b_o / b_acc[:, None]
+    # Lưu log(sum_exp) cho backward pass
     b_m += log(b_acc)
+    
+    # Store results về global memory
     tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0, 1))
     tl.store(p_lse, b_m.to(p_lse.dtype.element_ty), boundary_check=(0,))
 
@@ -455,53 +488,57 @@ def parallel_attn_fwd(
     chunk_size: int = 128,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
+    """
+    Forward pass của parallel attention với memory-efficient block processing
+    
+    Args:
+        q: Query tensor [B, T, HQ, K] 
+        k: Key tensor [B, T, H, K]
+        v: Value tensor [B, T, H, V]
+        g_cumsum: Cumulative gating (None nếu không dùng)
+        scale: Attention scale factor
+        chunk_size: Kích thước block cho sequence dimension
+        cu_seqlens: Cumulative sequence lengths cho variable-length
+    """
     B, T, H, K, V = *k.shape, v.shape[-1]
-    HQ = q.shape[2]
-    G = HQ // H
+    HQ = q.shape[2]  # số query heads (có thể > H cho GQA)
+    G = HQ // H      # group size cho Grouped Query Attention
     BT = chunk_size
-    if check_shared_mem('hopper', q.device.index):
-        BS = min(64, max(16, triton.next_power_of_2(T)))
-        BK = min(256, max(16, triton.next_power_of_2(K)))
-        BV = min(256, max(16, triton.next_power_of_2(V)))
-    elif check_shared_mem('ampere', q.device.index):
+    
+    # === DYNAMIC BLOCK SIZING DỰA TRÊN GPU ARCHITECTURE ===
+    if check_shared_mem('hopper', q.device.index):  # H100
+        BS = min(64, max(16, triton.next_power_of_2(T)))    # sequence block size
+        BK = min(256, max(16, triton.next_power_of_2(K)))   # key dim block size  
+        BV = min(256, max(16, triton.next_power_of_2(V)))   # value dim block size
+    elif check_shared_mem('ampere', q.device.index):  # A100/3090/4090
         BS = min(32, max(16, triton.next_power_of_2(T)))
         BK = min(256, max(16, triton.next_power_of_2(K)))
         BV = min(128, max(16, triton.next_power_of_2(V)))
-    else:
+    else:  # Older GPUs
         BS = min(32, max(16, triton.next_power_of_2(T)))
         BK = min(256, max(16, triton.next_power_of_2(K)))
         BV = min(64, max(16, triton.next_power_of_2(V)))
-    NK = triton.cdiv(K, BK)
-    NV = triton.cdiv(V, BV)
+    
+    NK = triton.cdiv(K, BK)  # số blocks cho key dimension
+    NV = triton.cdiv(V, BV)  # số blocks cho value dimension
 
+    # Chuẩn bị chunk indices cho variable-length sequences
     chunk_indices = prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
-    assert NK == 1, "The key dimension can not be larger than 256"
+    assert NK == 1, "Key dimension không thể lớn hơn 256 (giới hạn shared memory)"
 
+    # Allocate output tensors
     o = torch.empty(B, T, HQ, V, dtype=v.dtype, device=q.device)
     lse = torch.empty(B, T, HQ, dtype=torch.float, device=q.device)
-    grid = (NV, NT, B * HQ)
+    
+    # Launch kernel với grid dimensions
+    grid = (NV, NT, B * HQ)  # (value_blocks, time_blocks, batch_head_blocks)
     parallel_attn_fwd_kernel[grid](
-        q=q,
-        k=k,
-        v=v,
-        o=o,
-        g_cumsum=g_cumsum,
-        lse=lse,
-        scale=scale,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        B=B,
-        T=T,
-        H=H,
-        HQ=HQ,
-        G=G,
-        K=K,
-        V=V,
-        BT=BT,
-        BS=BS,
-        BK=BK,
-        BV=BV,
+        q=q, k=k, v=v, o=o,
+        g_cumsum=g_cumsum, lse=lse, scale=scale,
+        cu_seqlens=cu_seqlens, chunk_indices=chunk_indices,
+        B=B, T=T, H=H, HQ=HQ, G=G, K=K, V=V,
+        BT=BT, BS=BS, BK=BK, BV=BV,
     )
     return o, lse
 
