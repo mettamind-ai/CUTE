@@ -128,9 +128,10 @@ for step in range(args.steps):  # training loop
     adam_lr_schedule.set_lr(step, adam_optim)
     muon_lr_schedule.set_lr(step, muon_optim)
 
-    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-    if (step - 1) % log_interval == 0 or step == args.steps - 1:
+    # grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    grad_norm = sum(p.grad.square().sum() for p in model.parameters() if p.grad is not None) ** 0.5
 
+    if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]

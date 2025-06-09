@@ -8,6 +8,7 @@ from typing import Optional
 from .cumsum import chunk_global_cumsum
 from .utils import prepare_chunk_indices, exp, log, safe_exp
 from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
+tlc = tl.constexpr
 
 @triton.heuristics({
     'USE_G': lambda args: args['g_cumsum'] is not None,
@@ -23,19 +24,15 @@ from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, c
 )
 @triton.jit
 def parallel_attn_fwd_kernel(
-    q, k, v, o,
-    g_cumsum,
-    lse,
-    scale,
-    cu_seqlens,
-    chunk_indices,
-    T,
-    B: tl.constexpr,
-    H: tl.constexpr,
-    HQ: tl.constexpr,
-    G: tl.constexpr,
-    K: tl.constexpr,
-    V: tl.constexpr,
+    q, k, v, o,             # query, key, value, ouput
+    g_cumsum,               # gradient cumulative sum
+    lse,                    # LogSumExp
+    scale,                  # softmax / attn scale?
+    cu_seqlens,             # cumulative sequence lengths
+    chunk_indices,          # varlen chunks
+    T, B: tlc, H: tlc,      # T độ dài chuỗi, (B)atch size, kv (H)head dim
+    HQ: tl.constexpr,       # (Head) dim of (Q)uery (qo head dim)
+    G: tlc, K: tlc, V: tlc, # G?
     BT: tl.constexpr,
     BS: tl.constexpr,
     BK: tl.constexpr,
