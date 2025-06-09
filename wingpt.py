@@ -161,23 +161,10 @@ class Block(nn.Module):
         x = x + self.mlp(norm(x))
         return x
 
-class MultiBlocks(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
-        super().__init__()
-        self.A = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id + 0)
-        self.B = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id + 1)
-        self.C = Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id + 2)
-    
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x = self.A(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = self.B(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        x = self.C(x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary)
-        return x
-
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
-        n_layers -= 2 # save params for 2 future_mlps
+        n_layers -= 1 # save params for future_mlp
         self.n_layers = n_layers
 
         self.ohmai = ( active_vocab is not None )
@@ -185,20 +172,7 @@ class WinGPT(nn.Module):
         print(f"OhMai? {self.ohmai}; using {Embedding.__name__} and {Head.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        blks = [ MultiBlocks(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=3*i) for i in range(n_layers//3) ]
-        for i in range(len(blks)*3,  n_layers): blks.append( Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) )
-
-        # Đảm bảo đã init đủ số layers và đúng số thứ tự
-        count = 0
-        for x in blks:
-            if isinstance(x, MultiBlocks):
-                assert x.A.layer_id == count and x.B.layer_id == count + 1 and x.C.layer_id == count + 2
-                count += 3
-            else:
-                assert x.layer_id == count
-                count += 1
-        assert count == n_layers
-
+        blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
@@ -211,7 +185,6 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=True)
-        self.future_mlp2 = ReLuSquareMLP(3*dim, hdim=4*dim, odim=dim, use_gate=True)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -255,18 +228,13 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     # Prepare to predict future token và câu giờ cho upload ...
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
     y   = x[:-1] + model.future_mlp1(norm(xy0))
-
-    xyz0 = torch.cat([x[:-2], y[:-1], x0[2:]], dim=1)
-    z    = y[:-1] + model.future_mlp2(norm(xyz0))
-
-    x, y, z = norm(x), norm(y), norm(z)
-    tx, ty, tz = target, target[1:], target[2:]
+    x, y = norm(x), norm(y)
+    tx, ty = target, target[1:]
+ 
     w = model.lm_head.active_weight if model.ohmai else model.lm_head.weight
-
     xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
-    zloss = FusedLinearCrossEntropy.apply(z, w, tz, n_ignore, ignore)
-    return (xloss*0.6 + yloss*0.25 + zloss*0.15)
+    return (xloss*0.7 + yloss*0.3)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
