@@ -216,6 +216,7 @@ def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu input và target cho backward """
     @staticmethod
+    @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
 
@@ -232,13 +233,13 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             N,  V = logits.shape[0]                             # N là số labels, V là vocab
             ni, C = (N - n_ignores, triton.next_power_of_2(V))  # TODO: ni cần tính toán chính xác theo chunk
 
-        per_label_cross_entropy[(N,)](
-            X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e], 
-            loss_ptr=losses[s:e], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, 
-        )
-        grad_input[s:e] = logits @ weight
-        if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
-
+            per_label_cross_entropy[(N,)](
+                X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e], 
+                loss_ptr=losses[s:e], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, 
+            )
+            grad_input[s:e] = logits @ weight
+            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
+        # END for
         ctx.save_for_backward(
             grad_input.detach(), 
             grad_weight.detach() if weight.requires_grad else None
