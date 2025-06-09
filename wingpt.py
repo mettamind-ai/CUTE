@@ -212,7 +212,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, odim=dim, expansion_factor=2, use_gate=True)
-        self.future_mlp2 = ReLuSquareMLP(3*dim, odim=dim, expansion_factor=2, use_gate=True)
+        self.future_mlp2 = ReLuSquareMLP(3*dim, odim=dim, expansion_factor=2, use_gate=False)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
