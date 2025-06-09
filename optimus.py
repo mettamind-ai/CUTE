@@ -219,23 +219,25 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
+
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
-        grad_input = torch.zeros_like(_input, device=_input.device)
-        loss_1d = torch.zeros(_input.shape[0], dtype=torch.float32, device=_input.device)        
+        grad_input = torch.empty_like(_input, device=_input.device)
+        
+        n = _input.shape[0]
+        loss_1d = torch.empty(n, dtype=torch.float32, device=_input.device)        
 
-        for chunk_id in range( triton.cdiv(_input.shape[0], 2048) ):
-            chunk = range(chunk_id * 2048, min(chunk_id * 2048 + 2048, _input.shape[0]))
-            chunk_input = _input[chunk]
-            chunk_logits  = chunk_input @ weight.t()
+        for start in range( 0, n, 2048 ):
+            chunk = range(start, min(start + 2048, n))
+            chunk_logits  = ( _input[chunk, :] @ weight.t() ).contiguous()
 
-            N,  V = ( chunk_logits.shape[0], chunk_logits.shape[1] )         # N là số labels, V là vocab
-            ni, C = ( N - n_ignores, triton.next_power_of_2(V) ) # TODO: ni cần tính toán chính xác theo chunk
+            N,  V = ( chunk_logits.shape[0], chunk_logits.shape[1] )    # N là số labels, V là vocab
+            ni, C = ( N - n_ignores, triton.next_power_of_2(V) )        # TODO: ni cần tính toán chính xác theo chunk
 
             per_label_cross_entropy_kernel[(N,)]( X_ptr=chunk_logits, X_stride=chunk_logits.stride(-2), label_ptr=target[chunk], 
                 loss_ptr=loss_1d[chunk], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, )
 
             grad_input[chunk] = chunk_logits @ weight
-            if weight.requires_grad: grad_weight += chunk_logits.t() @ chunk_input
+            if weight.requires_grad: grad_weight += chunk_logits.t() @ _input[chunk]
 
         ctx.save_for_backward(grad_input.detach(), grad_weight.detach() if weight.requires_grad else None)
         return torch.sum(loss_1d)  # final loss
