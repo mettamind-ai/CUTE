@@ -216,29 +216,28 @@ def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, 
 class FusedLinearCrossEntropy(torch.autograd.Function):
     """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu input và target cho backward """
     @staticmethod
-    @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
-        grad_input = torch.empty_like(_input, device=_input.device)
+        grad_input  = torch.empty_like(_input, device=_input.device)
         
-        n = _input.shape[0]
-        losses = torch.zeros(n, dtype=torch.float32, device=_input.device)
+        n_labels = _input.shape[0]
+        losses   = torch.zeros(n_labels, dtype=torch.float32, device=_input.device)
 
-        for s in range( 0, n, 2048 ):
-            e = min(s + 2048, n)
-            logits_chunk = ( _input[s:e] @ weight.t() ).contiguous()
+        for s in range( 0, n_labels, 2048 ):
+            e = min(s + 2048, n_labels)
+            logits = ( _input[s:e] @ weight.t() ).contiguous()
 
-            N,  V = ( logits_chunk.shape[0], logits_chunk.shape[1] )    # N là số labels, V là vocab
-            ni, C = ( N - n_ignores, triton.next_power_of_2(V) )        # TODO: ni cần tính toán chính xác theo chunk
+            N,  V = logits.shape[0]                             # N là số labels, V là vocab
+            ni, C = (N - n_ignores, triton.next_power_of_2(V))  # TODO: ni cần tính toán chính xác theo chunk
 
         per_label_cross_entropy[(N,)](
-            X_ptr=logits_chunk, X_stride=logits_chunk.stride(-2), label_ptr=target[s:e], 
+            X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e], 
             loss_ptr=losses[s:e], n_non_ignore=ni, ignore=ignore, vocab=V, CHUNK=C, num_warps=32, 
         )
-        grad_input[s:e] = logits_chunk @ weight
-        if weight.requires_grad: grad_weight += logits_chunk.t() @ _input[s:e]
+        grad_input[s:e] = logits @ weight
+        if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         ctx.save_for_backward(
             grad_input.detach(), 
