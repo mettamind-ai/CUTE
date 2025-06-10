@@ -61,10 +61,10 @@ class ReLuSquareMLP(nn.Module):
 
     # @torch.compile()
     def forward(self, x):
-        if self.use_cconv:  x   = causal_conv1d(x, self.cannon1_proj, activation="swish")
+        if self.use_cconv:  x   = causal_conv1d_fn(x.unsqueeze(0), self.cannon1_proj, activation="swish").squeeze(0)
         y                       = self.fc1_proj(x)
         y                       = F.relu(y).square()
-        if self.use_cconv:  y   = causal_conv1d(y, self.cannon2_proj, activation="swish")
+        if self.use_cconv:  y   = causal_conv1d_fn(y.unsqueeze(0), self.cannon2_proj, activation="swish").squeeze(0)
         if self.use_gate:   y   = y * self.gate_proj(x)
         z                       = self.fc2_proj(y)
         return z  # z có chiều odim thường là bằng dim
@@ -202,7 +202,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cannon_width=4)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=4)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
