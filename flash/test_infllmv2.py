@@ -1,10 +1,11 @@
-#!/usr/bin/env python3
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/tests/test_flash_attn.py
 
 import torch
 from einops import repeat
-from infllmv2.infllmv2_sparse_attn_interface import infllmv2_sparse_attn_func
-from infllmv2.utils import (
+from infllm_v2 import (
+    infllmv2_sparse_attn_func,
+)
+from utils import (
     generate_random_padding_mask,
     generate_base_sparsity_mask,
     generate_qkv,
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 MAX_HEADDIM_SM8x = 192
 block_size = 64
+is_sm75 = torch.cuda.get_device_capability("cuda") == (7, 5)
 is_sm8x = torch.cuda.get_device_capability("cuda")[0] == 8
 is_sm80 = torch.cuda.get_device_capability("cuda") == (8, 0)
 is_sm90 = torch.cuda.get_device_capability("cuda") == (9, 0)
@@ -101,14 +103,25 @@ def test_flash_attn_varlen_block_output(
     # Also generate block mask for reference implementation
     base_blockmask = convert_topk_to_base_blockmask(topk_idx, max_seqlen_k, block_size, device)
     
+    head_mask_type = torch.tensor([1] * nheads_k, device=device, dtype=torch.int32)
+    streaming_info = torch.tensor([0, 0] * nheads_k, device=device, dtype=torch.int32)
+    
     logger.info("Running infllmv2_sparse_attn_func")
     attn_start = time.time()
     out_unpad = infllmv2_sparse_attn_func(
         q_unpad, k_unpad, v_unpad,
         cu_seqlens_q, cu_seqlens_k,
+        head_mask_type,
+        streaming_info,
         topk_idx,  # Use topk_idx directly instead of base_blockmask
         max_seqlen_q, max_seqlen_k,
-        block_window_size, 
+        p_dropout,
+        deterministic=False,
+        softmax_scale=None,
+        is_causal=causal,
+        exact_streaming=exact_streaming,
+        return_attn_probs=False,
+        block_window_size=block_window_size,
     )
     logger.info(f"infllmv2_sparse_attn_func completed in {time.time() - attn_start:.2f}s")
     
@@ -205,9 +218,17 @@ def test_flash_attn_varlen_block_output(
         out_unpad_cp = infllmv2_sparse_attn_func(
             q_unpad_cp, k_unpad_cp, v_unpad_cp,
             cu_seqlens_q, cu_seqlens_k,
+            head_mask_type,
+            streaming_info,
             topk_idx,
             max_seqlen_q, max_seqlen_k,
-            block_window_size,
+            p_dropout,
+            deterministic=False,
+            softmax_scale=None,
+            is_causal=causal,
+            exact_streaming=exact_streaming,
+            return_attn_probs=False,
+            block_window_size=block_window_size,
         )
         
         # Compute gradient using backward()
