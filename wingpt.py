@@ -7,6 +7,7 @@ from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
+from optimus import quantize_int8
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -58,9 +59,8 @@ class ReLuSquareMLP(nn.Module):
 
     # @torch.compile()
     def forward(self, x):
-        T, D = x.shape 
-        assert D == self.dim
-
+        quantize_int8(x, dim=1, sr=False) # thử thêm 1 phép quant xem tốc độ chậm đi bao nhiêu?
+        T, D = x.shape; assert D == self.dim
         if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
         y                     = self.fc1_proj(x)
         y                     = F.relu(y).square()
