@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 
-from cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
+from .cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
 
 
 class CausalConv1dFn(torch.autograd.Function):

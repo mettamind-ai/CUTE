@@ -4,8 +4,10 @@ import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
+
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
+from flash.causal_conv1d import causal_conv1d_fn
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -23,9 +25,12 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False, cconv_width=0):
         super().__init__()
         self.use_gate = use_gate
+
+        cconv_width = int(cconv_width)
+        assert cconv_width >= 0 and cconv_width <= 4
 
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
@@ -46,14 +51,23 @@ class ReLuSquareMLP(nn.Module):
             if use_gate: self.gate_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.fc2_proj.weight.zero_()
         
+        self.use_cconv = cconv_width > 0
+        if self.use_cconv:
+            self.cannon1_proj = nn.Parameter(torch.zeros( dim, cconv_width))
+            self.cannon2_proj = nn.Parameter(torch.zeros(hdim, cconv_width))
+            with torch.no_grad():
+                self.cannon1_proj.zero_()
+                self.cannon2_proj.zero_()
+
     # @torch.compile()
     def forward(self, x):
-        y = self.fc1_proj(x)
-        y = F.relu(y).square()
-        # Selective activation giúp mô hình tự động học cách lọc thông tin quan trọng
-        if self.use_gate: y = y * self.gate_proj(x)
-        y = self.fc2_proj(y)
-        return y
+        if self.use_cconv:  x   = causal_conv1d(x, self.cannon1_proj, activation="swish")
+        y                       = self.fc1_proj(x)
+        y                       = F.relu(y).square()
+        if self.use_cconv:  y   = causal_conv1d(y, self.cannon2_proj, activation="swish")
+        if self.use_gate:   y   = y * self.gate_proj(x)
+        z                       = self.fc2_proj(y)
+        return z  # z có chiều odim thường là bằng dim
 
 ##########################
 ## CausalSelfAttention  ##
@@ -188,7 +202,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cannon_width=4)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
