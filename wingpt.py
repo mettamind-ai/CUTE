@@ -90,7 +90,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, long=False, layer_id=-1):
+            seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
         super().__init__() # dim = hidden_size = embedding = feature = representation
 
         self.num_heads = num_heads
@@ -98,13 +98,14 @@ class CausalSelfAttention(nn.Module):
         self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
         self.layer_id = layer_id
+        if odim == None: odim = dim
 
         qo_inner_dim = num_heads * head_dim
         kv_inner_dim = num_kv_heads * head_dim
 
         self.kv_proj = nn.Linear(dim, 2*kv_inner_dim, bias=False)
         self. q_proj = nn.Linear(dim,   qo_inner_dim, bias=False)
-        self. o_proj = nn.Linear(  qo_inner_dim, dim, bias=False)
+        self. o_proj = nn.Linear(  qo_inner_dim, odim, bias=False)
 
         with torch.no_grad(): # init weights
             self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
@@ -183,7 +184,8 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(3*dim, hdim=4*dim, odim=dim, use_gate=True)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim, use_gate=True)
+        self.future_attn = CasualAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -221,8 +223,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    xxy0 = torch.cat([F.pad(x[:-2], (0,0,1,0)), x[:-1], x0[1:]], dim=1)
-    y    = x[:-1] + model.future_mlp1(norm(xxy0))
+    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
+    y   = xy0 + model.future_mlp1(norm(xy0))
+    y   = model.future_attn(y)
     x, y = norm(x), norm(y)
     tx, ty = target, target[1:]
  
