@@ -175,8 +175,8 @@ def causal_conv1d_bwd_function(
 
     if dx is None:
         dx = torch.empty_like(x)
-    dweight = torch.zeros_like(weight, dtype=torch.float32)
-    dbias = torch.zeros_like(bias, dtype=torch.float32)
+    dweight = torch.zeros_like(weight, dtype=weight.dtype)
+    dbias = torch.zeros_like(bias, dtype=bias.dtype) if bias is not None else None
     dinitial_states = None
     if return_dinitial_states:
         dinitial_states = torch.empty(batch_size, width - 1, dim, device=x.device, dtype=x.dtype).transpose(1, 2)
@@ -197,7 +197,7 @@ def causal_conv1d_bwd_function(
     )
 
     dweight = dweight.type_as(weight)
-    dbias = dbias.type_as(bias)
+    if bias is not None: dbias = dbias.type_as(bias)
     return dx, dweight, dbias, dinitial_states
 
 
