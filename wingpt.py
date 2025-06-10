@@ -168,7 +168,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long =         layer_id % 5 == 4  # 4 ngắn + 1 dài
-        self.disable_attn = layer_id % 3 == 5  # 5 layers thì bỏ đi 1 attn 
+        self.disable_attn = layer_id % 5 == 3  # 5 layers thì bỏ đi 1 attn 
 
         if self.disable_attn:
             self.mlp = ReLuSquareMLP(dim, cconv_width=16)
