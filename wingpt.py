@@ -54,25 +54,18 @@ class ReLuSquareMLP(nn.Module):
         
         self.cconv_width = cconv_width
         self.use_cconv = cconv_width >= 2
-        if self.use_cconv:
-            self.cconv1 = nn.Parameter(torch.zeros(dim, 1, cconv_width))
-            self.cconv2 = nn.Parameter(torch.zeros(hdim, 1, cconv_width))
+        if self.use_cconv: self.cconv_proj = nn.Parameter(torch.zeros(dim, 1, cconv_width))
 
     # @torch.compile()
     def forward(self, x):
         T, D = x.shape 
         assert D == self.dim
 
-        if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
-        y                       = self.fc1_proj(x)
-        y                       = F.relu(y).square()
-
-        TT, DD = y.shape 
-        assert T == TT and DD == self.hdim
-
-        if self.use_cconv:  y   = y + F.conv1d(y.view(1,DD,T), self.cconv2, padding=self.cconv_width-1, groups=DD)[..., :T].reshape(T,DD)
-        if self.use_gate:   y   = y * self.gate_proj(x)
-        z                       = self.fc2_proj(y)
+        if self.use_cconv: x += F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        y                     = self.fc1_proj(x)
+        y                     = F.relu(y).square()
+        if self.use_gate:  y *= self.gate_proj(x)
+        z                     = self.fc2_proj(y)
         return z  # z có chiều odim thường là bằng dim
 
 ##########################

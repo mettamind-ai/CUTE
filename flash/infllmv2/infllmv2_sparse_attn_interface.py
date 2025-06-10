@@ -1,0 +1,716 @@
+# Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_blocksparse_attn_interface.py
+
+####################
+# Import C extension
+####################
+
+import os, time, psutil, torch.utils.cpp_extension
+from pathlib import Path
+
+free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
+if not os.environ.get("MAX_JOBS"):
+    max_jobs = round(free_memory_gb / 6)
+    if free_memory_gb > 28: max_jobs += 1
+    os.environ["MAX_JOBS"] = str(max_jobs)
+print(f"infllmv2: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
+
+
+NVCC_FLAGS = [
+    "-O3", "-std=c++17",
+    "-U__CUDA_NO_HALF_OPERATORS__",
+    "-U__CUDA_NO_HALF_CONVERSIONS__",
+    "-U__CUDA_NO_HALF2_OPERATORS__",
+    "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+    "--use_fast_math", "-lineinfo", "--threads=8",
+    "--expt-relaxed-constexpr", "--expt-extended-lambda", "-Xptxas=-v",
+    # "-diag-suppress=174", # suppress the specific warning
+]
+ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
+NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
+NVCC_FLAGS += ["-gencode", f"arch=compute_86,code=sm_86"]
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
+
+abspath = Path(__file__).parent
+started_at = time.time()
+
+infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
+    "CUTE_infllm_v2.C",
+    sources=[
+        abspath / "entry.cu",
+        abspath / "flash_api.cpp",
+        abspath / "src/flash_bwd_hdim128_bf16_causal_sm80.cu",
+        abspath / "src/flash_fwd_split_hdim128_bf16_causal_sm80.cu",
+    ],
+    extra_cuda_cflags=NVCC_FLAGS,
+    extra_include_paths=[ 
+        str(abspath / "src"), 
+        str(abspath / "cutlass/include"),
+    ],
+)
+print(f"infllmv2: DONE. In {int(time.time() - started_at)} seconds.")
+#####################################################################
+
+import torch, warnings, torch.nn as nn, numpy as np
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.checkpoint import checkpoint
+from torch import Tensor
+from typing import Tuple
+uint64_memory = None
+
+def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
+    """ Convert topk indices directly to uint64 representation without intermediate bool mask """
+    assert topk_idx.dtype == torch.int32
+    k_blocks = (max_seqlen_k + block_size - 1) // block_size  # Ceiling division
+    
+    # Record original shape
+    original_shape = topk_idx.shape
+    
+    # Check if we have a batch dimension
+    has_batch = len(original_shape) == 4
+    
+    if has_batch:
+        batch_size, num_heads, total_seqlen, k = original_shape
+    else:
+        num_heads, total_seqlen, k = original_shape
+        batch_size = 1
+    
+    # Compute how many uint64 values are needed per row
+    n_uint64_per_row = (k_blocks + 63) // 64
+
+    # Flatten batch dimensions
+    if has_batch:
+        flat_dims = batch_size * num_heads * total_seqlen
+        output_shape = (batch_size, num_heads, total_seqlen, n_uint64_per_row)
+    else:
+        flat_dims = num_heads * total_seqlen
+        output_shape = (num_heads, total_seqlen, n_uint64_per_row)
+    
+    global uint64_memory
+    if uint64_memory is None or uint64_memory.shape != output_shape:
+            result = torch.zeros(output_shape, dtype=torch.int64, device=topk_idx.device)
+            uint64_memory = result
+    else:   result = uint64_memory
+    
+    CUTE_EXT.topk_to_uint64(
+        torch.cuda.current_stream().cuda_stream,
+        topk_idx.data_ptr(),
+        result.data_ptr(),
+        flat_dims,
+        k,
+        k_blocks,
+        n_uint64_per_row
+    )
+    return result, k_blocks
+
+
+def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
+    """ Convert PyTorch boolean mask to uint64 representation using CUDA kernel """ 
+    # Record original shape
+    original_shape = blockmask.shape
+    last_dim_size = original_shape[-1]
+    
+    # Compute how many uint64 values are needed per row
+    n_uint64_per_row = (last_dim_size + 63) // 64
+    
+    # Flatten all batch dimensions
+    flat_dims = torch.prod(torch.tensor(original_shape[:-1], dtype=torch.int64)).item()
+    flat_blockmask = blockmask.reshape(flat_dims, last_dim_size)
+    
+    # Create output tensor
+    output_shape = original_shape[:-1] + (n_uint64_per_row,)
+    result = torch.zeros(output_shape, dtype=torch.int64, device=blockmask.device)
+    flat_result = result.reshape(flat_dims, n_uint64_per_row)
+    
+    CUTE_EXT.blockmask_to_uint64(
+        torch.cuda.current_stream().cuda_stream,
+        flat_blockmask.data_ptr(),
+        flat_result.data_ptr(),
+        flat_dims,
+        last_dim_size,
+        n_uint64_per_row
+    )
+    return result, last_dim_size 
+
+
+def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tensor:
+    """ Convert uint64 representation back to PyTorch boolean mask using CUDA kernel """
+    # Record original shape of uint64 array
+    original_shape = uint64_array.shape
+    n_uint64_per_row = original_shape[-1]
+    
+    # Flatten all batch dimensions
+    flat_dims = torch.prod(torch.tensor(original_shape[:-1], dtype=torch.int64)).item()
+    flat_uint64_array = uint64_array.reshape(flat_dims, n_uint64_per_row)
+    
+    # Create output tensor
+    output_shape = original_shape[:-1] + (last_dim_size,)
+    result = torch.zeros(output_shape, dtype=torch.bool, device=uint64_array.device)
+    flat_result = result.reshape(flat_dims, last_dim_size)
+    
+    CUTE_EXT.uint64_to_bool(
+        torch.cuda.current_stream().cuda_stream,
+        flat_uint64_array.data_ptr(),
+        flat_result.data_ptr(),
+        flat_dims,
+        last_dim_size,
+        n_uint64_per_row
+    )
+    return result 
+
+#######################################################
+
+_torch_custom_op_wrapper = torch.library.custom_op
+_torch_register_fake_wrapper = torch.library.register_fake
+
+@_torch_custom_op_wrapper("infllmv2_attn::_infllmv2_attn_varlen_forward", mutates_args=(), device_types="cuda")
+def _infllmv2_attn_varlen_forward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    dropout_p: float,
+    softmax_scale: float,
+    causal: bool,
+    window_size_left: int = -1,
+    window_size_right: int = -1,
+    softcap: float = 0.0,
+    alibi_slopes: Optional[torch.Tensor] = None,
+    return_softmax: bool = False,
+    block_table: Optional[torch.Tensor] = None,
+    leftpad_k: Optional[torch.Tensor] = None,
+    seqused_k: Optional[torch.Tensor] = None,
+    topk_idx: Optional[torch.Tensor] = None,
+    block_window_size: int = 0,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+
+    if topk_idx is not None:
+        head_dim = q.shape[-1]
+        q = q.reshape(-1, 2, 16, head_dim).transpose(1, 2).reshape(-1, 2, head_dim).contiguous()
+        cu_seqlens_q = cu_seqlens_q * 16
+        max_seqlen_q = max_seqlen_q * 16
+        assert topk_idx.dtype == torch.int32
+        blockmask, _ = cuda_topk_to_uint64(topk_idx, max_seqlen_k, 64) # N_BLOCK_DIM=64
+    else:
+        blockmask = None
+
+    out, softmax_lse, S_dmask, rng_state = infllm_cuda.varlen_fwd(
+        q,
+        k,
+        v,
+        None,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        seqused_k,
+        leftpad_k,
+        block_table,
+        alibi_slopes,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        False,
+        causal,
+        window_size_left,
+        window_size_right,
+        softcap,
+        return_softmax,
+        None,
+        blockmask,
+        block_window_size,
+    )
+    # if out.isnan().any() or softmax_lse.isnan().any():
+    #     breakpoint()
+    if topk_idx is not None:
+        out = out.reshape(-1, 16, 2, head_dim).transpose(1, 2).reshape(-1, 32, head_dim).contiguous()
+    
+    return out, softmax_lse, S_dmask, rng_state
+
+
+
+_wrapped_infllmv2_attn_varlen_forward = _infllmv2_attn_varlen_forward
+
+
+@_torch_custom_op_wrapper("infllmv2_attn::_infllmv2_attn_varlen_backward", mutates_args=("dq", "dk", "dv"), device_types="cuda")
+def _infllmv2_attn_varlen_backward(
+    dout: torch.Tensor,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    out: torch.Tensor,
+    softmax_lse: torch.Tensor,
+    dq: Optional[torch.Tensor],
+    dk: Optional[torch.Tensor],
+    dv: Optional[torch.Tensor],
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    dropout_p: float,
+    softmax_scale: float,
+    causal: bool,
+    window_size_left: int,
+    window_size_right: int,
+    softcap: float,
+    alibi_slopes: Optional[torch.Tensor],
+    deterministic: bool,
+    rng_state: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    # dq, dk, dv are allocated by us so they should already be contiguous
+    dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
+    (
+        dq,
+        dk,
+        dv,
+        softmax_d,
+    ) = infllm_cuda.varlen_bwd(
+        dout,
+        q,
+        k,
+        v,
+        out,
+        softmax_lse,
+        dq,
+        dk,
+        dv,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        alibi_slopes,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        False,
+        causal,
+        window_size_left,
+        window_size_right,
+        softcap,
+        deterministic,
+        None,
+        rng_state,
+    )
+    # if dk.isnan().any() or dk.isnan().any() or dv.isnan().any() or softmax_d.isnan().any():
+    #     breakpoint()
+    return softmax_d
+
+
+
+if torch.__version__ >= "2.4.0":
+    _wrapped_infllmv2_attn_varlen_backward = torch.ops.infllmv2_attn._infllmv2_attn_varlen_backward
+else:
+    _wrapped_infllmv2_attn_varlen_backward = _infllmv2_attn_varlen_backward
+
+
+class Infllmv2AttnVarlenFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        q,
+        k,
+        v,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        alibi_slopes,
+        deterministic,
+        return_softmax,
+        block_table,
+        topk_idx,
+        block_window_size,
+    ):
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        head_size_og = q.size(2)
+        if head_size_og % 8 != 0:
+            q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
+            k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
+            v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        out_padded, softmax_lse, S_dmask, rng_state = _wrapped_infllmv2_attn_varlen_forward(
+            q,
+            k,
+            v,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            dropout_p,
+            softmax_scale,
+            causal=causal,
+            window_size_left=window_size[0],
+            window_size_right=window_size[1],
+            softcap=softcap,
+            alibi_slopes=alibi_slopes,
+            return_softmax=return_softmax and dropout_p > 0,
+            block_table=block_table,
+            topk_idx=topk_idx,
+            block_window_size=block_window_size,
+        )
+        ctx.save_for_backward(
+            q, k, v, out_padded, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state
+        )
+        ctx.dropout_p = dropout_p
+        ctx.max_seqlen_q = max_seqlen_q
+        ctx.max_seqlen_k = max_seqlen_k
+        ctx.softmax_scale = softmax_scale
+        ctx.causal = causal
+        ctx.window_size = window_size
+        ctx.softcap = softcap
+        ctx.alibi_slopes = alibi_slopes
+        ctx.deterministic = deterministic
+        out = out_padded[..., :head_size_og]
+        return out if not return_softmax else (out, softmax_lse, S_dmask)
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state = ctx.saved_tensors
+        dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
+        head_size_og = dout.size(2)
+        dout_padded = dout
+        if head_size_og % 8 != 0:
+            dout_padded = torch.nn.functional.pad(dout, [0, 8 - head_size_og % 8])
+        _wrapped_infllmv2_attn_varlen_backward(
+            dout_padded,
+            q,
+            k,
+            v,
+            out,
+            softmax_lse,
+            dq,
+            dk,
+            dv,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            ctx.max_seqlen_q,
+            ctx.max_seqlen_k,
+            ctx.dropout_p,
+            ctx.softmax_scale,
+            ctx.causal,
+            ctx.window_size[0],
+            ctx.window_size[1],
+            ctx.softcap,
+            ctx.alibi_slopes,
+            ctx.deterministic,
+            rng_state=rng_state,
+        )
+        dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension
+        dk = dk[..., : dout.shape[-1]]
+        dv = dv[..., : dout.shape[-1]]
+        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
+
+
+def infllmv2_attn_varlen_func(
+    q,
+    k,
+    v,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0, # 0.0 means deactivated
+    alibi_slopes=None,
+    deterministic=False,
+    return_attn_probs=False,
+    block_table=None,
+    topk_idx=None,
+    block_window_size=0,
+):
+    """dropout_p should be set to 0.0 during evaluation
+    Supports multi-query and grouped-query attention (MQA/GQA) by passing in K, V with fewer heads
+    than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
+    For example, if Q has 6 heads and K, V have 2 heads, head 0, 1, 2 of Q will attention to head
+    0 of K, V, and head 3, 4, 5 of Q will attention to head 1 of K, V.
+
+    If causal=True, the causal mask is aligned to the bottom right corner of the attention matrix.
+    For example, if seqlen_q = 2 and seqlen_k = 5, the causal mask (1 = keep, 0 = masked out) is:
+        1 1 1 1 0
+        1 1 1 1 1
+    If seqlen_q = 5 and seqlen_k = 2, the causal mask is:
+        0 0
+        0 0
+        0 0
+        1 0
+        1 1
+    If the row of the mask is all zero, the output will be zero.
+
+    If window_size != (-1, -1), implements sliding window local attention. Query at position i
+    will only attend to keys between
+    [i + seqlen_k - seqlen_q - window_size[0], i + seqlen_k - seqlen_q + window_size[1]] inclusive.
+
+    Arguments:
+        q: (total_q, nheads, headdim), where total_q = total number of query tokens in the batch.
+        k: (total_k, nheads_k, headdim), where total_k = total number of key tokens in the batch.
+        v: (total_k, nheads_k, headdim), where total_k = total number of key tokens in the batch.
+        cu_seqlens_q: (batch_size + 1,), dtype torch.int32. The cumulative sequence lengths
+           of the sequences in the batch, used to index into q.
+        cu_seqlens_k: (batch_size + 1,), dtype torch.int32. The cumulative sequence lengths
+           of the sequences in the batch, used to index into kv.
+        max_seqlen_q: int. Maximum query sequence length in the batch.
+        max_seqlen_k: int. Maximum key sequence length in the batch.
+        dropout_p: float. Dropout probability.
+        softmax_scale: float. The scaling of QK^T before applying softmax.
+            Default to 1 / sqrt(headdim).
+        causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
+        window_size: (left, right). If not (-1, -1), implements sliding window local attention.
+        softcap: float. Anything > 0 activates softcapping attention.
+        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
+            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
+            is added to the attention score of query i and key j.
+        deterministic: bool. Whether to use the deterministic implementation of the backward pass,
+            which is slightly slower and uses more memory. The forward pass is always deterministic.
+        return_attn_probs: bool. Whether to return the attention probabilities. This option is for
+           testing only. The returned probabilities are not guaranteed to be correct
+           (they might not have the right scaling).
+    Return:
+        out: (total, nheads, headdim).
+        softmax_lse [optional, if return_attn_probs=True]: (nheads, total_q_seqlen). The
+            logsumexp of each row of the matrix QK^T * scaling (e.g., log of the softmax
+            normalization factor).
+        S_dmask [optional, if return_attn_probs=True]: (batch_size, nheads, seqlen, seqlen).
+            The output of softmax (possibly with different scaling). It also encodes the dropout
+            pattern (negative means that location was dropped, nonnegative means it was kept).
+    """
+    return Infllmv2AttnVarlenFunc.apply(
+        q,
+        k,
+        v,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        alibi_slopes,
+        deterministic,
+        return_attn_probs,
+        block_table,
+        topk_idx,
+        block_window_size,
+    )
+
+
+def infllmv2_attn_stage1(
+    q,
+    k,
+    v,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0, # 0.0 means deactivated
+    alibi_slopes=None,
+    deterministic=False,
+    return_attn_probs=True,
+    block_table=None,
+):
+    if softmax_scale is None:
+        softmax_scale = q.shape[-1] ** (-0.5)
+    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    head_dim = q.shape[-1]
+    q = q.reshape(-1, 2, 16, head_dim).transpose(1, 2).reshape(-1, 2, head_dim).contiguous()
+    cu_seqlens_q = cu_seqlens_q * 16
+    max_seqlen_q = max_seqlen_q * 16
+
+    S_dmask, = infllm_cuda.varlen_fwd_stage1(
+        q,
+        k,
+        v,
+        None,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        None,
+        None,
+        block_table,
+        alibi_slopes,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        True,
+        causal,
+        window_size[0],
+        window_size[1],
+        softcap,
+        return_attn_probs,
+        None,
+    )
+    
+    if return_attn_probs:
+        S_dmask = S_dmask[0]
+        if causal:
+            S_dmask[:, :32-1, :] = float('-inf')  # TODO 32 = stride * 2 - 1
+
+    return S_dmask
+
+
+def infllmv2_attn_with_kvcache(
+    q,
+    k_cache,
+    v_cache,
+    k=None,
+    v=None,
+    rotary_cos=None,
+    rotary_sin=None,
+    cache_seqlens: Optional[Union[(int, torch.Tensor)]] = None,
+    cache_batch_idx: Optional[torch.Tensor] = None,
+    cache_leftpad: Optional[torch.Tensor] = None,
+    block_table: Optional[torch.Tensor] = None,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0, # 0.0 means deactivated
+    rotary_interleaved=True,
+    alibi_slopes=None,
+    num_splits=0,
+    return_softmax_lse=False,
+    topk_idx=None,
+    block_window_size=0,
+):
+    """
+    If k and v are not None, k_cache and v_cache will be updated *inplace* with the new values from
+    k and v. This is useful for incremental decoding: you can pass in the cached keys/values from
+    the previous step, and update them with the new keys/values from the current step, and do
+    attention with the updated cache, all in 1 kernel.
+
+    If you pass in k / v, you must make sure that the cache is large enough to hold the new values.
+    For example, the KV cache could be pre-allocated with the max sequence length, and you can use
+    cache_seqlens to keep track of the current sequence lengths of each sequence in the batch.
+
+    Also apply rotary embedding if rotary_cos and rotary_sin are passed in. The key @k will be
+    rotated by rotary_cos and rotary_sin at indices cache_seqlens, cache_seqlens + 1, etc.
+    If causal or local (i.e., window_size != (-1, -1)), the query @q will be rotated by rotary_cos
+    and rotary_sin at indices cache_seqlens, cache_seqlens + 1, etc.
+    If not causal and not local, the query @q will be rotated by rotary_cos and rotary_sin at
+    indices cache_seqlens only (i.e. we consider all tokens in @q to be at position cache_seqlens).
+
+    See tests/test_flash_attn.py::test_flash_attn_kvcache for examples of how to use this function.
+
+    Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
+    than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
+    For example, if Q has 6 heads and K, V have 2 heads, head 0, 1, 2 of Q will attention to head
+    0 of K, V, and head 3, 4, 5 of Q will attention to head 1 of K, V.
+
+    If causal=True, the causal mask is aligned to the bottom right corner of the attention matrix.
+    For example, if seqlen_q = 2 and seqlen_k = 5, the causal mask (1 = keep, 0 = masked out) is:
+        1 1 1 1 0
+        1 1 1 1 1
+    If seqlen_q = 5 and seqlen_k = 2, the causal mask is:
+        0 0
+        0 0
+        0 0
+        1 0
+        1 1
+    If the row of the mask is all zero, the output will be zero.
+
+    If window_size != (-1, -1), implements sliding window local attention. Query at position i
+    will only attend to keys between
+    [i + seqlen_k - seqlen_q - window_size[0], i + seqlen_k - seqlen_q + window_size[1]] inclusive.
+
+    Note: Does not support backward pass.
+
+    Arguments:
+        q: (batch_size, seqlen, nheads, headdim)
+        k_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim) if there's no block_table,
+            or (num_blocks, page_block_size, nheads_k, headdim) if there's a block_table (i.e. paged KV cache)
+            page_block_size must be a multiple of 256.
+        v_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim) if there's no block_table,
+            or (num_blocks, page_block_size, nheads_k, headdim) if there's a block_table (i.e. paged KV cache)
+        k [optional]: (batch_size, seqlen_new, nheads_k, headdim). If not None, we concatenate
+            k with k_cache, starting at the indices specified by cache_seqlens.
+        v [optional]: (batch_size, seqlen_new, nheads_k, headdim). Similar to k.
+        rotary_cos [optional]: (seqlen_ro, rotary_dim / 2). If not None, we apply rotary embedding
+            to k and q. Only applicable if k and v are passed in. rotary_dim must be divisible by 16.
+        rotary_sin [optional]: (seqlen_ro, rotary_dim / 2). Similar to rotary_cos.
+        cache_seqlens: int, or (batch_size,), dtype torch.int32. The sequence lengths of the
+            KV cache.
+        cache_batch_idx: (batch_size,), dtype torch.int32. The indices used to index into the KV cache.
+            If None, we assume that the batch indices are [0, 1, 2, ..., batch_size - 1].
+            If the indices are not distinct, and k and v are provided, the values updated in the cache
+                 might come from any of the duplicate indices.
+        cache_leftpad: (batch_size,), dtype torch.int32. The index that the KV cache starts. If None, assume 0.
+        block_table [optional]: (batch_size, max_num_blocks_per_seq), dtype torch.int32.
+        softmax_scale: float. The scaling of QK^T before applying softmax.
+            Default to 1 / sqrt(headdim).
+        causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
+        window_size: (left, right). If not (-1, -1), implements sliding window local attention.
+        softcap: float. Anything > 0 activates softcapping attention.
+        rotary_interleaved: bool. Only applicable if rotary_cos and rotary_sin are passed in.
+            If True, rotary embedding will combine dimensions 0 & 1, 2 & 3, etc. If False,
+            rotary embedding will combine dimensions 0 & rotary_dim / 2, 1 & rotary_dim / 2 + 1
+            (i.e. GPT-NeoX style).
+        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
+            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
+            is added to the attention score of query i and key j.
+        num_splits: int. If > 1, split the key/value into this many chunks along the sequence.
+           If num_splits == 1, we don't split the key/value. If num_splits == 0, we use a heuristic
+           to automatically determine the number of splits.
+           Don't change this unless you know what you are doing.
+        return_softmax_lse: bool. Whether to return the logsumexp of the attention scores.
+
+    Return:
+        out: (batch_size, seqlen, nheads, headdim).
+        softmax_lse [optional, if return_softmax_lse=True]: (batch_size, nheads, seqlen). The
+            logsumexp of each row of the matrix QK^T * scaling (e.g., log of the softmax
+            normalization factor).
+    """
+    assert k_cache.stride(-1) == 1, "k_cache must have contiguous last dimension"
+    assert v_cache.stride(-1) == 1, "v_cache must have contiguous last dimension"
+    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    if softmax_scale is None:
+        softmax_scale = q.shape[-1] ** (-0.5)
+    if cache_seqlens is not None and isinstance(cache_seqlens, int):
+        cache_seqlens = torch.full(
+            (k_cache.shape[0],), cache_seqlens, dtype=torch.int32, device=k_cache.device
+        )
+        cache_seqlens = maybe_contiguous(cache_seqlens)
+    cache_batch_idx = maybe_contiguous(cache_batch_idx)
+    block_table = maybe_contiguous(block_table)
+    if topk_idx is not None:
+        assert topk_idx.dtype == torch.int32
+        blockmask, _ = cuda_topk_to_uint64(topk_idx, k_cache.shape[1] if block_table is None else block_table.shape[1] * k_cache.shape[1], 64) # N_BLOCK_DIM=64
+    else:
+        blockmask = None
+    out, softmax_lse = infllm_cuda.fwd_kvcache(
+        q,
+        k_cache,
+        v_cache,
+        k,
+        v,
+        cache_seqlens,
+        rotary_cos,
+        rotary_sin,
+        cache_batch_idx,
+        cache_leftpad,
+        block_table,
+        alibi_slopes,
+        None,
+        softmax_scale,
+        causal,
+        window_size[0],
+        window_size[1],
+        softcap,
+        rotary_interleaved,
+        num_splits,
+        blockmask,
+        block_window_size,
+    )
+    return (out, softmax_lse) if return_softmax_lse else out
