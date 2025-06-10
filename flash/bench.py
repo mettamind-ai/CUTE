@@ -42,11 +42,17 @@ if __name__ == "__main__":
         max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
         cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
         cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device="cuda")
-        qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
+        qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM)   # seq_len, H, D
         kk = k.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
         vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
+        assert H // Hkv == 16 # for infllmv2_varlen
 
         def attn_fn(provider, q, k, v):
+            if provider == "infllmv2_varlen":
+                sparsity = 0.8
+                topk_idx = generate_topk_indices(Hkv, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen)#, topk_idx=topk_idx, block_window_size=3)
+
             if provider == "parallel_nsa":
                 return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=block_size)
 
@@ -63,12 +69,6 @@ if __name__ == "__main__":
             if provider == "flash_attn":
                 return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
-
-            if provider == "infllmv2_varlen":
-                sparsity=0.8; block_window_size=3
-                topk_idx = generate_topk_indices(Hkv, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-                return lambda: infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, 
-                    max_seqlen, max_seqlen, topk_idx=topk_idx, block_window_size=block_window_size)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
