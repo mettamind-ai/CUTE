@@ -64,8 +64,8 @@ class ReLuSquareMLP(nn.Module):
         T, D = x.shape 
         assert D == self.dim
 
-        if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1.unsqueeze(1), padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
-        # if self.use_cconv:  x   = x + causal_conv1d_fn(x.view(1,D,T), self.cconv1).reshape(T,D)
+        # if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1.unsqueeze(1), padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        if self.use_cconv:  x   = x + causal_conv1d_fn(x.view(1,D,T), self.cconv1).reshape(T,D)
         y                       = self.fc1_proj(x)
         y                       = F.relu(y).square()
 
@@ -177,7 +177,7 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.mlp = ReLuSquareMLP(dim, cconv_width=4)
+        self.mlp = ReLuSquareMLP(dim, cconv_width=0)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
                         head_dim=head_dim, long=layer_id % 5 == 4, layer_id=layer_id) # 4 ngắn + 1 dài
 
