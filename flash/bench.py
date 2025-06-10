@@ -26,7 +26,7 @@ if __name__ == "__main__":
     @triton.testing.perf_report([config])
     def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda"):
         dtype = torch.bfloat16
-        q = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+        q = torch.randn((BATCH, H,   N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
         k = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
         v = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
