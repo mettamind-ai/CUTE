@@ -21,8 +21,13 @@ NVCC_FLAGS = [
     "-U__CUDA_NO_HALF_CONVERSIONS__",
     "-U__CUDA_NO_HALF2_OPERATORS__",
     "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+    "-DFLASHATTENTION_DISABLE_DROPOUT",
+    "-DFLASHATTENTION_DISABLE_ALIBI",
+    "-DFLASHATTENTION_DISABLE_SOFTCAP",
+    "-DFLASHATTENTION_DISABLE_UNEVEN_K",
+    "-DFLASHATTENTION_DISABLE_LOCAL",
     "--use_fast_math", "-lineinfo", "--threads=8",
-    "--expt-relaxed-constexpr", "--expt-extended-lambda", "-Xptxas=-v",
+    "--expt-relaxed-constexpr", "--expt-extended-lambda",
     # "-diag-suppress=174", # suppress the specific warning
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
@@ -38,6 +43,8 @@ infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
+        abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
         abspath / "src/flash_bwd_hdim128_bf16_causal_sm80.cu",
         abspath / "src/flash_fwd_split_hdim128_bf16_causal_sm80.cu",
     ],
