@@ -209,8 +209,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim, use_gate=True)
-        self.future_attn = FutureAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=6*dim, odim=dim, use_gate=True)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -251,7 +250,6 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     y0  = x0[1:]
     xy0 = torch.cat([x[:-1], y0], dim=1)
     y   = xy0 + model.future_mlp1(norm(xy0))
-    y   =  y0 + model.future_attn(y)
     x, y = norm(x), norm(y)
     tx, ty = target, target[1:]
  
