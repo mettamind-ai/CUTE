@@ -168,10 +168,10 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long =         layer_id % 5 == 4  # 4 ngắn + 1 dài
-        self.disable_attn = layer_id % 6 == 5  # 6 layers thì bỏ đi 1 attn 
+        self.disable_attn = layer_id % 3 == 5  # 5 layers thì bỏ đi 1 attn 
 
         if self.disable_attn:
-            self.mlp = ReLuSquareMLP(dim, cconv_width=0)
+            self.mlp = ReLuSquareMLP(dim, cconv_width=16)
         else:
             self.mlp = ReLuSquareMLP(dim, cconv_width=0)
             self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
@@ -207,7 +207,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=0)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=16)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
