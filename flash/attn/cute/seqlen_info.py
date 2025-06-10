@@ -1,27 +1,28 @@
+from typing import Optional
+
 import cutlass
 import cutlass.cute as cute
 
 
 class SeqlenInfo:
 
-    def __init__(self, seqlen_q: cutlass.Int32, seqlen_k: cutlass.Int32, *, loc=None, ip=None):
-        self.seqlen_q = seqlen_q
-        self.seqlen_k = seqlen_k
-        self._loc = loc
-
-    def __extract_mlir_values__(self):
-        values, self._values_pos = [], []
-        for obj in [self.seqlen_q, self.seqlen_k]:
-            obj_values = cutlass.extract_mlir_values(obj)
-            values += obj_values
-            self._values_pos.append(len(obj_values))
-        return values
-
-    def __new_from_mlir_values__(self, values):
-        obj_list = []
-        for obj, n_items in zip(
-            [self.seqlen_q, self.seqlen_k], self._values_pos
-        ):
-            obj_list.append(cutlass.new_from_mlir_values(obj, values[:n_items]))
-            values = values[n_items:]
-        return SeqlenInfo(*(tuple(obj_list)), loc=self._loc)
+    def __init__(
+        self,
+        batch_idx: cutlass.Int32,
+        seqlen_q_static: cutlass.Int32,
+        seqlen_k_static: cutlass.Int32,
+        mCuSeqlensQ: Optional[cute.Tensor] = None,
+        mCuSeqlensK: Optional[cute.Tensor] = None,
+        mSeqUsedQ: Optional[cute.Tensor] = None,
+        mSeqUsedK: Optional[cute.Tensor] = None,
+    ):
+        self.offset_q = 0 if cutlass.const_expr(mCuSeqlensQ is None) else mCuSeqlensQ[batch_idx]
+        self.offset_k = 0 if cutlass.const_expr(mCuSeqlensK is None) else mCuSeqlensK[batch_idx]
+        if cutlass.const_expr(mSeqUsedQ is not None):
+            self.seqlen_q = mSeqUsedQ[batch_idx]
+        else:
+            self.seqlen_q = seqlen_q_static if cutlass.const_expr(mCuSeqlensQ is None) else mCuSeqlensQ[batch_idx + 1] - self.offset_q
+        if cutlass.const_expr(mSeqUsedK is not None):
+            self.seqlen_k = mSeqUsedK[batch_idx]
+        else:
+            self.seqlen_k = seqlen_k_static if cutlass.const_expr(mCuSeqlensK is None) else mCuSeqlensK[batch_idx + 1] - self.offset_k

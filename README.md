@@ -56,10 +56,10 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-- [ ] Tìm hiểu các cách Attn trong NSA
-- [ ] CUTE flash attn
+- [ ] Attn: NSA, CUTE flash attn impl, cpm.cu, linear attn nói chung ...
 - [ ] LongCE và cách làm giảm hạn chế của Causual Attn
-- [ ] Token được tự do lựa chọn:
+
+- [ ] Token được TỰ DO LỰA CHỌN:
   - cách nó attn
   - cách nó chọn số computing / hidden dim để biểu diễn chính nó
 
@@ -69,3 +69,12 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
   - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
     hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
+
+- [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head)
+
+- [ ] Revisit `Primer-EZ = Squared ReLu + Depthwise Conv 3x1`, và lược bớt attn
+  - https://www.alphaxiv.org/overview/2109.08668
+  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-4.jpeg)
+  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-3.jpeg)
+  - `depthwise convolution 3x1`: tích chập theo chiều sâu, xử lý từng kênh độc lập
+  - 

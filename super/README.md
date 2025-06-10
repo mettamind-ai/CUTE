@@ -145,9 +145,10 @@ In contrast, EvaByte keeps things simple: it directly operates on bytes with a f
 ---
 
 # Logits, Vocab ...
-https://chatgpt.com/share/6847808b-2d30-8003-8500-75ef6485f961
-- logits distill: học phân phối, ko chỉ học nhãn đúng
-- hiệu chỉnh logits (calibration)
+- https://chatgpt.com/share/6847808b-2d30-8003-8500-75ef6485f961
+  - logits distill: học phân phối, ko chỉ học nhãn đúng
+  - hiệu chỉnh logits (calibration)
+- https://chatgpt.com/share/6847ade6-0f7c-8003-82a4-4f418ae6101f
 
 Một mô hình được gọi là **well-calibrated** nếu, ví dụ, trong tất cả các trường hợp nó dự đoán “đáp án A” với xác suất 80%, thì khoảng 80% những trường hợp đó đáp án A thật sự đúng. Tuy nhiên, nghiên cứu chỉ ra rằng các mô hình mạng nơ-ron hiện đại thường không được hiệu chỉnh tốt – chúng có xu hướng quá tự tin vào dự đoán của mình.
 
@@ -163,8 +164,17 @@ Vocab lớn cũng khiến phân phối xác suất đầu ra “loãng” hơn: 
 
 KẾT LUẬN: OE SCALE TUYẾN TÍNH VÀ ỔN ĐỊNH, OD SCALE PHI TUYẾN VÀ PHỤ THUỘC KÍCH THƯỚC MÔ HÌNH.
 
-## Large Vocabulary Size Improves Large Language Models
-- https://www.alphaxiv.org/overview/2406.16508
-- Larger Models Deserve Larger Vocabularies https://www.alphaxiv.org/code/2407.13623
+## Larger Models Deserve Larger Vocabularies
+- https://www.alphaxiv.org/overview/2406.16508 (Large Vocabulary Size Improves Large Language Models)
+- https://www.alphaxiv.org/code/2407.13623
 
 ![](https://substackcdn.com/image/fetch/w_1456,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F443f26f7-38c8-4e8a-85e6-a528b78f83a0_776x385.png)
+
+Ý chính 3: Thực trạng hiện tại "Most LLMs, however, use insufficient vocabulary sizes. For example, we predict that the optimal vocabulary size of Llama2-70B should have been at least 216K, 7 times larger than its vocabulary of 32K." - Tuy nhiên, hầu hết các LLM sử dụng kích thước từ vựng không đủ. Ví dụ, chúng tôi dự đoán rằng kích thước từ vựng tối ưu của Llama2-70B lẽ ra phải ít nhất 216K, lớn hơn 7 lần so với từ vựng 32K hiện tại.
+
+Scaling laws của vocabulary size mà bài báo phát hiện ra cho thấy kích thước từ vựng tối ưu có mối quan hệ toán học cụ thể với các thành phần khác của mô hình. Luật chính được thể hiện qua công thức `N_v^opt ∝ N_nv^γ` với `γ ≈ 0.83 < 1`, có nghĩa là **các tham số từ vựng nên được mở rộng chậm hơn các tham số phi từ vựng**.
+
+Lý do đằng sau scaling law này là khi đã có không gian embedding đủ phong phú thông qua từ vựng lớn, việc mở rộng các tham số phi từ vựng để học các cấu trúc cú pháp và ngữ nghĩa phức tạp của ngôn ngữ trở nên quan trọng hơn. Do đó, vocabulary size không cần tăng tỷ lệ thuận hoàn toàn với kích thước mô hình mà chỉ cần tăng theo tỷ lệ γ < 1.
+
+---
+
