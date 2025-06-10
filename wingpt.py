@@ -61,10 +61,10 @@ class ReLuSquareMLP(nn.Module):
         T, D = x.shape 
         assert D == self.dim
 
-        if self.use_cconv: x += F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
         y                     = self.fc1_proj(x)
         y                     = F.relu(y).square()
-        if self.use_gate:  y *= self.gate_proj(x)
+        if self.use_gate:  y  = y *self.gate_proj(x)
         z                     = self.fc2_proj(y)
         return z  # z có chiều odim thường là bằng dim
 
