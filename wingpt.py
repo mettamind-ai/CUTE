@@ -53,18 +53,18 @@ class ReLuSquareMLP(nn.Module):
         
         self.use_cconv = cconv_width >= 2
         if self.use_cconv:
-            self.cannon1_proj = nn.Parameter(torch.zeros(dim, cconv_width))
-            self.cannon2_proj = nn.Parameter(torch.zeros(hdim, cconv_width))
+            self.cconv1 = nn.Parameter(torch.zeros(dim, cconv_width))
+            self.cconv2 = nn.Parameter(torch.zeros(hdim, cconv_width))
             with torch.no_grad():
-                self.cannon1_proj.zero_()
-                self.cannon2_proj.zero_()
+                self.cconv1.zero_()
+                self.cconv2.zero_()
 
     # @torch.compile()
     def forward(self, x):
-        if self.use_cconv:  x   = x + causal_conv1d_fn(x.t().unsqueeze(0), self.cannon1_proj, activation="swish").squeeze(0).t()
+        if self.use_cconv:  x   = x + causal_conv1d_fn(x.t().unsqueeze(0), self.cconv1, activation="swish").squeeze(0).t()
         y                       = self.fc1_proj(x).contiguous()
         y                       = F.relu(y).square()
-        if self.use_cconv:  y   = y + causal_conv1d_fn(y.t().unsqueeze(0), self.cannon2_proj, activation="swish").squeeze(0).t()
+        if self.use_cconv:  y   = y + causal_conv1d_fn(y.t().unsqueeze(0), self.cconv2, activation="swish").squeeze(0).t()
         if self.use_gate:   y   = y * self.gate_proj(x)
         z                       = self.fc2_proj(y)
         return z  # z có chiều odim thường là bằng dim
@@ -168,7 +168,7 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.mlp = ReLuSquareMLP(dim, cconv_width=3)
+        self.mlp = ReLuSquareMLP(dim)#, cconv_width=4)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
                         head_dim=head_dim, long=layer_id % 5 == 4, layer_id=layer_id) # 4 ngắn + 1 dài
 
@@ -202,7 +202,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=0)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=4)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
