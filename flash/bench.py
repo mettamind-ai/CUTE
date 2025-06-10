@@ -5,12 +5,13 @@ from sagefwd import sageattn_varlen
 from linear_attn.parallel_nsa import parallel_nsa
 from linear_attn.parallel_attn import parallel_attn
 
+from infllmv2 import infllmv2_attn_varlen_func, generate_topk_indices
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
+    lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
     BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // HQ == 16 # cần để infllmv2_varlen chạy
 
@@ -63,6 +64,11 @@ if __name__ == "__main__":
                 return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
+            if provider == "infllmv2_varlen":
+                sparsity=0.8; block_window_size=3
+                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                return lambda: infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
+
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
         flops_per_matmul = 2.0 * BATCH * H * N_CTX * N_CTX * HEAD_DIM
@@ -102,16 +108,3 @@ if __name__ == "__main__":
     assert_sage_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
     print("total_flops, higher is better.")
-
-'''
-git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
-cd flash/infllmv2/cutlass;  git checkout a75b4ac483166189a45290783cb0a18af5ff0ea5;  cd ../../.. # infllmv2
-from infllmv2 import infllmv2_sparse_attn_func, generate_topk_indices
-            if provider == "infllmv2_varlen":
-                from einops import rearrange, repeat
-                sparsity=0.8; block_window_size=3
-                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-                return lambda: infllmv2_sparse_attn_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
-            if provider == "pytorch":
-                return lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, scale=1.3)
-'''

@@ -19,7 +19,7 @@ cd flash/attn/cutlass;      git checkout c506e16788cb08416a4a57e11a9067beeee2942
 git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
 cd flash/infllmv2/cutlass;  git checkout 4c42f73fdab5787e3bb57717f35a8cb1b3c0dc6d;  cd ../../.. # infllmv2
 
-cd flash; ./bench_attn.py; cd ..
+cd flash; ./bench.py; cd ..
 
 ./wingpt.py
 if [ ! -f data6400.bin ]; then
