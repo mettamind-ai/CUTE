@@ -9,7 +9,7 @@ from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
-    max_jobs = round(free_memory_gb / 6)
+    max_jobs = round(free_memory_gb / 8)
     if free_memory_gb > 28: max_jobs += 1
     os.environ["MAX_JOBS"] = str(max_jobs)
 print(f"infllmv2: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
@@ -39,7 +39,7 @@ abspath = Path(__file__).parent
 started_at = time.time()
 
 infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
-    "CUTE_infllm_v2.C",
+    "CUTE_infllmv2.C",
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
