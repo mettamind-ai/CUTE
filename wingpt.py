@@ -5,7 +5,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 from ohmai import OhMaiEmbedding, OhMaiHead
-from flash.attn import flash_attn_varlen_func
+from flash.attn import flash_attn_varlen_func, flash_attn_func
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -89,8 +89,7 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, 
-            seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
+    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
         super().__init__() # dim = hidden_size = embedding = feature = representation
 
         self.num_heads = num_heads
@@ -115,12 +114,16 @@ class CausalSelfAttention(nn.Module):
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024*1
 
-        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
+        if layer_id >= 0: print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
-    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def qkv(self, x):
         q    = self.q_proj(x)  # TODO: có thể tiết kiệm 1 phép int8quant cho x ở đây
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
+        return q, k, v
+
+    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+        q, k, v = self.qkv(x)
 
         if ve_lambdas is not None and v_emb is not None:
             v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
@@ -142,6 +145,28 @@ class CausalSelfAttention(nn.Module):
 
         y = y.reshape(T, H * D)
         return self.o_proj(y)
+
+
+class FutureAttention(CausalSelfAttention):
+    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
+        super().__init__(dim, num_heads, num_kv_heads, seq_len, head_dim, long, layer_id, odim)
+        self.window = 128 # chú ý ngắn thôi
+        print(f"Future Attn => NoPE, win {self.window}")
+
+    def forward(self, x):
+        q, k, v = self.qkv(x)
+        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
+        T, C = k.shape; assert C == Hkv * D
+
+        q = q.contiguous().view(1, T, H,   D)
+        k = k.contiguous().view(1, T, Hkv, D)
+        v = v.contiguous().view(1, T, Hkv, D)
+
+        q, k, v = norm(q), norm(k), norm(v) # theo chiều D
+        y = flash_attn_func(q, k, v, softmax_scale=self.attn_scale, causal=True, window_size=(self.window, 0))
+        y = y.reshape(T, H * D)
+        return self.o_proj(y)
+
 
 ##############################
 ## Transformer for the WIN  ##
@@ -185,7 +210,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim, use_gate=True)
-        self.future_attn = CausalSelfAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
+        self.future_attn = FutureAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -223,9 +248,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.lm_head.update_new_tokens_weight() # async upload new token weight ...
 
     # Prepare to predict future token và câu giờ cho upload ...
-    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
+    y0  = x0[1:]
+    xy0 = torch.cat([x[:-1], y0], dim=1)
     y   = xy0 + model.future_mlp1(norm(xy0))
-    y   = model.future_attn(y)
+    y   =  y0 + model.future_attn(y)
     x, y = norm(x), norm(y)
     tx, ty = target, target[1:]
  
