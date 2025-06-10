@@ -28,12 +28,14 @@ class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False, cconv_width=0):
         super().__init__()
         self.use_gate = use_gate
+        self.dim = dim
 
         cconv_width = int(cconv_width)
         assert cconv_width >= 0 and cconv_width <= 4
 
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
+        self.hdim = hdim
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
@@ -51,20 +53,27 @@ class ReLuSquareMLP(nn.Module):
             if use_gate: self.gate_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.fc2_proj.weight.zero_()
         
+        self.cconv_width = cconv_width
         self.use_cconv = cconv_width >= 2
         if self.use_cconv:
             self.cconv1 = nn.Parameter(torch.zeros(dim, cconv_width))
             self.cconv2 = nn.Parameter(torch.zeros(hdim, cconv_width))
-            with torch.no_grad():
-                self.cconv1.zero_()
-                self.cconv2.zero_()
 
     # @torch.compile()
     def forward(self, x):
-        if self.use_cconv:  x   = x + causal_conv1d_fn(x.t().unsqueeze(0), self.cconv1, activation="swish").squeeze(0).t()
-        y                       = self.fc1_proj(x).contiguous()
+        T, D = x.shape 
+        assert D == self.dim
+
+        if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1.unsqueeze(1), padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        # if self.use_cconv:  x   = x + causal_conv1d_fn(x.view(1,D,T), self.cconv1).reshape(T,D)
+        y                       = self.fc1_proj(x)
         y                       = F.relu(y).square()
-        if self.use_cconv:  y   = y + causal_conv1d_fn(y.t().unsqueeze(0), self.cconv2, activation="swish").squeeze(0).t()
+
+        TT, DD = y.shape 
+        assert T == TT and DD == self.hdim
+
+        if self.use_cconv:  y   = y + F.conv1d(y.view(1,DD,T), self.cconv2.unsqueeze(1), padding=self.cconv_width-1, groups=DD)[..., :T].reshape(T,DD)
+        # if self.use_cconv:  y   = y + causal_conv1d_fn(y.view(1,DD,T), self.cconv2).reshape(T,DD)
         if self.use_gate:   y   = y * self.gate_proj(x)
         z                       = self.fc2_proj(y)
         return z  # z có chiều odim thường là bằng dim
@@ -168,7 +177,7 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.mlp = ReLuSquareMLP(dim, cconv_width=4)
+        self.mlp = ReLuSquareMLP(dim, cconv_width=0)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, 
                         head_dim=head_dim, long=layer_id % 5 == 4, layer_id=layer_id) # 4 ngắn + 1 dài
 
@@ -202,7 +211,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=0)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False, cconv_width=4g)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
