@@ -64,8 +64,8 @@ class ReLuSquareMLP(nn.Module):
         T, D = x.shape 
         assert D == self.dim
 
-        # if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1.unsqueeze(1), padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
-        if self.use_cconv:  x   = x + causal_conv1d_fn(x.view(1,D,T), self.cconv1).reshape(T,D)
+        if self.use_cconv:  x   = x + F.conv1d(x.view(1,D,T), self.cconv1.unsqueeze(1), padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        # if self.use_cconv:  x   = x + causal_conv1d_fn(x.view(1,D,T), self.cconv1).reshape(T,D)
         y                       = self.fc1_proj(x)
         y                       = F.relu(y).square()
 
