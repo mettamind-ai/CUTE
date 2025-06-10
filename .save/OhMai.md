@@ -1,3 +1,36 @@
+# Sự ảnh hưởng của quant
+
+## Bản gốc
+  0%|                                                                                      | 1/1000 [01:01<17:01:01, 61.32s/it, loss=7.39, lr=0.03]>>> First Step Took 389 Seconds <<<
+100%|██████████████████████████████████████████████████████████████████████████████████████| 1000/1000 [29:02<00:00,  1.69s/it, loss=1.34, lr=0.03]wandb:
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                grad_norm ▇█▇▄▃▃▂▂▃▂▂▃▃▂▂▂▂▁▂▁▁▁▂▂▁▂▁▁▂▁▁▁▁▁▁▁▁▁▃▂
+wandb:                     loss █▇▅▃▂▂▂▂▂▂▃▃▃▃▂▃▃▃▃▂▁▂▃▂▃▂▁▂▂▂▁▁▂▁▁▁▂▂▂▁
+wandb:     max_memory_allocated ▁███████████████████████████████████████
+wandb:                  muon_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: num_tokens_seen_millions ▁▂▂▂▂▂▃▃▃▃▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▅▅▅▅▆▆▆▆▆▇▇▇███
+wandb:        tokens_per_second █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 0.003
+wandb:                grad_norm 0.10986
+wandb:                     loss 1.3362
+wandb:     max_memory_allocated 21412843008
+wandb:                  muon_lr 0.03
+wandb: num_tokens_seen_millions 65208320
+wandb:        tokens_per_second 38918.13596
+wandb:
+wandb: 🚀 View run fluent-pond-98 at: https://wandb.ai/tiendung/3/runs/uypnvgue
+wandb: ⭐️ View project at: https://wandb.ai/tiendung/3
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: /tmp/wandb/run-20250610_184026-uypnvgue/logs
+dungnt@quenn-ubuntu:~/snap/3$ gp; ./pretrain.py --M --ohmai 2048
+
+## Bản thêm dư thêm 1 phép quant ở mỗi layer
+
+
 # Sự ảnh hưởng của head (big vs small) tới tốc độ pretraining 666m model
 ![](head-00-crunch.png)
  
