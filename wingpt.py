@@ -188,7 +188,6 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp0 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=False)
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
@@ -231,14 +230,12 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xy0 = torch.cat([x[:-1], y0], dim=1)
     y   = y0 + model.future_mlp1(norm(xy0))
 
-    ## Vì apply MLP trước rồi Attn sau trong từng block nên có thể cho x qua 1 lần MLP nữa
-    x = model.future_mlp0(norm(x))
-
     ## Chuẩn hoá đầu vào trước khi tính loss
     x, y = norm(x), norm(y)
     tx, ty = target, target[1:]
-
     w = model.lm_head.active_weight if ohmaihead else model.lm_head.weight
+
+    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tien nhiệm vụ chính NTP
     xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
     yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
     return (xloss*0.7 + yloss*0.3)
