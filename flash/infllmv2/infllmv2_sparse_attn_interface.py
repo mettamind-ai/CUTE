@@ -43,6 +43,8 @@ infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
     sources=[
         abspath / "entry.cu",
         abspath / "flash_api.cpp",
+        abspath / "src/flash_fwd_hdim128_bf16_sm80.cu",
+        abspath / "src/flash_fwd_hdim128_bf16_causal_sm80.cu",
         abspath / "src/flash_bwd_hdim128_bf16_sm80.cu",
         abspath / "src/flash_fwd_split_hdim128_bf16_sm80.cu",
         abspath / "src/flash_bwd_hdim128_bf16_causal_sm80.cu",
@@ -55,6 +57,7 @@ infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
     ],
 )
 print(f"infllmv2: DONE. In {int(time.time() - started_at)} seconds.")
+# ~/.cache/torch_extensions/py310_cu126/*
 #####################################################################
 
 from typing import Optional, Sequence, Tuple, Union
