@@ -37,12 +37,12 @@ causal_conv1d_cuda = torch.utils.cpp_extension.load(
     "CUTE_causal_conv1d_cuda",
     sources=[
         abspath / "causal_conv1d.cpp",
-        abspath / "src/causal_conv1d_fwd.cu",
-        abspath / "src/causal_conv1d_bwd.cu",
-        abspath / "src/causal_conv1d_update.cu", # for inference  
+        abspath / "causal_conv1d_fwd.cu",
+        abspath / "causal_conv1d_bwd.cu",
+        abspath / "causal_conv1d_update.cu", # for inference  
     ],
     extra_cuda_cflags=NVCC_FLAGS,
-    extra_include_paths=[abspath],
+    extra_include_paths=[str(abspath)],
 )
 # ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
 print(f"causal_conv1d: DONE. In {int(time.time() - started_at)} seconds.")
