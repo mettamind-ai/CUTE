@@ -163,4 +163,8 @@ Vocab lớn cũng khiến phân phối xác suất đầu ra “loãng” hơn: 
 
 KẾT LUẬN: OE SCALE TUYẾN TÍNH VÀ ỔN ĐỊNH, OD SCALE PHI TUYẾN VÀ PHỤ THUỘC KÍCH THƯỚC MÔ HÌNH.
 
-## 
+## Large Vocabulary Size Improves Large Language Models
+- 
+- Larger Models Deserve Larger Vocabularies https://ar5iv.labs.arxiv.org/html/2407.13623
+
+![](https://substackcdn.com/image/fetch/w_1456,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F443f26f7-38c8-4e8a-85e6-a528b78f83a0_776x385.png)
