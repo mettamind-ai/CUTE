@@ -66,8 +66,8 @@ if __name__ == "__main__":
             if provider == "sageattn_varlen":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            if provider == "flash_attn":
-                return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
+            # if provider == "flash_attn":
+            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
