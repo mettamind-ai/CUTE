@@ -160,6 +160,12 @@ def uint64_to_bool(uint64_array: torch.Tensor, last_dim_size: int) -> torch.Tens
 
 #######################################################
 
+def maybe_contiguous(x):
+    return x.contiguous() if x is not None and x.stride(-1) != 1 else x
+
+def round_multiple(x, m):
+    return (x + m - 1) // m * m
+
 _torch_custom_op_wrapper = torch.library.custom_op
 _torch_register_fake_wrapper = torch.library.register_fake
 
