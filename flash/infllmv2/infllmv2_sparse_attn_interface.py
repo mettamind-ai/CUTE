@@ -50,6 +50,7 @@ infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
 print(f"infllmv2: DONE. In {int(time.time() - started_at)} seconds.")
 #####################################################################
 
+from typing import Optional, Sequence, Tuple, Union
 import torch, warnings, torch.nn as nn, numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint

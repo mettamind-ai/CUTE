@@ -54,14 +54,14 @@ class ReLuSquareMLP(nn.Module):
         
         self.cconv_width = cconv_width
         self.use_cconv = cconv_width >= 2
-        if self.use_cconv: self.cconv_proj = nn.Parameter(torch.zeros(dim, 1, cconv_width))
+        if self.use_cconv: self.cconv = nn.Parameter(torch.zeros(dim, 1, cconv_width))
 
     # @torch.compile()
     def forward(self, x):
         T, D = x.shape 
         assert D == self.dim
 
-        if self.use_cconv: x += F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        if self.use_cconv: x += F.conv1d(x.view(1,D,T), self.cconv, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
         y                     = self.fc1_proj(x)
         y                     = F.relu(y).square()
         if self.use_gate:  y *= self.gate_proj(x)
