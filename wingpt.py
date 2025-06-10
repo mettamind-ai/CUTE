@@ -185,7 +185,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim, use_gate=True)
-        self.future_attn = CasualAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
+        self.future_attn = CausalSelfAttention(2*dim, num_heads, num_kv_heads, max_seq_len, odim=dim)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
