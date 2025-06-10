@@ -7,7 +7,6 @@ from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
-from flash.causal_conv1d import causal_conv1d_fn
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
