@@ -62,7 +62,7 @@ short_names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
 print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(names)} INT8 Mixed Weights {percent:.1f}% {params:,}
-* {len(list(model.parameters())) - len(names)} BF16/ FP32 Weights {100-percent:.1f}% {total_params - params:,}
+* {len(list(model.parameters())) - len(names)} BF16 Weights {100-percent:.1f}% {total_params - params:,}
 INT8: {short_names}""")
 
 #########################

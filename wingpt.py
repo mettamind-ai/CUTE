@@ -183,8 +183,8 @@ class Block(nn.Module):
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
-        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         x = x + self.mlp(norm(x))
+        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -209,7 +209,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=6*dim, odim=dim, use_gate=False)
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=False)
 
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
