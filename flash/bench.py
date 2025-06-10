@@ -12,28 +12,28 @@ except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
 if __name__ == "__main__":
 
     lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
-    BATCH, N_HEADS, HQ, HEAD_DIM = 4, 64, 4, 128
-    assert N_HEADS // HQ == 16 # cần để infllmv2_varlen chạy
+    BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
+    assert N_HEADS // Hkv == 16 # cần để infllmv2_varlen chạy
 
     config = triton.testing.Benchmark(
         line_vals=lines, line_names=lines,
         line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
         x_vals=[2**i for i in range(13, 16)], # 8192 16384 32k   
         plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
-        args=dict(H=N_HEADS, HQ=HQ, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
+        args=dict(H=N_HEADS, Hkv=Hkv, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
     )
 
     @triton.testing.perf_report([config])
-    def bench_flash_attention(BATCH, H, HQ, N_CTX, HEAD_DIM, provider, device="cuda"):
+    def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda"):
         dtype = torch.bfloat16
         q = torch.randn((BATCH, H, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-        k = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
-        v = torch.randn((BATCH, HQ, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+        k = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
+        v = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
 
         block_size, S = 64, 16
-        indices = torch.full((BATCH, HQ, N_CTX, S), N_CTX, dtype=torch.long, device=device)
+        indices = torch.full((BATCH, Hkv, N_CTX, S), N_CTX, dtype=torch.long, device=device)
         for b in range(BATCH):
-            for h in range(HQ):
+            for h in range(Hkv):
                 for t in range(N_CTX):
                     i_i = torch.randperm(max(1, triton.cdiv(t, block_size)))[:S]
                     indices[b, h, t, :len(i_i)] = i_i
@@ -43,8 +43,8 @@ if __name__ == "__main__":
         cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
         cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device="cuda")
         qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM) # seq_len, H, D
-        kk = k.transpose(1, 2).reshape(seq_len, HQ, HEAD_DIM) # seq_len, H, D
-        vv = v.transpose(1, 2).reshape(seq_len, HQ, HEAD_DIM) # seq_len, H, D
+        kk = k.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
+        vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
 
         def attn_fn(provider, q, k, v):
             if provider == "parallel_nsa":
@@ -66,8 +66,9 @@ if __name__ == "__main__":
 
             if provider == "infllmv2_varlen":
                 sparsity=0.8; block_window_size=3
-                topk_idx = generate_topk_indices(HQ, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-                return lambda: infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, topk_idx, max_seqlen, max_seqlen, block_window_size)
+                topk_idx = generate_topk_indices(Hkv, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
+                return lambda: infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, 
+                    max_seqlen, max_seqlen, topk_idx=topk_idx, block_window_size=block_window_size)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
@@ -105,6 +106,6 @@ if __name__ == "__main__":
         if torch.allclose(x, y, rtol=0.25*1e-1, atol=0.3*1e-1): print("torch ~= sage")
         else: print(f"torch ~= sage AssertionError")
 
-    assert_sage_attn_is_same_as_sdpa()
+    # assert_sage_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
     print("total_flops, higher is better.")

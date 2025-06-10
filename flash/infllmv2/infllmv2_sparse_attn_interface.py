@@ -38,7 +38,7 @@ os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
 abspath = Path(__file__).parent
 started_at = time.time()
 
-infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
+C = infllm_cuda = CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_infllmv2.C",
     sources=[
         abspath / "entry.cu",
@@ -66,11 +66,26 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
 from torch import Tensor
 from typing import Tuple
+
 uint64_memory = None
 
 def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -> Tuple[torch.Tensor, int]:
-    """ Convert topk indices directly to uint64 representation without intermediate bool mask """
+    """
+    Convert topk indices directly to uint64 representation without intermediate bool mask
+    
+    Args:
+        topk_idx: Tensor of shape [batch, num_heads, total_seqlen, k] or [num_heads, total_seqlen, k]
+                 containing block indices
+        max_seqlen_k: Maximum sequence length for keys
+        block_size: Size of each block
+        
+    Returns:
+        Tuple of:
+            uint64_arrays: Tensor with the same batch dimensions but last dim replaced with uint64 values
+            k_blocks: Number of key blocks
+    """
     assert topk_idx.dtype == torch.int32
+    # Calculate key blocks
     k_blocks = (max_seqlen_k + block_size - 1) // block_size  # Ceiling division
     
     # Record original shape
@@ -87,22 +102,27 @@ def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -
     
     # Compute how many uint64 values are needed per row
     n_uint64_per_row = (k_blocks + 63) // 64
-
     # Flatten batch dimensions
     if has_batch:
         flat_dims = batch_size * num_heads * total_seqlen
+        
+        # Create output tensor
         output_shape = (batch_size, num_heads, total_seqlen, n_uint64_per_row)
     else:
         flat_dims = num_heads * total_seqlen
+        
+        # Create output tensor
         output_shape = (num_heads, total_seqlen, n_uint64_per_row)
     
     global uint64_memory
     if uint64_memory is None or uint64_memory.shape != output_shape:
-            result = torch.zeros(output_shape, dtype=torch.int64, device=topk_idx.device)
-            uint64_memory = result
-    else:   result = uint64_memory
+        result = torch.zeros(output_shape, dtype=torch.int64, device=topk_idx.device)
+        uint64_memory = result
+    else:
+        result = uint64_memory
     
-    CUTE_EXT.topk_to_uint64(
+    # Call CUDA kernel
+    C.topk_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         topk_idx.data_ptr(),
         result.data_ptr(),
@@ -111,11 +131,22 @@ def topk_to_uint64(topk_idx: torch.Tensor, max_seqlen_k: int, block_size: int) -
         k_blocks,
         n_uint64_per_row
     )
+    
     return result, k_blocks
-
+cuda_topk_to_uint64 = topk_to_uint64
 
 def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
-    """ Convert PyTorch boolean mask to uint64 representation using CUDA kernel """ 
+    """
+    Convert PyTorch boolean mask to uint64 representation using CUDA kernel
+    
+    Args:
+        blockmask: Boolean PyTorch tensor
+        
+    Returns:
+        Tuple of:
+            uint64_arrays: Tensor with the same batch dimensions but last dim replaced with uint64 values
+            last_dim_size: Original size of the last dimension
+    """
     # Record original shape
     original_shape = blockmask.shape
     last_dim_size = original_shape[-1]
@@ -132,7 +163,8 @@ def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
     result = torch.zeros(output_shape, dtype=torch.int64, device=blockmask.device)
     flat_result = result.reshape(flat_dims, n_uint64_per_row)
     
-    CUTE_EXT.blockmask_to_uint64(
+    # Call CUDA kernel
+    C.blockmask_to_uint64(
         torch.cuda.current_stream().cuda_stream,
         flat_blockmask.data_ptr(),
         flat_result.data_ptr(),
@@ -140,6 +172,7 @@ def blockmask_to_uint64(blockmask: torch.Tensor) -> Tuple[torch.Tensor, int]:
         last_dim_size,
         n_uint64_per_row
     )
+    
     return result, last_dim_size 
 
 
