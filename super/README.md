@@ -133,7 +133,7 @@ In contrast, EvaByte keeps things simple: it directly operates on bytes with a f
 
 ![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/comp_to_blt-1400.webp)
 
-## EVA (extended value aggregation) linearized attention
+## ~~EVA (extended value aggregation) linearized attention~~ <= chưa hỗ trợ varlen
 - playground/684138df4cd7dbf747d280d5
 - https://github.com/OpenEvaByte/evabyte/blob/main/evabyte_hf/eva_agg_kernel.py
 ![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/arch-1400.webp)
@@ -142,3 +142,25 @@ In contrast, EvaByte keeps things simple: it directly operates on bytes with a f
 - Local window attention: Attention trong window cục bộ (như SWA)
 - RFA chunks: Compressed representations cho global attention
 
+---
+
+# Logits, Vocab ...
+https://chatgpt.com/share/6847808b-2d30-8003-8500-75ef6485f961
+- logits distill: học phân phối, ko chỉ học nhãn đúng
+- hiệu chỉnh logits (calibration)
+
+Một mô hình được gọi là **well-calibrated** nếu, ví dụ, trong tất cả các trường hợp nó dự đoán “đáp án A” với xác suất 80%, thì khoảng 80% những trường hợp đó đáp án A thật sự đúng. Tuy nhiên, nghiên cứu chỉ ra rằng các mô hình mạng nơ-ron hiện đại thường không được hiệu chỉnh tốt – chúng có xu hướng quá tự tin vào dự đoán của mình.
+
+Vocab lớn cũng khiến phân phối xác suất đầu ra “loãng” hơn: xác suất được dàn trải trên nhiều khả năng. Ví dụ, ở một mô hình với |V|≈49k, xác suất cao nhất quan sát chỉ ~33.9%, các token khác chia nhau ~66% còn lại.
+
+## n-gram embedding https://www.alphaxiv.org/abs/2501.16975v1
+
+**Kết quả đáng chú ý**: "Using a large input vocabulary, we achieve performance comparable to double-sized baselines with no additional cost" - với từ vựng đầu vào lớn, mô hình 400M tham số đạt hiệu suất tương đương mô hình 1B tham số mà không tốn thêm chi phí.
+
+**mối quan hệ log-linear** giữa kích thước từ vựng đầu vào và training loss: "exponentially increasing the input vocabulary size consistently results in a linear decrease in loss". => Cái này dễ hiểu!
+
+![](https://arxiv.org/html/2501.16975v1/x1.png)
+
+KẾT LUẬN: OE SCALE TUYẾN TÍNH VÀ ỔN ĐỊNH, OD SCALE PHI TUYẾN VÀ PHỤ THUỘC KÍCH THƯỚC MÔ HÌNH.
+
+## 

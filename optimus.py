@@ -238,7 +238,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 n_non_ignore=n_labels - n_ignores, ignore=ignore, vocab=vocab, CHUNK=CHUNK, num_warps=32, 
             )
             grad_input[s:e] = logits @ weight
-            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
+            if weight.requires_grad:
+                grad_weight = torch.addmm(grad_weight, logits.t(), _input[s:e])
         # END for
         ctx.save_for_backward(
             grad_input.detach(), 
