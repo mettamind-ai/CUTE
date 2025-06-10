@@ -5,7 +5,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
 from ohmai import OhMaiEmbedding, OhMaiHead
-from flash.attn import flash_attn_varlen_func, flash_attn_func
+from flash.attn import flash_attn_varlen_func
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -143,27 +143,6 @@ class CausalSelfAttention(nn.Module):
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).contiguous()
 
-        y = y.reshape(T, H * D)
-        return self.o_proj(y)
-
-
-class FutureAttention(CausalSelfAttention):
-    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
-        super().__init__(dim, num_heads, num_kv_heads, seq_len, head_dim, long, layer_id, odim)
-        self.window = 128 # chú ý ngắn thôi
-        print(f"Future Attn => NoPE, win {self.window}")
-
-    def forward(self, x):
-        q, k, v = self.qkv(x)
-        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
-        T, C = k.shape; assert C == Hkv * D
-
-        q = q.contiguous().view(1, T, H,   D)
-        k = k.contiguous().view(1, T, Hkv, D)
-        v = v.contiguous().view(1, T, Hkv, D)
-
-        q, k, v = norm(q), norm(k), norm(v) # theo chiều D
-        y = flash_attn_func(q, k, v, softmax_scale=self.attn_scale, causal=True, window_size=(self.window, 0))
         y = y.reshape(T, H * D)
         return self.o_proj(y)
 
