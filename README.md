@@ -53,12 +53,12 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- FAST INFER
+- FLASH INFER
   - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-- [ ] ATTN: NSA, CUTE flash attn impl, cpm.cu, sparse/linear attn (moba, mosa ...)
+- [ ] LINH ATTN: NSA, CUTE flash attn impl, cpm.cu, sparse/linear attn (moba, mosa ...)
 
 - LOGITS
   - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
@@ -70,9 +70,12 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 - [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head)
 
-- LEARNING OBJECTIVES
+- LINH LEARNING OBJECTIVES
   - [x] MTP, rất hiệu quả với 1 future head
-  - [ ] LongCE và 
+  - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
+    - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
+      Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.
+    - => INT8 Linear + INT8 Attn 
   - [ ] Hạn chế tác hại của Causual Attn => GLM?
 
 - LINH TOK (flexible tokenization & token usage)
@@ -82,5 +85,4 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [ ] n-gram embeddings và tổng hợp ngẫu nhiên lúc training
   - [ ] Adap trong lúc pre-train
     - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
-    - Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
-
+    - Hạ tần suất xuất hiện của những token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.

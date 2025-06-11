@@ -176,8 +176,9 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ##  Fused  Cross Entropy  ##
 ############################
 
+tlc = tl.constexpr
 @triton.jit
-def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, ignore, vocab, CHUNK: tl.constexpr):
+def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, vocab:tlc, ignore:tlc, CHUNK:tlc):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
@@ -197,20 +198,18 @@ def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, n_non_ignore, 
         m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
         d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
 
-        LSE  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits
-        loss = LSE - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
+        lse  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits
+        loss = lse - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
 
-        X  = tl.exp(X - m)/d                        # softmax(x_i)
-        lse_square_scale = 1e-4                     # scaler of logsumexp(_input)^2; adding for stability
+        z_loss = lse*lse*1e-4       # 0.0001: scaler of LogSumExp(logits)^2 adding for training stability 
+        loss   = loss + z_loss      # See https://www.jmlr.org/papers/v24/22-1144.html for details
 
-        z_loss = lse_square_scale*LSE*LSE           # An auxiliary loss, Refer to Page14 Loss function section ...
-        loss  += z_loss                             # ... in the paper https://www.jmlr.org/papers/v24/22-1144.html
+        X  = tl.exp(X - m)/d        # softmax(x_i)
+        X  = X * (1 + 2*1e-4*lse)    # derivative of z-loss: 2*scaler*lse*softmax(x_i)
 
-        X *= 1 + 2*lse_square_scale*LSE             # derivative of z-loss: 2*lse_square_scale*lse*softmax(x_i)
         X  = tl.where(offs != true_label, X, X - 1) # gradient bị tác động bởi true_label_logit
-
-        tl.store(X_ptr, X/n_non_ignore, mask=mask)  # mean reduction
-        tl.store(loss_ptr, loss/n_non_ignore)       # mean reduction
+        tl.store(X_ptr, X, mask=mask)  # mean reduction
+        tl.store(loss_ptr, loss)       # mean reduction
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -234,18 +233,18 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             logits = ( _input[s:e] @ weight.t() ).contiguous()
 
             per_label_cross_entropy[( logits.shape[0], )](
-                X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e], loss_ptr=losses[s:e], 
-                n_non_ignore=n_labels - n_ignores, ignore=ignore, vocab=vocab, CHUNK=CHUNK, num_warps=32, 
+                X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e],
+                loss_ptr=losses[s:e], ignore=ignore, vocab=vocab, CHUNK=CHUNK, num_warps=32, 
             )
             grad_input[s:e] = logits @ weight
-            if weight.requires_grad:
-                grad_weight = torch.addmm(grad_weight, logits.t(), _input[s:e])
-        # END for
+            if weight.requires_grad: grad_weight = grad_weight + logits.t() @ _input[s:e]
+
+        # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
         ctx.save_for_backward(
-            grad_input.detach(), 
-            grad_weight.detach() if weight.requires_grad else None
+            grad_input .detach() / (n_labels - n_ignores), 
+            grad_weight.detach() / (n_labels - n_ignores) if weight.requires_grad else None
         )
-        return torch.sum(losses)  # final loss
+        return torch.sum(losses) / (n_labels - n_ignores)  # final loss, mean reduction
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")

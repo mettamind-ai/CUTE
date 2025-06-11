@@ -206,3 +206,22 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 - Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
 
 => !!! Có thể ADAT ngay trong lúc pre-train !!!
+
+---
+
+# HIỆU CHUẨN LOGITS
+- survey https://chatgpt.com/share/6848f5c0-5574-8003-83c3-710998a95115
+- https://alphaxiv.org/abs/2411.07641 not all logits are you need
+- https://alphaxiv.org/abs/2408.12168v1 FIRST: Teach A Reliable Large Language Model Through Efficient Trustworthy Distillation
+
+Hiệu chuẩn logit (logit calibration) đề cập đến việc điều chỉnh phân phối xác suất đầu ra của mô hình sao cho độ tự tin dự đoán của mô hình phù hợp với xác suất đúng thực tế. Nói cách khác, nếu mô hình dự đoán một câu trả lời với xác suất 70%, thì trong thực tế câu trả lời đó nên đúng khoảng 70% số lần trong tình huống tương tự. Một mô hình được gọi là được hiệu chuẩn tốt khi xác suất mô hình dự đoán phản ánh đúng xác suất câu trả lời đó thực sự chính xác.
+
+![](https://pbs.twimg.com/media/GtIii5ibMAQ6aNp?format=png&name=large)
+![](https://arxiv.org/html/2408.12168v1/extracted/5806746/Figures/top5.png)
+
+Vocab lớn dẫn đến phân phối đầu ra rất sparse (thưa) đặt ra bài toán khó cho hiệu chuẩn. Bởi lẽ, mô hình có xu hướng quá tự tin vào vài lựa chọn hàng đầu (vì được huấn luyện để tối đa xác suất cho token đúng duy nhất) và quá thiếu tự tin cho số đông lựa chọn còn lại (vì hầu hết token bị đẩy xác suất về 0). Nếu token đúng nằm trong top đầu, mô hình có thể dự đoán đúng nhưng dễ overconfident về độ đúng của nó. Ngược lại, nếu câu trả lời đúng thực sự nằm ngoài top-5 hay top-10 (ví dụ mô hình bỏ sót), thì mô hình có thể đã gán xác suất cực thấp cho đáp án đúng đó – một trường hợp underconfidence nghiêm trọng (mô hình hoàn toàn không nhận thức được đáp án đúng tiềm tàng).
+
+Thêm vào đó, số lượng lớp khổng lồ khiến các thước đo hiệu chuẩn truyền thống khó áp dụng trực tiếp. Chẳng hạn, metric ECE thường tập trung vào xác suất của lớp dự đoán cao nhất để so sánh với độ chính xác, nhưng với LLM, ta cũng quan tâm phân phối của các xác suất thấp (vì chúng quyết định mức độ “nghi ngờ” của mô hình với các phương án khác). Full-ECE là một độ đo mới được đề xuất nhằm tính lỗi hiệu chuẩn trên toàn bộ phân phối – về cơ bản xem xét khoảng cách giữa phân phối dự đoán và phân phối thực tế của tất cả các token, chứ không chỉ token đúng/sai.
+
+**ta muốn không chỉ “xác suất token dự đoán” đúng cỡ nào, mà còn muốn phân phối xác suất của mọi token phản ánh tần suất xuất hiện thực sự (ví dụ các token hiếm cũng cần được gán xác suất phù hợp với mức độ hiếm của chúng, thay vì bị triệt tiêu hoàn toàn).**
+
