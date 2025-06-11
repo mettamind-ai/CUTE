@@ -8,7 +8,6 @@ from typing import Optional
 from .cumsum import chunk_global_cumsum
 from .utils import prepare_chunk_indices, exp, log, safe_exp
 from .utils import autocast_custom_bwd, autocast_custom_fwd, check_shared_mem, contiguous
-tlc = tl.constexpr
 
 @triton.heuristics({
     'USE_GATE': lambda args: args['g_cumsum'] is not None,
@@ -30,9 +29,13 @@ def parallel_attn_fwd_kernel(
     scale,                  # attention scale factor (thường là 1/sqrt(d_k))
     cu_seqlens,             # cumulative sequence lengths (cho variable-length sequences)
     chunk_indices,          # chỉ số chunks cho varlen processing
-    T, B: tlc, H: tlc,      # T=seq_len, B=batch_size, H=num_kv_heads
+    T, 
+    B: tl.constexpr, 
+    H: tl.constexpr,        # T=seq_len, B=batch_size, H=num_kv_heads
     HQ: tl.constexpr,       # số query heads (có thể khác H cho GQA)
-    G: tlc, K: tlc, V: tlc, # G=group_size (HQ//H), K=key_dim, V=value_dim
+    G: tl.constexpr, 
+    K: tl.constexpr, 
+    V: tl.constexpr,        # G=group_size (HQ//H), K=key_dim, V=value_dim
     BT: tl.constexpr,       # block size cho sequence dimension
     BS: tl.constexpr,       # block size cho source sequence trong inner loop
     BK: tl.constexpr,       # block size cho key dimension
