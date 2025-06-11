@@ -178,3 +178,15 @@ Lý do đằng sau scaling law này là khi đã có không gian embedding đủ
 
 ---
 
+## STOCHASTOK
+https://www.alphaxiv.org/overview/2506.01687
+
+Mỗi seq đầu vào và xác xuất p.
+Với p = 0.1 (default), nếu câu có 10 tokens thì sẽ expand 1 lần
+Với câu có 20 tokens thì expand 2 lần
+
+!!! Như vậy cũng có thể ngẫu nhiên merge 2 tokens lại để có được phiên bản 2-gram => TKNZ linh hoạt !!!
+
+
+## Training free token transplantation via OMP (orthogonal matching pursuit)
+- https://www.alphaxiv.org/abs/2506.06607

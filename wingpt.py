@@ -165,22 +165,17 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
         super().__init__()
         self.layer_id = layer_id
-        self.long =         layer_id % 5 == 4  # 4 ngắn + 1 dài
-        self.disable_attn = layer_id % 5 == 3  # 5 layers thì bỏ đi 1 attn 
+        self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
 
-        if self.disable_attn:
-            self.mlp = ReLuSquareMLP(dim, cconv_width=16)
-        else:
-            self.mlp = ReLuSquareMLP(dim, cconv_width=0)
-            self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
+        self.mlp = ReLuSquareMLP(dim, cconv_width=0)
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     # @torch.compile()
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
         x = x + self.mlp(norm(x))
-        if not self.disable_attn:
-            x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
+        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -201,6 +196,7 @@ class WinGPT(nn.Module):
         self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
+          torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
@@ -210,6 +206,11 @@ class WinGPT(nn.Module):
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
+
+        self.steps = 0
+        self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
+        print("WinGPT.skip_from", self.skip_from)
+
 
     def update_async_weight(self):
         if isinstance(self.embeddings, OhMaiEmbedding): self.embeddings.update_async_weight()
@@ -227,12 +228,18 @@ class WinGPT(nn.Module):
         v_embs = v_embs + skips + v_embs
         assert len(v_embs) == self.n_layers
 
-        te_lambdas = self.scalars[0*self.n_layers : 2*self.n_layers].view(-1, 2)
-        ve_lambdas = self.scalars[2*self.n_layers : 4*self.n_layers].view(-1, 2)
+        skip_weights = self.scalars[ : self.n_layers]
+        te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
+        ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
         
-        for blk in self.blocks:
-            def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            x = checkpoint(fwd(blk), x, use_reentrant=False)
+        self.steps += 1
+        outputs = []
+        for i, blk in enumerate(self.blocks):
+            if self.steps % self.n_layers != i:  # mỗi step bỏ 1 layer
+                if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
+                def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+                x = checkpoint(fwd(blk), x, use_reentrant=False)
+            outputs.append(x)
         return x, x0
 
     
