@@ -177,7 +177,9 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ############################
 
 @triton.jit
-def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, vocab:tl.constexpr, ignore:tl.constexpr, CHUNK:tl.constexpr):
+def per_label_cross_entropy(X_ptr, X_stride:tl.constexpr, label_ptr, loss_ptr, 
+        vocab:tl.constexpr, ignore:tl.constexpr, CHUNK:tl.constexpr):
+
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
@@ -204,7 +206,7 @@ def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, vocab:tl.const
         loss   = loss + z_loss      # See https://www.jmlr.org/papers/v24/22-1144.html for details
 
         X  = tl.exp(X - m)/d        # softmax(x_i)
-        X  = X * (1 + 2*1e-4*lse)    # derivative of z-loss: 2*scaler*lse*softmax(x_i)
+        X  = X * (1 + 2*1e-4*lse)   # derivative of z-loss: 2*scaler*lse*softmax(x_i)
 
         X  = tl.where(offs != true_label, X, X - 1) # gradient bị tác động bởi true_label_logit
         tl.store(X_ptr, X, mask=mask)  # mean reduction
