@@ -224,17 +224,16 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         n_labels, vocab = _input.shape[0], weight.shape[0]
         BLOCK = triton.next_power_of_2(vocab)
 
-        step = 128 * torch.cuda.get_device_properties(_input.device).multi_processor_count
-        step = min(step, n_labels // 2) # để luôn test được chunked CE
-
+        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
         for s in range( 0, n_labels, step ):
+
             e = min(s + step, n_labels)
             logits = ( _input[s:e] @ weight.t() ).contiguous()
 
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr=logits, target_ptr=target[s:e], loss_ptr=losses[s:e],
                 stride=logits.stride(-2), ignore=ignore, vocab=vocab,
-                BLOCK=BLOCK, num_warps=8 if vocab < 1024*16 else 16,
+                BLOCK=BLOCK, z_scale=1e-4, num_warps=8 if vocab < 1024*16 else 16,
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
