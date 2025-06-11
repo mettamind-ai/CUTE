@@ -224,7 +224,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         n_labels, vocab = _input.shape[0], weight.shape[0]
         BLOCK = triton.next_power_of_2(vocab)
 
-        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
+        step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
         num_warps = 8 if vocab <= 1024*8 else 16
 
         for s in range( 0, n_labels, step ):
