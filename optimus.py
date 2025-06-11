@@ -177,40 +177,37 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ############################
 
 @triton.jit
-def per_label_cross_entropy(X_ptr, X_stride:tl.constexpr, label_ptr, loss_ptr, 
-        vocab:tl.constexpr, ignore:tl.constexpr, CHUNK:tl.constexpr):
+def per_label_cross_entropy(
+        logits_ptr,            # [vocab]  — ghi đè thành ∂L/∂logit
+        target_ptr, loss_ptr,  # 1 phần tử
+        stride:  tl.constexpr, vocab: tl.constexpr,
+        ignore:  tl.constexpr, BLOCK: tl.constexpr,
+        z_scale: tl.constexpr = 1e-4, # scaler from https://www.jmlr.org/papers/v24/22-1144.html
+    ):
 
-    program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
-    X_ptr     += program_id * X_stride
-    loss_ptr  += program_id
+    pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
+    row  = logits_ptr + pid * stride
+    tgt  = tl.load(target_ptr + pid)
 
-    true_label = tl.load(label_ptr + program_id)
-    true_logit = tl.load(X_ptr + true_label).cast(tl.float32)
+    offs = tl.arange(0, BLOCK)
+    if tgt == ignore: tl.store(row + offs, 0.0); return
 
-    offs = tl.arange(0, CHUNK)
-    mask = (offs < vocab)
-    X_ptr= X_ptr + offs
+    mask = offs < vocab
+    x    = tl.load(row + offs, mask=mask, other=-float("inf")).to(tl.float32)
+    m    = tl.max(x, axis=0)
 
-    if true_label == ignore: # logits' grad is 0
-        tl.store(X_ptr, 0.0)
-    else:
-        X = tl.load(X_ptr, mask=mask, other=float("-inf")).cast(tl.float32)
+    e_x  = tl.exp(x - m)
+    d    = tl.sum(e_x, axis=0)
+    lse  = m + tl.log(d)
 
-        m = tl.max(X, axis=0)       # the max value `m` and the sum `d` are notations in ... 
-        d = tl.sum(tl.exp(X - m))   # ... the paper https://www.alphaxiv.org/abs/1805.02867
+    logit = tl.load(row + tgt).to(tl.float32)
+    loss  = (lse - logit) + z_scale*lse*lse # z_loss
+    tl.store(loss_ptr + pid, loss)
 
-        lse  = m + tl.log(d)        # Log-Sum-Exp, "Mức độ lớn" của tất cả logits
-        loss = lse - true_logit     # loss là khoảng cách mức độ lớn tổng thể và true label logit
-
-        z_loss = lse*lse*1e-4       # 0.0001: scaler of LogSumExp(logits)^2 adding for training stability 
-        loss   = loss + z_loss      # See https://www.jmlr.org/papers/v24/22-1144.html for details
-
-        X  = tl.exp(X - m)/d        # softmax(x_i)
-        X  = X * (1 + 2*1e-4*lse)   # derivative of z-loss: 2*scaler*lse*softmax(x_i)
-
-        X  = tl.where(offs != true_label, X, X - 1) # gradient bị tác động bởi true_label_logit
-        tl.store(X_ptr, X, mask=mask)  # mean reduction
-        tl.store(loss_ptr, loss)       # mean reduction
+    grad = e_x / d
+    grad = grad * (1 + 2*z_scale*lse)
+    grad = tl.where(offs == tgt, grad - 1, grad)
+    tl.store(row + offs, grad, mask=mask)
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -225,28 +222,30 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
-        CHUNK = triton.next_power_of_2(vocab)
+        BLOCK = triton.next_power_of_2(vocab)
 
-        k = min(2048, n_labels // 2) # để luôn test được chunked CE
-        for s in range( 0, n_labels, k ):
+        step = 128 * torch.cuda.get_device_properties(inp.device).multi_processor_count
+        step = min(step, n_labels // 2) # để luôn test được chunked CE
 
-            e = min(s + k, n_labels)
+        for s in range( 0, n_labels, step ):
+            e = min(s + step, n_labels)
             logits = ( _input[s:e] @ weight.t() ).contiguous()
 
             per_label_cross_entropy[( logits.shape[0], )](
-                X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e],
-                loss_ptr=losses[s:e], ignore=ignore, vocab=vocab, CHUNK=CHUNK,
-                num_warps=8 if vocab < 1024*16 else 16, 
+                logits_ptr=logits, target_ptr=target[s:e], loss_ptr=losses[s:e],
+                stride=logits.stride(-2), ignore=ignore, vocab=vocab,
+                BLOCK=BLOCK, num_warps=8 if vocab < 1024*16 else 16,
             )
             grad_input[s:e] = logits @ weight
-            if weight.requires_grad: grad_weight = grad_weight + logits.t() @ _input[s:e]
+            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
+        norm = 1.0 / (n_labels - n_ignores)
         ctx.save_for_backward(
-            grad_input .detach() / (n_labels - n_ignores), 
-            grad_weight.detach() / (n_labels - n_ignores) if weight.requires_grad else None
+            grad_input .detach() * norm, 
+            grad_weight.detach() * norm if weight.requires_grad else None
         )
-        return torch.sum(losses) / (n_labels - n_ignores)  # final loss, mean reduction
+        return torch.sum(losses) * norm  # final loss, mean reduction
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
