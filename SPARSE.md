@@ -267,8 +267,28 @@ Loss function modifications:
 - `Distribution shaping`: Khuyến khích separation rõ ràng hơn
 
 
-### Sparsemax 
+### Sparsemax => Liger Kernel có
 
 Thuật toán sparsemax hoạt động theo ba bước chính. Đầu tiên, các logits đầu vào được sắp xếp theo thứ tự giảm dần để tạo ra dãy z₁ ≥ z₂ ≥ ... ≥ zₙ. Bước thứ hai là tìm ra ngưỡng τ thông qua việc xác định chỉ số k lớn nhất sao cho điều kiện z_k - (1/k) × (tổng từ z₁ đến z_k - 1) > 0 được thỏa mãn. Ngưỡng τ sau đó được tính bằng công thức (1/k) × (tổng từ z₁ đến z_k - 1).
 
-https://docs.pytorch.org/docs/stable/generated/torch.sparse.softmax.html
+### Attention sink modifications
+là một hướng tiếp cận kiến trúc tinh vi dựa trên hiện tượng đã được quan sát trong các mô hình transformer, nơi attention weights có xu hướng tập trung bất thường vào một số ít tokens đầu tiên trong sequence, ngay cả khi những tokens này không mang ý nghĩa ngữ nghĩa quan trọng. Hiện tượng này được gọi là attention sink và có thể được coi như một dạng structural noise trong attention mechanism.
+
+Một cách tiếp cận là learnable attention filtering, trong đó thêm một **gating layer** trước attention computation để predict tokens nào đáng được attend to. Layer này có thể học được patterns về việc tokens nào thường nằm trong vùng informative based on contextual cues. Ví dụ, trong một context về technology, tokens liên quan đến computer science có likelihood cao hơn là informative so với random common words.
+
+Dynamic attention sparsity là một modification khác, sử dụng statistical properties của attention distribution để dynamically prune những attention connections có weight thấp. Thay vì compute full attention matrix, mechanism này có thể identify top-k most relevant tokens cho mỗi query position, tương tự như spirit của top-nσ nhưng applied ở attention level thay vì output level.
+
+## https://github.com/Akkki28/SparseMax-Transformers
+|![](https://pbs.twimg.com/media/GtKZtK_bMAIqQyT?format=png)|![](https://pbs.twimg.com/media/GtKZ8njbMAIsu8V?format=png&name=900x900)|
+|-|-|
+
+|![]()|![]()|
+|-|-|
+
+## Sparse Attention for Long-Range Transformers https://arxiv.org/html/2406.16747v1#S3
+
+--- 
+
+# sparsemax vs softmax
+https://chatgpt.com/share/6849865b-2460-8003-a5fa-1876f0341b77
+
