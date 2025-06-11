@@ -235,7 +235,8 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
 
             per_label_cross_entropy[( logits.shape[0], )](
                 X_ptr=logits, X_stride=logits.stride(-2), label_ptr=target[s:e],
-                loss_ptr=losses[s:e], ignore=ignore, vocab=vocab, CHUNK=CHUNK, num_warps=32, 
+                loss_ptr=losses[s:e], ignore=ignore, vocab=vocab, CHUNK=CHUNK,
+                num_warps=8 if vocab < 1024*16 else 16, 
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight = grad_weight + logits.t() @ _input[s:e]
