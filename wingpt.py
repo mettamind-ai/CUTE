@@ -239,7 +239,8 @@ class WinGPT(nn.Module):
             blk.requires_grad_(keep_this_layer)
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
             def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            x = checkpoint(fwd(blk), x, use_reentrant=False)
+            y = checkpoint(fwd(blk), x, use_reentrant=False)
+            x = y if keep_this_layer else x
             outputs.append(x)
         return x, x0
 
