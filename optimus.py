@@ -200,8 +200,8 @@ def per_label_cross_entropy(
     d    = tl.sum(e_x, axis=0)
     lse  = m + tl.log(d)
 
-    logit = tl.load(row + tgt).to(tl.float32)
-    loss  = (lse - logit) + z_scale*lse*lse # z_loss
+    tgt_logit = tl.load(row + tgt).to(tl.float32)   
+    loss  = (lse - tgt_logit) + z_scale*lse*lse     # cộng thêm z_loss giúp ổn định training
     tl.store(loss_ptr + pid, loss)
 
     grad = e_x / d
@@ -215,7 +215,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, z_scale=1e-4):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
         grad_input  = torch.empty_like(_input, device=_input.device)
@@ -233,7 +233,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr=logits, target_ptr=target[s:e], loss_ptr=losses[s:e],
                 stride=logits.stride(-2), ignore=ignore, vocab=vocab,
-                BLOCK=BLOCK, z_scale=1e-4, num_warps=num_warps,
+                BLOCK=BLOCK, z_scale=z_scale, num_warps=num_warps,
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
