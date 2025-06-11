@@ -176,9 +176,8 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ##  Fused  Cross Entropy  ##
 ############################
 
-tlc = tl.constexpr
 @triton.jit
-def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, vocab:tlc, ignore:tlc, CHUNK:tlc):
+def per_label_cross_entropy(X_ptr, X_stride, label_ptr, loss_ptr, vocab:tl.constexpr, ignore:tl.constexpr, CHUNK:tl.constexpr):
     program_id = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_labels
     X_ptr     += program_id * X_stride
     loss_ptr  += program_id
