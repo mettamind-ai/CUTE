@@ -290,5 +290,35 @@ Dynamic attention sparsity là một modification khác, sử dụng statistical
 --- 
 
 # sparsemax vs softmax
-https://chatgpt.com/share/6849865b-2460-8003-a5fa-1876f0341b77
+- survey https://chatgpt.com/share/6849865b-2460-8003-a5fa-1876f0341b77
+- https://www.alphaxiv.org/abs/1602.02068 from softmax to sparsemax
+- https://www.alphaxiv.org/abs/1905.05702 sparse seq-to-seq models (alpha-entmax)
+- https://www.alphaxiv.org/abs/2004.02644 sparse text generation (entmax sampling)
+- https://www.alphaxiv.org/abs/2502.12082 adaptive entmax sparse attn (2025 mới)
 
+vocabulary lớn: sparsemax hoạt động như một bộ lọc trên không gian đầu ra lớn, chỉ giữ lại các biến có liên quan và gán 0 cho phần còn lại, từ đó tăng tính diễn giải của mô hình
+
+trong cơ chế chú ý (attention), dùng sparsemax sẽ tạo trọng số chú ý tập trung vào một vài token nguồn quan trọng, bỏ qua hẳn các token ít liên quan – dẫn đến điểm chú ý gọn và dễ hiểu hơn mà vẫn đạt hiệu quả tương đương softmax
+
+Sparsemax còn có một hệ quả thú vị: vì hầu hết các từ nhận xác suất 0, chỉ một số ít từ có xác suất dương, nên kích thước tập mở rộng trong suy luận (inference) sẽ giảm. Trong các mô hình seq2seq như dịch máy, người ta nhận thấy việc phân phối thưa có thể khiến beam search trở nên hiệu quả hơn
+
+Một nghiên cứu về sinh văn bản thưa cho thấy mô hình ngôn ngữ huấn luyện với entmax (một tổng quát chứa sparsemax) cho văn bản sinh ra mạch lạc, ít lặp lại và đa dạng n-gram hơn so với softmax, gần hơn với phân phối ngôn ngữ tự nhiên của con người (sparse text generation)
+
+### Gradient của soft vs sparse
+
+Softmax luôn cho gradient khác 0 với mọi lớp (trừ lớp mục tiêu có gradient âm, các lớp khác có gradient dương tỷ lệ với xác suất dự đoán). Điều này đảm bảo mỗi trọng số đầu ra đều được cập nhật một chút tại mỗi mẫu: ngay cả những lớp không phải mục tiêu vẫn nhận gradient (nhỏ) để giảm xác suất của chúng. Thêm vào đó, việc softmax gắn liền với hàm mất mát log-likelihood (đối với nhãn one-hot) nghĩa là mô hình tối ưu trực tiếp cho xác suất tối đa của dữ liệu huấn luyện – thuận lợi về mặt thống kê (ước lượng hợp lý tối đa).
+
+Đối với sparsemax, có một thách thức ngay lập tức: nếu dùng trực tiếp cross-entropy, bất kỳ mẫu nào mà mô hình gán xác suất 0 cho nhãn đúng sẽ làm loss âm vô cực, không khả thi để huấn luyện. Trên thực tế, tác giả Martins et al. đã định nghĩa một hàm mất mát mới gọi là sparsemax loss, thay thế cho cross-entropy khi dùng sparsemax. Hàm mất mát này được thiết kế sao cho gradient của nó cũng có dạng $p - y$ tương tự softmax nhưng tránh được vấn đề log(0). sparsemax loss được chứng minh là convex và khả vi mọi nơi, liên hệ tới Huber loss trong phân loại.
+
+## sparse text generation
+https://alphaxiv.org/abs/2004.02644
+
+## sparse seq-to-seq model: α-entmax, chọn α (1.5) nằm giữa softmax (α=1) và sparsemax (α=2)
+https://www.alphaxiv.org/abs/1905.05702
+
+Tác giả đưa ra họ biến đổi α-entmax dựa trên entropy Tsallis (dạng tổng quát của entropy Shannon), bao gồm softmax (α=1) và sparsemax (α=2) như các trường hợp đặc biệt. Với α > 1, các phép biến đổi này tạo ra phân phối thưa.
+
+## Flash Entmax Attention
+- https://github.com/deep-spin/adasplash
+- https://www.alphaxiv.org/abs/2502.12082
+Thuật toán Halley-bisection lai: "Giảm 7 lần số vòng lặp cần thiết để tính α-entmax transformation"

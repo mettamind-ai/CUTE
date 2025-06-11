@@ -57,18 +57,20 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
+  - CUTE flash attn impl, cpm.cu
 
-- [ ] LINH ATTN: NSA, CUTE flash attn impl, cpm.cu, sparse/linear attn (moba, mosa ...)
+- SPARSE
+  - NSA, infllmv2 (selective attn), sparse/linear attn nói chung (moba, mosa ...)
+  - [ ] Sparsemax thay softmax
 
-- LOGITS
+- LOGITS is SPARSE too
   - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
     - giảm dataset phải chuẩn bị cho nó học?
     - học cách phân bổ dữ liệu nhanh hơn?
     - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
     - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
       hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
-
-- [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head)
+    - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
 
 - LINH LEARNING OBJECTIVES
   - [x] MTP, rất hiệu quả với 1 future head
@@ -83,6 +85,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
     - cách nó attn
     - cách nó chọn số computing / hidden dim để biểu diễn chính nó
   - [ ] n-gram embeddings và tổng hợp ngẫu nhiên lúc training
+  - [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head)
   - [ ] Adap trong lúc pre-train
     - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
     - Hạ tần suất xuất hiện của những token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.

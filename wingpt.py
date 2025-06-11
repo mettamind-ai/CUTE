@@ -3,7 +3,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
+from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy, FusedLinearSparsemaxLoss
 
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
@@ -257,8 +257,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     w = model.lm_head.active_weight if ohmaihead else model.lm_head.weight
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tien nhiệm vụ chính NTP
-    xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
-    yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
+    xloss = FusedLinearSparsemaxLoss.apply(x, w, tx, n_ignore, ignore)
+    yloss = FusedLinearSparsemaxLoss.apply(y, w, ty, n_ignore, ignore)
     return (xloss*0.7 + yloss*0.3)
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):

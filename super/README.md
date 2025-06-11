@@ -206,3 +206,25 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 - Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
 
 => !!! Có thể ADAT ngay trong lúc pre-train !!!
+
+## Scaling LLM Pre-training with Vocabulary Curriculum
+- DR https://chatgpt.com/s/dr_68499a6c2550819191a385cfb7d9bfee
+- https://ar5iv.labs.arxiv.org/html/2502.17910
+- https://www.alphaxiv.org/abs/2502.17910
+- Entropy-Guided Vocabulary Updates
+![](https://ar5iv.labs.arxiv.org/html/2502.17910/assets/better-scale-vocab-curriculum-1.png)
+
+ban đầu mô hình học xử lý ký tự và các đơn vị nhỏ (giúp nắm chắc cấu trúc cơ bản), về sau dần “nâng cấp” lên các token lớn hơn cho những mẫu phổ biến. Yu và cộng sự cho biết cách làm này giúp mô hình GPT nhỏ đạt bpc (bits-per-character) thấp hơn ~6.7% so với mô hình dùng vocab cố định cùng kích thước. Hơn nữa, khi tăng gấp đôi kích thước vocab, mô hình thích ứng thu được hiệu quả cải thiện cao hơn ~34% so với mô hình truyền thống (tức là tận dụng vocab lớn tốt hơn). Kết quả cũng cho thấy một hệ thống phân cấp token tự nhiên hình thành: các token dài dần xuất hiện để đại diện cho các cụm từ phổ biến, dễ dự đoán, còn những đoạn nội dung khó dự đoán thì vẫn bị phân nhỏ thành token ngắn hơn để mô hình xử lý chi tiết. Điều này khớp với trực giác rằng tokenization động cho phép mô hình phân bổ tài nguyên tính toán hợp lý hơn – dành nhiều “não” hơn cho phần phức tạp, bớt tốn sức cho phần đơn giản.
+
+
+---
+
+# zip2zip
+- https://www.alphaxiv.org/abs/2506.01084v1
+a framework that enables LLMs to **dynamically adjust token vocabulary at inference time**, allowing for fewer generated tokens and thus faster inference. zip2zip consists of three key components:
+- (1) a tokenizer based on LZW compression that incrementally compresses tokens into reusable "`hypertokens`" on the fly;
+- (2) an embedding layer that computes embeddings for newly formed hypertokens at runtime; and
+- (3) a causal language modeling variant that trains the model to operate on hypertokenized, compressed sequences.
+
+We show that an **existing LLM can be zip2zip-fied in 10 GPU-hours via parameter-efficient finetuning**. The resulting zip2zip LLMs effectively learn to use hypertokens at inference time, reducing input and output sequence length by 20-60\%, with significant improvements in inference latency.
+

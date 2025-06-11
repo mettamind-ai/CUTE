@@ -2,7 +2,7 @@
 ''' TẬP HỢP CODE TỐI ƯU ĐỂ TRAIN LLM TRÊN GAMING GPUs (30xx, 40xx, 50xx)
 - INT8 Mixed Precision github.com/gau-nernst/quantized-training
 - Muon optimizer github.com/nil0x9/flash-muon
-- Fused LCE github.com/linkedin/Liger-Kernel
+- Fused LCE và Sparsemax github.com/linkedin/Liger-Kernel
 '''
 import functools, torch, triton, os, re
 import triton.language as tl, torch.distributed as dist
@@ -172,9 +172,9 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
             )
     return names, params
 
-############################
-##  Fused  Cross Entropy  ##
-############################
+###########################
+##  Fused Cross Entropy  ##
+###########################
 
 @triton.jit
 def per_label_cross_entropy(
@@ -182,7 +182,8 @@ def per_label_cross_entropy(
         target_ptr, loss_ptr,  # 1 phần tử
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
-        z_scale: tl.constexpr = 1e-4, # scaler from https://www.jmlr.org/papers/v24/22-1144.html
+        z_scale: tl.constexpr, # scaler from https://www.jmlr.org/papers/v24/22-1144.html
+        num_warps: tl.constexpr
     ):
 
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
@@ -200,8 +201,8 @@ def per_label_cross_entropy(
     d    = tl.sum(e_x, axis=0)
     lse  = m + tl.log(d)
 
-    tgt_logit = tl.load(row + tgt).to(tl.float32)   
-    loss  = (lse - tgt_logit) + z_scale*lse*lse     # cộng thêm z_loss giúp ổn định training
+    tgt_logit = tl.load(row + tgt).to(tl.float32)
+    loss  = (lse - tgt_logit) + z_scale*lse*lse  # cộng thêm z_loss giúp ổn định training
     tl.store(loss_ptr + pid, loss)
 
     grad = e_x / d
@@ -231,9 +232,15 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             e = min(s + step, n_labels)
             logits = ( _input[s:e] @ weight.t() ).contiguous()
             per_label_cross_entropy[( logits.shape[0], )](
-                logits_ptr=logits, target_ptr=target[s:e], loss_ptr=losses[s:e],
-                stride=logits.stride(-2), ignore=ignore, vocab=vocab,
-                BLOCK=BLOCK, z_scale=z_scale, num_warps=num_warps,
+                logits_ptr  = logits,
+                target_ptr  = target[s:e],
+                loss_ptr    = losses[s:e],
+                stride      = logits.stride(-2),
+                ignore      = ignore,
+                vocab       = vocab,
+                z_scale     = z_scale,
+                BLOCK       = BLOCK, 
+                num_warps   = num_warps,
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
@@ -251,173 +258,131 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     def backward(ctx, grad_output):
         grad_input, grad_weight = ctx.saved_tensors
         grad_input = grad_input * grad_output
-        if grad_weight is not None:
-            grad_weight = grad_weight * grad_output
-        return grad_input, grad_weight, None, None, None
+        if grad_weight is not None: grad_weight = grad_weight * grad_output
+        return grad_input, grad_weight, None, None, None, None
 
 
-# https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/ops/sparsemax.py
-def calculate_settings(n):
-    MAX_FUSED_SIZE = 65536
-    BLOCK_SIZE = triton.next_power_of_2(n)
-    if BLOCK_SIZE > MAX_FUSED_SIZE:
-        raise RuntimeError(f"Cannot launch Triton kernel since n = {n} exceeds the recommended Triton blocksize = {MAX_FUSED_SIZE}.")
-    num_warps = 4
-    if   BLOCK_SIZE >= 32768: num_warps = 32
-    elif BLOCK_SIZE >=  8192: num_warps = 16
-    elif BLOCK_SIZE >=  2048: num_warps = 8
-    return BLOCK_SIZE, num_warps
+
+############################
+##  Fused Sparsemax loss  ##
+############################
 
 @triton.jit
-def _sparsemax_forward_kernel(
-    x_ptr,
-    x_stride_row,
-    sorted_x_ptr,
-    sorted_x_stride_row,
-    o_ptr,
-    o_stride_row,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr,
-    num_warps: tl.constexpr,
-):
-    pid_row = tl.program_id(0)
-    ptr_x_data_row = x_ptr + pid_row * x_stride_row
-    ptr_sorted_x_data_row = sorted_x_ptr + pid_row * sorted_x_stride_row
-    ptr_output_row = o_ptr + pid_row * o_stride_row
+def per_label_sparsemax_loss(
+        logits_ptr,             # [vocab]  — sẽ bị ghi đè = grad
+        sorted_ptr,             # [vocab]  — logit đã sort giảm dần
+        target_ptr, loss_ptr,   # 1 phần tử
+        stride: tl.constexpr, sorted_stride: tl.constexpr,
+        vocab:  tl.constexpr, ignore: tl.constexpr,
+        BLOCK:  tl.constexpr, num_warps: tl.constexpr
+    ):
+    ### --- Mỗi programme xử lý 1 sample -------------------------------
+    pid  = tl.program_id(0).to(tl.int64)
+    row  = logits_ptr + pid*stride
+    srow = sorted_ptr + pid*sorted_stride
+    tgt  = tl.load(target_ptr + pid)
 
-    offs = tl.arange(0, BLOCK_SIZE)
-    mask = offs < n_cols
+    offs = tl.arange(0, BLOCK)
+    if tgt == ignore: tl.store(row + offs, 0); return
+    mask = offs < vocab
 
-    z_sorted_block = tl.load(ptr_sorted_x_data_row + offs, mask=mask, other=-float("inf"), cache_modifier=".ca",).to(tl.float32)
+    # 1) Lấy logits (đã sort) để tính tau
+    z_sorted = tl.load(srow + offs, mask=mask, other=-float("inf")).to(tl.float32)
+    z_valid  = tl.where(mask, z_sorted, 0.)
+    cssv     = tl.cumsum(z_valid, axis=0)
+    r        = (offs + 1).to(tl.float32)
+    t_vec    = (cssv - 1) / tl.where(mask, r, 1.)
+    support  = (z_sorted > t_vec) & mask
+    k        = tl.maximum(tl.sum(support.to(tl.int32), 0), 1).to(tl.float32)
+    s        = tl.sum(tl.where(support, z_sorted, 0.), 0)
+    tau      = (s - 1) / k # threshold cần tính
 
-    z_valid = tl.where(mask, z_sorted_block, 0.0)
-    cssv = tl.cumsum(z_valid, 0)
+    # 2) Tính y_i = max(z_i‑tau, 0) & grad = y_i - 1_{i=tgt}
+    z = tl.load(row + offs, mask=mask, other=0.).to(tl.float32)
+    y = tl.maximum(z - tau, 0)
 
-    r = (offs + 1).to(tl.float32)
-    safe_r = tl.where(mask, r, 1.0)
+    grad = y - tl.where(offs == tgt, 1, 0)
+    tl.store(row + offs, grad, mask=mask)  # ghi đè logits = grad
 
-    t_vec = (cssv - 1.0) / safe_r
-
-    support = (z_sorted_block > t_vec) & mask
-
-    k_int = tl.sum(support.to(tl.int32), 0)
-    k_clamped_int = tl.maximum(k_int, 1)
-    k = k_clamped_int.to(tl.float32)
-
-    s = tl.sum(tl.where(support, z_sorted_block, 0.0), 0)
-
-    tau = (s - 1.0) / k
-
-    x_block = tl.load( ptr_x_data_row + offs, mask=mask, other=0.0, cache_modifier=".ca",).to(tl.float32)
-    y = tl.maximum(x_block - tau, 0.0).to(ptr_output_row.dtype.element_ty)
-    tl.store(ptr_output_row + offs, y, mask=mask, cache_modifier=".cs",)
+    # 3) Giản lược loss
+    z_tgt       = tl.load(row + tgt).to(tl.float32)
+    square_sum  = tl.sum(y*y, axis=0)
+    loss        = 0.5 * square_sum - z_tgt + 0.5
+    tl.store(loss_ptr + pid, loss)
 
 
-@triton.jit
-def _sparsemax_backward_kernel(
-    o_ptr, go_ptr, gi_ptr, stride, n_cols, BLOCK_SIZE: tl.constexpr, num_warps: tl.constexpr
-):
-    row = tl.program_id(0)
-    o_row = o_ptr + row * stride
-    go_row = go_ptr + row * stride
-    gi_row = gi_ptr + row * stride
+class FusedLinearSparsemaxLoss(torch.autograd.Function):
+    """ Linear (x @ Wᵀ) + Sparsemax‑loss, tính gradient (∂L/∂logits) NGAY trong forward nhờ kernel Triton """
+    @staticmethod
+    @torch.no_grad()                            # tắt autograd bên trong
+    @torch.amp.custom_fwd(device_type="cuda")   # hỗ trợ AMP
+    def forward(ctx,
+        _input: torch.Tensor,                   # [T, D]
+        weight: torch.Tensor,                   # [V, D]
+        target: torch.Tensor,                   # [T]
+        n_ignores: int = 0,
+        ignore:    int = -100,
+    ) -> torch.Tensor:
+        # bộ đệm kết quả / grad
+        grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
+        grad_input  = torch.empty_like(_input, device=_input.device)
+        losses      = torch.zeros(_input.size(0), device=_input.device, dtype=torch.float32)
 
-    offs = tl.arange(0, BLOCK_SIZE)
+        n_labels, vocab = _input.shape[0], weight.shape[0]
+        BLOCK = triton.next_power_of_2(vocab)
 
-    supp_cnt = tl.zeros((), tl.float32)
-    go_sum = tl.zeros((), tl.float32)
+        num_warps = 8 if vocab <= 1024*8 else 16
+        step = min(1024*2, n_labels // 2) # để luôn test được chunked CE
 
-    for i in tl.range(0, tl.cdiv(n_cols, BLOCK_SIZE)):
-        offs_iter = i * BLOCK_SIZE + offs
-        mask_iter = offs_iter < n_cols
-        o_val = tl.load(o_row + offs_iter, mask=mask_iter, other=0.0, cache_modifier=".ca").to(tl.float32)
-        go_val = tl.load(go_row + offs_iter, mask=mask_iter, other=0.0).to(tl.float32)
-        supp = o_val > 0.0
-        go_sum += tl.sum(tl.where(supp, go_val, 0.0))
-        supp_cnt += tl.sum(supp.to(tl.float32))
+        for s in range(0, n_labels, step):
+            e = min(s + step, n_labels)
 
-    for i in tl.range(0, tl.cdiv(n_cols, BLOCK_SIZE)):
-        offs_iter = i * BLOCK_SIZE + offs
-        mask_iter = offs_iter < n_cols
-        o_val = tl.load(o_row + offs_iter, mask=mask_iter, other=0.0, cache_modifier=".ca").to(tl.float32)
-        go_val = tl.load(go_row + offs_iter, mask=mask_iter, other=0.0).to(tl.float32)
-        supp = o_val > 0.0
-        gi_val = tl.where(
-            supp,
-            go_val - tl.cast(go_sum / tl.maximum(supp_cnt, 1e-6), gi_row.dtype.element_ty).to(tl.float32),
-            0.0,
+            # (1) Tính logits = x @ Wᵀ
+            logits = (_input[s:e] @ weight.t()).contiguous() # [chunk, V]
+
+            # (2) Cần logits đã sort ↓ cho sparsemax
+            sorted_logits = torch.sort(logits.float(), dim=-1, descending=True).values
+
+            # (3) Kernel Triton: vừa trả loss, vừa ghi đè logits = ∂L/∂logit
+            per_label_sparsemax_loss[(logits.size(0),)](
+                logits_ptr      = logits,
+                sorted_ptr      = sorted_logits,
+                target_ptr      = target[s:e],
+                loss_ptr        = losses[s:e],
+                stride          = logits.stride(0),
+                sorted_stride   = sorted_logits.stride(0),
+                vocab           = vocab,
+                ignore          = ignore,
+                BLOCK           = BLOCK,
+                num_warps       = num_warps,
+            )
+
+            # (4) Tính ∂L/∂input = grad_logits @ W
+            grad_input[s:e] = logits @ weight  # logits lúc này chứa grad
+
+            # (5) Tính ∂L/∂W   += grad_logitsᵀ @ x
+            if grad_weight is not None: grad_weight += logits.t() @ _input[s:e]
+
+        # Giảm trung bình (đã loại bỏ các nhãn ignore nếu caller cung cấp)
+        mean_reduction = 1.0 / (n_labels - n_ignores)
+
+        # Lưu gradients (đã scale) để dùng ở backward
+        ctx.save_for_backward(
+            grad_input.detach()  * mean_reduction,
+            grad_weight.detach() * mean_reduction if grad_weight is not None else None
         )
-        tl.store(gi_row + offs_iter, gi_val.to(gi_row.dtype.element_ty), mask=mask_iter, cache_modifier=".wb")
+        return losses.sum() * mean_reduction
 
-
-def _sparsemax_forward(x: torch.Tensor, dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    if dim < 0:
-        dim += x.dim()
-    x_sw = x.transpose(dim, -1).contiguous()
-    n_cols = x_sw.size(-1)
-    n_rows = x_sw.numel() // n_cols
-    x_flat = x_sw.view(n_rows, n_cols)
-    x_sorted_flat = torch.sort(x_flat.float(), dim=-1, descending=True).values
-
-    BLOCK_SIZE, num_warps = calculate_settings(n_cols)
-    out_flat = torch.empty_like(x_flat)
-    grid = (n_rows,)
-    _sparsemax_forward_kernel[grid](
-        x_flat,
-        x_flat.stride(0),
-        x_sorted_flat,
-        x_sorted_flat.stride(0),
-        out_flat,
-        out_flat.stride(0),
-        n_cols,
-        BLOCK_SIZE=BLOCK_SIZE,
-        num_warps=num_warps,
-    )
-
-    y = out_flat.view_as(x_sw).transpose(dim, -1)
-    return y, out_flat
-
-
-def _sparsemax_backward(
-    grad_out: torch.Tensor,
-    out_flat: torch.Tensor,
-    dim: int,
-) -> torch.Tensor:
-    grad_sw = grad_out.transpose(dim, -1).contiguous()
-    n_cols = grad_sw.size(-1)
-    n_rows = grad_sw.numel() // n_cols
-    go_flat = grad_sw.view(n_rows, n_cols)
-
-    BLOCK_SIZE, num_warps = calculate_settings(n_cols)
-    dx_flat = torch.empty_like(go_flat)
-    grid = (n_rows,)
-    _sparsemax_backward_kernel[grid](
-        out_flat,
-        go_flat,
-        dx_flat,
-        out_flat.stride(0),
-        n_cols,
-        BLOCK_SIZE=BLOCK_SIZE,
-        num_warps=num_warps,
-    )
-
-    dx = dx_flat.view_as(grad_sw).transpose(dim, -1)
-    return dx
-
-
-class LigerSparsemaxFunction(torch.autograd.Function):
+    # ------------------------------------------------------------------ #
     @staticmethod
-    def forward(ctx, x: torch.Tensor, dim: int):
-        y, out_flat = _sparsemax_forward(x, dim)
-        ctx.save_for_backward(out_flat)
-        ctx.dim = dim
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_out: torch.Tensor):
-        (out_flat,) = ctx.saved_tensors
-        dx = _sparsemax_backward(grad_out, out_flat, ctx.dim)
-        return dx, None
+    @torch.amp.custom_bwd(device_type="cuda")
+    def backward(ctx, grad_output: torch.Tensor):
+        """ grad_output: ∂L_total/∂loss_scalar (thường = 1 nếu .backward() trực tiếp) """
+        grad_input, grad_weight = ctx.saved_tensors
+        grad_input = grad_input * grad_output  # chain‑rule
+        if grad_weight is not None: grad_weight = grad_weight * grad_output
+        # trả lần lượt cho (_input, weight, target, n_ignores, ignore)
+        return grad_input, grad_weight, None, None, None
 
 
 #################################################################
