@@ -159,3 +159,9 @@
 - [x] Tìm hiểu byte level LLM (BLT, EveByte)
 - [x] Biên dịch nhanh flash-attn-2 on-the-fly
 - [x] Thử block sparse attn (infllmv2 và NSA)
+
+- [x] Revisit `Primer-EZ = Squared ReLu + Depthwise Conv 3x1`, và lược bớt attn
+  - https://www.alphaxiv.org/overview/2109.08668
+  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-4.jpeg)
+  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-3.jpeg)
+  - `depthwise convolution 3x1`: tích chập theo chiều sâu, xử lý từng kênh độc lập

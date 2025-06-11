@@ -190,3 +190,19 @@ Với câu có 20 tokens thì expand 2 lần
 
 ## Training free token transplantation via OMP (orthogonal matching pursuit)
 - https://www.alphaxiv.org/abs/2506.06607
+
+---
+
+# ADAT: Adaptive Tokenizer
+- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf
+- https://www.alphaxiv.org/abs/2410.03258 ADAPTBPE sửa BPE để tknz tốt hơn cho domain
+- https://www.alphaxiv.org/abs/2310.05317 TKNZ riêng cho task, => giảm 60% số tokens
+- https://www.alphaxiv.org/abs/2109.07460 ...
+
+Giải pháp – ADAT (Adaptive Tokenizer)
+
+- Khởi tạo từ từ-vựng lớn.
+- Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
+- Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
+
+=> !!! Có thể ADAT ngay trong lúc pre-train !!!

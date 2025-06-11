@@ -39,42 +39,48 @@
 - [Dùng GPU xử lý data](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
 
 ## Tiny Monster Models
-- `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne)
-- `6k vocab` = `3k symato` (Vietnam) + `3k BPE` (English)
+- `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) để tiền xử lý
+- `4k BPE vocab` + Stochastok (random phân giã) + 2,3-gram embeddings (random tổng hợp)
 - Bài toán bộ gõ thông minh:
-  - `auto-complete` + 
+  - `auto/smart-edit`
+  - `auto/smart-complete` + 
   - `sửa lỗi chính tả` + 
   - `convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-## 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
+# 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Flex Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- [ ] save/quant params + inference
+- FAST INFER
+  - [ ] save/quant params + inference
   - https://github.com/pytorch-labs/gpt-fast
   - https://pytorch.org/blog/accelerating-generative-ai-2
 
-- [ ] Attn: NSA, CUTE flash attn impl, cpm.cu, linear attn nói chung ...
-- [ ] LongCE và cách làm giảm hạn chế của Causual Attn
+- [ ] ATTN: NSA, CUTE flash attn impl, cpm.cu, sparse/linear attn (moba, mosa ...)
 
-- [ ] Token được TỰ DO LỰA CHỌN:
-  - cách nó attn
-  - cách nó chọn số computing / hidden dim để biểu diễn chính nó
-
-- [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể kết hợp logits distill + pre-train để:
-  - giảm dataset phải chuẩn bị cho nó học?
-  - học cách phân bổ dữ liệu nhanh hơn?
-  - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
-  - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
-    hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
+- LOGITS
+  - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
+    - giảm dataset phải chuẩn bị cho nó học?
+    - học cách phân bổ dữ liệu nhanh hơn?
+    - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
+    - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
+      hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
 
 - [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head)
 
-- [ ] Revisit `Primer-EZ = Squared ReLu + Depthwise Conv 3x1`, và lược bớt attn
-  - https://www.alphaxiv.org/overview/2109.08668
-  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-4.jpeg)
-  ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-3.jpeg)
-  - `depthwise convolution 3x1`: tích chập theo chiều sâu, xử lý từng kênh độc lập
-  - 
+- LEARNING OBJECTIVES
+  - [x] MTP, rất hiệu quả với 1 future head
+  - [ ] LongCE và 
+  - [ ] Hạn chế tác hại của Causual Attn => GLM?
+
+- LINH TOK (flexible tokenization & token usage)
+  - [ ] Token được TỰ DO LỰA CHỌN:
+    - cách nó attn
+    - cách nó chọn số computing / hidden dim để biểu diễn chính nó
+  - [ ] n-gram embeddings và tổng hợp ngẫu nhiên lúc training
+  - [ ] Adap trong lúc pre-train
+    - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
+    - Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
+
