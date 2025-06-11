@@ -201,13 +201,12 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
-
         self.lm_head = Head(dim, vocab_size, bias=False)
         if isinstance(self.lm_head, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.lm_head.weight.zero_()
 
-        self.steps = 0
+        self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
+
         self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
         print("WinGPT.skip_from", self.skip_from)
 
@@ -232,14 +231,11 @@ class WinGPT(nn.Module):
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
         ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
         
-        self.steps += 1
         outputs = []
         for i, blk in enumerate(self.blocks):
-            keep_this_layer = ( self.steps % self.n_layers != i ) # mỗi step bỏ 1 layer
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
             def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            y = checkpoint(fwd(blk), x, use_reentrant=False)
-            x = 0*x + 1*y if keep_this_layer else 0.999*x + y*0.001
+            x = checkpoint(fwd(blk), x, use_reentrant=False)
             outputs.append(x)
         return x, x0
 
