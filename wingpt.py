@@ -173,7 +173,7 @@ class Block(nn.Module):
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
         x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
-        return x * lg[self.layer_id]            # layer embedding là gating, cần khởi tạo là 1
+        return x * le[self.layer_id]            # layer embedding là gating, cần khởi tạo là 1
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
