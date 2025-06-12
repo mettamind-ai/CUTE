@@ -195,8 +195,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.le = self.ve = n_layers // 2
-        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.le*dim, active_vocab)
+        self.le = self.ve = n_layers
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)# + self.le*dim, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -230,8 +230,9 @@ class WinGPT(nn.Module):
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
-        l_embs = embs[..., -self.le*self.dim : ]
-        l_embs = list(l_embs.chunk(self.le, dim=-1))
+        # l_embs = embs[..., -self.le*self.dim : ]
+        # l_embs = list(l_embs.chunk(self.le, dim=-1))
+        l_embs = []
 
         skips = [None]*(self.n_layers - 2*len(v_embs))
         v_embs = v_embs + skips + v_embs
