@@ -296,15 +296,15 @@ class Muon1GPU(torch.optim.Optimizer):
                 if 'mm' not in st: 
                     st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
-                g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
-                if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
-                go = zeropower_via_newtonschulz5(g)         # Trực giao Newton-Schulz g => g(o)rthogonalized
-                if go.shape != p.shape: go=go.view_as(p)    # Reshape back if needed
+                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
+                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz g => g(o)rthogonalized
+                if g.shape != p.shape: g=g.view_as(p)   # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
                 rows, cols = p.size(-2), p.size(-1)     # 2) p -= go * lr * sqrt(max(1, rows / cols))
                 x = max(1, rows / cols)**0.5 
-                p.add_(go, alpha=-group['lr']*x)
+                p.add_(g, alpha=-group['lr']*x)
