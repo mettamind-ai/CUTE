@@ -168,10 +168,10 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim, cconv_width=0)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
-            te_lambdas[self.layer_id][1] * x0  # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x))
+            te_lambdas[self.layer_id][1] * x0           # trộn với tok emb gốc x0
+        x = x + self.mlp(norm(x)) * le[self.layer_id]   # layer embedding là gating, cần khởi tạo là 1
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -190,7 +190,9 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2
-        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
+        self.le = n_layers
+        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.le, active_vocab)
+        self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
@@ -223,6 +225,9 @@ class WinGPT(nn.Module):
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
+        l_embs = embs[..., -self.le*self.dim : ]
+        l_embs = list(l_embs.chunk(self.le, dim=-1))
+
         skips  = [ None ] * ( self.n_layers - 2*self.ve )
         v_embs = v_embs + skips + v_embs  # U-shape theo kiểu 0,1,2 ... 0,1,2
         assert len(v_embs) == self.n_layers
@@ -234,7 +239,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            fw = lambda blk: lambda x: blk(x, x0, v_embs, l_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
         return norm(x), x0
@@ -284,8 +289,8 @@ if __name__ == "__main__":
 
     seed = 1981
     seq_len = 1024
-    vocab_size = 64*1024
-    dim, n_layers = 256, 8
+    vocab_size = 32*1024
+    dim, n_layers = 128, 8
     num_heads, num_kv_heads = 16, 1
     print(f" win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
