@@ -12,11 +12,11 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=64) # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=48) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
-parser.add_argument("--ohmai", type=int, default=None)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
-parser.add_argument("--int8ig", type=str, default="head|future") # int8 ignore params (for wingpt, 'proj|head' => all Linear) 
+parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
+parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
@@ -44,10 +44,10 @@ batch = get_batch()
 ## Init model for pretraining
 #############################
 if  args.L: # (L)arge ~ 999m
-    model = WinGPT(dim=2048, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=80,
+    model = WinGPT(dim=2048, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 elif args.M:# (M)edium ~ 666m
-    model = WinGPT(dim=1664, n_layers=22, num_heads=16, num_kv_heads=4, head_dim=80,
+    model = WinGPT(dim=1664, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 else:       # (S)mall ~ 333m
     model = WinGPT(dim=1280, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=128,
