@@ -195,8 +195,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.le = self.ve = n_layers
-        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)# + self.le*dim, active_vocab)
+        self.ve, self.le = n_layers, 0
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.le*dim, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -226,10 +226,10 @@ class WinGPT(nn.Module):
         x = x0 = norm(embs[..., : self.dim ])
 
         ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., self.dim : -self.le*self.dim ]
+        v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
+        # PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
         # l_embs = embs[..., -self.le*self.dim : ]
         # l_embs = list(l_embs.chunk(self.le, dim=-1))
         l_embs = []
