@@ -234,8 +234,8 @@ class WinGPT(nn.Module):
         # l_embs = list(l_embs.chunk(self.le, dim=-1))
         l_embs = []
 
-        skips = [None]*(self.n_layers - 2*len(v_embs))
-        v_embs = v_embs + skips + v_embs
+        # skips = [None]*(self.n_layers - 2*len(v_embs))
+        # v_embs = v_embs + skips + v_embs
         assert len(v_embs) == self.n_layers
 
         skips = [None]*(self.n_layers - 2*len(l_embs))
