@@ -57,8 +57,8 @@ class ReLuSquareMLP(nn.Module):
 
     # @torch.compile()
     def forward(self, x, le=None, le_lambdas=None):
-        if le is not None and le_lambdas is not None: # Per-layer embedding
-            x                 = x*le_lambdas[0] + le*le_lambdas[1]
+        # if le is not None and le_lambdas is not None: # Per-layer embedding
+        #     x                 = x*le_lambdas[0] + le*le_lambdas[1]
 
         T, D = x.shape; assert D == self.dim
         if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
@@ -66,6 +66,7 @@ class ReLuSquareMLP(nn.Module):
         y                     = F.relu(y).square()
         if self.use_gate:  y  = y *self.gate_proj(x)
         z                     = self.fc2_proj(y)
+        if le is not None: z  = z*le_lambdas[0] * le*le_lambdas[1]  # phép nhân là dạng gate
         return z  # z có chiều odim thường là bằng dim
 
 ##########################
@@ -201,7 +202,7 @@ class WinGPT(nn.Module):
           torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
-          *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # layer emb mix
+          *[torch.tensor([1.0, 1.0 ]) for _ in range(n_layers)], # layer emb mix
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
