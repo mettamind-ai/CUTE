@@ -190,7 +190,7 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers, 0
+        self.ve = n_layers // 3
         self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
@@ -222,6 +222,9 @@ class WinGPT(nn.Module):
         ## Value embeddings, bổ trợ cho value trong attention
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
+
+        skips  = [ None ] * ( self.n_layers - 2*self.ve )
+        v_embs = v_embs + skips + v_embs  # U-shape theo kiểu 0,1,2 ... 0,1,2
         assert len(v_embs) == self.n_layers
 
         skip_weights = self.scalars[ : self.n_layers]
