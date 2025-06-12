@@ -1,5 +1,15 @@
 Logits bản chất là sparse!
 
+# Logits, Vocab ...
+- https://chatgpt.com/share/6847808b-2d30-8003-8500-75ef6485f961
+  - logits distill: học phân phối, ko chỉ học nhãn đúng
+  - hiệu chỉnh logits (calibration)
+- https://chatgpt.com/share/6847ade6-0f7c-8003-82a4-4f418ae6101f
+
+Một mô hình được gọi là **well-calibrated** nếu, ví dụ, trong tất cả các trường hợp nó dự đoán “đáp án A” với xác suất 80%, thì khoảng 80% những trường hợp đó đáp án A thật sự đúng. Tuy nhiên, nghiên cứu chỉ ra rằng các mô hình mạng nơ-ron hiện đại thường không được hiệu chỉnh tốt – chúng có xu hướng quá tự tin vào dự đoán của mình.
+
+Vocab lớn cũng khiến phân phối xác suất đầu ra “loãng” hơn: xác suất được dàn trải trên nhiều khả năng. Ví dụ, ở một mô hình với |V|≈49k, xác suất cao nhất quan sát chỉ ~33.9%, các token khác chia nhau ~66% còn lại.
+
 # HIỆU CHUẨN LOGITS
 - survey https://chatgpt.com/share/6848f5c0-5574-8003-83c3-710998a95115
 - o3-pro https://chatgpt.com/share/68491c15-4508-8003-87ae-81410849f187
@@ -327,6 +337,29 @@ Thuật toán Halley-bisection lai: "Giảm 7 lần số vòng lặp cần thi�
 
 ---
 
+## EvaByte
+- https://hkunlp.github.io/blog/2025/evabyte
+- https://github.com/OpenEvaByte/evabyte
+- Base model before annealing https://huggingface.co/EvaByte/EvaByte-Phase1
+
+The main difference between BLTs and EvaByte lies in the architecture: BLTs use patchification and propose entropy patching to dynamically group bytes. While this approach adjusts compute allocation based on data complexity and reduces context length, it still relies on external models to determine patch boundaries. The majority of compute ends up focused on patch-level modeling, detached from the byte stream, similar to tokenizer-based models.
+
+In contrast, EvaByte keeps things simple: it directly operates on bytes with a flat Transformer-like model without needing to invoke external modules or group inputs. Empirically, EvaByte achieves better performance than BLTs even with 3-4x fewer training bytes, as shown in the table below. Besides, EvaByte is more flexible and scales easily to multimodal data, while BLTs require retraining or swapping out the auxiliary language model used for entropy patching.
+
+![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/comp_to_blt-1400.webp)
+
+## ~~EVA (extended value aggregation) linearized attention~~ <= chưa hỗ trợ varlen
+- playground/684138df4cd7dbf747d280d5
+- https://github.com/OpenEvaByte/evabyte/blob/main/evabyte_hf/eva_agg_kernel.py
+![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/arch-1400.webp)
+![](https://hkunlp.github.io/assets/img/2025-01-21-evabyte-imgs/attn_sketch-1400.webp)
+
+- Local window attention: Attention trong window cục bộ (như SWA)
+- RFA chunks: Compressed representations cho global attention
+
+---
+
 # Sparse Attn
 - https://huggingface.co/blog/Kseniase/attentions
 - 
+

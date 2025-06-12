@@ -60,8 +60,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - CUTE flash attn impl, cpm.cu
 
 - SPARSE
-  - NSA, infllmv2 (selective attn), sparse/linear attn nói chung (moba, mosa ...)
-  - [ ] Sparsemax thay softmax
+  - NSA, infllmv2 (selective attn), block/sparse attn nói chung (moba, mosa ...)
 
 - LOGITS is SPARSE too
   - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
