@@ -170,10 +170,10 @@ class Block(nn.Module):
 
     def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
-            te_lambdas[self.layer_id][1] * x0           # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x)) * le[self.layer_id]   # layer embedding là gating, cần khởi tạo là 1
+            te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+        x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
-        return x
+        return x * lg[self.layer_id]            # layer embedding là gating, cần khởi tạo là 1
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -192,7 +192,7 @@ class WinGPT(nn.Module):
         self.ve = n_layers // 2
         self.le = n_layers
         self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.le, active_vocab)
-        # self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
+        self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
