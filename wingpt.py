@@ -171,7 +171,7 @@ class Block(nn.Module):
     def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0           # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x)) # * le[self.layer_id]   # layer embedding là gating, cần khởi tạo là 1
+        x = x + self.mlp(norm(x)) * le[self.layer_id]   # layer embedding là gating, cần khởi tạo là 1
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -192,7 +192,7 @@ class WinGPT(nn.Module):
         self.ve = n_layers // 2
         self.le = n_layers
         self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.le, active_vocab)
-        self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
+        # self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
@@ -200,8 +200,8 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=True)
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
+        self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=True)  # Early exit at half of the layers
+        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)                 # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -251,7 +251,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
-    ## Prepare to predict next tokens, mỗi head cho 1 token riêng
+    ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     y0  = x0[1:]
     xy0 = torch.cat([x[:-1], y0], dim=1)
     y   = y0 + model.head2(xy0)
@@ -264,12 +264,13 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
-    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tien nhiệm vụ chính NTP
-    hloss = FusedLinearCrossEntropy.apply(x_half, w, tx, n_ignore, ignore)
-    xloss = FusedLinearCrossEntropy.apply(x,      w, tx, n_ignore, ignore)
-    yloss = FusedLinearCrossEntropy.apply(y,      w, ty, n_ignore, ignore)
+    ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
+    hloss = FusedLinearCrossEntropy.apply(x_half, w, tx, n_ignore, ignore)  # NTP but Early exit
+    xloss = FusedLinearCrossEntropy.apply(x,      w, tx, n_ignore, ignore)  # NTP: Next token prediction
+    yloss = FusedLinearCrossEntropy.apply(y,      w, ty, n_ignore, ignore)  # MTP: Next of next token prediction
 
-    return xloss*0.6 + yloss*0.25 + hloss*0.15
+    #      NTP         MTP         Early Exit
+    return xloss*0.7 + yloss*0.2 + hloss*0.1
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
