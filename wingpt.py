@@ -190,7 +190,7 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers // 3
+        self.ve = n_layers // 2
         self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
