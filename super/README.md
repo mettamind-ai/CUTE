@@ -252,3 +252,6 @@ We conclude that, when using large tokenizers, the large input vocabulary is alw
 
 Under MTP-DS architecture, over-encoding enhances the representation capacity of token embeddings and directly participates future token predictions. On the one hand, the future token prediction tasks become easier to learn. On the other hand, the over-encoding can be trained more sufficiently. With these advantages, the integration of the two methods yields greater benefits, even on relatively smaller models.
 
+https://arxiv.org/html/2501.16975v2#S4.SS1.SSS0.Px2
+The results are shown in Table 1. We first compare the training loss. At two different model scales, OE-12.8M achieves approximately the same improvement in loss compared to the baseline, despite decreases in the proportion of embedding parameters as the model scales up (i.e., 10× dense parameters for OLMoE-1.3B and 3.7× for OLMoE-7B). However, in terms of downstream evaluation metrics, the performance improvement of OE diminishes. We hypothesize that this reduction is related to the sparse parameters utilized in the MoE architecture, which may overlap with the benefits provided by sparse embedding parameters.
+

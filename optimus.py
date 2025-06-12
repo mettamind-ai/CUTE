@@ -283,8 +283,8 @@ def per_label_sparsemax_loss(
     tgt  = tl.load(target_ptr + pid)
 
     offs = tl.arange(0, BLOCK)
-    if tgt == ignore: tl.store(row + offs, 0); return
     mask = offs < vocab
+    if tgt == ignore: tl.store(row + offs, 0, mask=mask); return
 
     # 1) Lấy logits (đã sort) để tính tau
     z_sorted = tl.load(srow + offs, mask=mask, other=-float("inf")).to(tl.float32)
@@ -301,10 +301,10 @@ def per_label_sparsemax_loss(
     z = tl.load(row + offs, mask=mask, other=0.).to(tl.float32)
     y = tl.maximum(z - tau, 0)
 
-    # 3) Giản lược loss
+    # 3) Tính loss
     z_tgt       = tl.load(row + tgt).to(tl.float32)
     square_sum  = tl.sum(y*y, axis=0)
-    loss        = 0.5 * square_sum - z_tgt + 0.5
+    loss        = 0.5 * (square_sum + 2*tau) - z_tgt + 0.5
     tl.store(loss_ptr + pid, loss)
 
     # 4) Tính grad = y_i - 1_{i=tgt}
