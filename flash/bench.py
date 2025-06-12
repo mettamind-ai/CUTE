@@ -2,8 +2,8 @@
 import triton, torch, torch.nn.functional as F
 
 from sagefwd import sageattn_varlen
-from linear_attn.parallel_nsa import parallel_nsa
-from linear_attn.parallel_attn import parallel_attn
+from sparse_attn.parallel_nsa import parallel_nsa
+from sparse_attn.parallel_attn import parallel_attn
 
 from infllmv2 import infllmv2_attn_varlen_func, generate_topk_indices
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
