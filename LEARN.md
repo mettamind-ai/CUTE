@@ -270,3 +270,12 @@ gt = (gt / gnorm) * adaptive_norm
 - `adaptive_norm`: tỷ lệ mean/std → giá trị "lý tưởng" cho gradient norm
 - `gt`: gradient gốc từ backprop
 
+---
+
+LOGITS / DISTILL / CALIBRATE / SPARSE / ADAPTIVE TKNZ / N-GRAM VOCAB / 2-GRAM LOSS VIA MTP
+
+- https://www.alphaxiv.org/abs/2410.23771v4?conversation_id=68424c92c01a2de64aa2bd8c
+- https://www.alphaxiv.org/abs/2408.12168v1
+- https://www.alphaxiv.org/abs/2506.01084v1
+- https://www.alphaxiv.org/abs/2501.16975v2
+- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf

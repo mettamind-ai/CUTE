@@ -42,9 +42,6 @@ Với câu có 20 tokens thì expand 2 lần
 
 # ADAT: Adaptive Tokenizer
 - https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf
-- https://www.alphaxiv.org/abs/2410.03258 ADAPTBPE sửa BPE để tknz tốt hơn cho domain
-- https://www.alphaxiv.org/abs/2310.05317 TKNZ riêng cho task, => giảm 60% số tokens
-- https://www.alphaxiv.org/abs/2109.07460 ...
 
 Giải pháp – ADAT (Adaptive Tokenizer)
 
@@ -55,7 +52,6 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 => !!! Có thể ADAPT ngay trong lúc pre-train !!!
 
 ## Scaling LLM Pre-training with Vocabulary Curriculum
-- DR https://chatgpt.com/s/dr_68499a6c2550819191a385cfb7d9bfee
 - https://ar5iv.labs.arxiv.org/html/2502.17910
 - https://www.alphaxiv.org/abs/2502.17910
 - Entropy-Guided Vocabulary Updates
@@ -74,11 +70,6 @@ a framework that enables LLMs to **dynamically adjust token vocabulary at infere
 - (3) a causal language modeling variant that trains the model to operate on hypertokenized, compressed sequences.
 
 We show that an **existing LLM can be zip2zip-fied in 10 GPU-hours via parameter-efficient finetuning**. The resulting zip2zip LLMs effectively learn to use hypertokens at inference time, reducing input and output sequence length by 20-60\%, with significant improvements in inference latency.
-
----
-
-# Large Concept Model ?!? giống Byte Latent Transformer (encoder / decoder thay tknz)
-- https://github.com/facebookresearch/large_concept_model
 
 ---
 
