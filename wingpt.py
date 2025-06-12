@@ -242,13 +242,13 @@ class WinGPT(nn.Module):
             fw = lambda blk: lambda x: blk(x, x0, v_embs, l_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
-        return norm(x), x0
+        return norm(x), norm(outputs[self.n_layers//2]), x0
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen)        # x và x0 đã được norm
+    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     ## Prepare to predict next tokens, mỗi head cho 1 token riêng
@@ -257,17 +257,19 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     y   = y0 + model.head2(xy0)
     y   = norm(y)
 
-    # x   = model.head1(x)
-    # x   = norm(x)
+    x_half = model.head1(x_half)
+    x_half = norm(x_half)
 
     ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tien nhiệm vụ chính NTP
-    xloss = FusedLinearCrossEntropy.apply(x, w, tx, n_ignore, ignore)
-    yloss = FusedLinearCrossEntropy.apply(y, w, ty, n_ignore, ignore)
-    return (xloss*0.7 + yloss*0.3)
+    hloss = FusedLinearCrossEntropy.apply(x_half, w, tx, n_ignore, ignore)
+    xloss = FusedLinearCrossEntropy.apply(x,      w, tx, n_ignore, ignore)
+    yloss = FusedLinearCrossEntropy.apply(y,      w, ty, n_ignore, ignore)
+
+    return xloss*0.6 + yloss*0.25 + hloss*0.15
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
