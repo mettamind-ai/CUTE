@@ -33,7 +33,6 @@ class ReLuSquareMLP(nn.Module):
 
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
-        self.hdim = hdim
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
@@ -63,7 +62,7 @@ class ReLuSquareMLP(nn.Module):
         y                     = F.relu(y).square()
         if self.use_gate:  y  = y *self.gate_proj(x)
         z                     = self.fc2_proj(y)
-        return z  # z có chiều odim thường là bằng dim
+        return z
 
 ##########################
 ## CausalSelfAttention  ##
@@ -171,8 +170,8 @@ class Block(nn.Module):
 
     # @torch.compile()
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
-        if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
+        x = te_lambdas[self.layer_id][0] * x + \ 
+            te_lambdas[self.layer_id][1] * x0  # trộn với tok emb gốc x0
         x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
@@ -191,14 +190,13 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve, self.le = n_layers, 0
-        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.le*dim, active_vocab)
+        self.ve = n_layers, 0
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
-          torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
+            torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
-          *[torch.tensor([1.0, 1.0 ]) for _ in range(n_layers)], # layer emb mix
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
@@ -224,9 +222,6 @@ class WinGPT(nn.Module):
         ## Value embeddings, bổ trợ cho value trong attention
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
-
-        # skips = [None]*(self.n_layers - 2*len(v_embs))
-        # v_embs = v_embs + skips + v_embs
         assert len(v_embs) == self.n_layers
 
         skip_weights = self.scalars[ : self.n_layers]
