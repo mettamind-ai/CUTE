@@ -56,17 +56,13 @@ class ReLuSquareMLP(nn.Module):
         if self.use_cconv: self.cconv_proj = nn.Parameter(torch.zeros(dim, 1, cconv_width))
 
     # @torch.compile()
-    def forward(self, x, le=None, le_lambdas=None):
-        # if le is not None and le_lambdas is not None: # Per-layer embedding
-        #     x                 = x*le_lambdas[0] + le*le_lambdas[1]
-
+    def forward(self, x):
         T, D = x.shape; assert D == self.dim
         if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
         y                     = self.fc1_proj(x)
         y                     = F.relu(y).square()
         if self.use_gate:  y  = y *self.gate_proj(x)
         z                     = self.fc2_proj(y)
-        if le is not None: z  = z*le_lambdas[0] * le*le_lambdas[1]  # phép nhân là dạng gate
         return z  # z có chiều odim thường là bằng dim
 
 ##########################
@@ -174,10 +170,10 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     # @torch.compile()
-    def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, le_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
-        x = x + self.mlp(norm(x), le[self.layer_id], le_lambdas[self.layer_id],)
+        x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -229,29 +225,19 @@ class WinGPT(nn.Module):
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        # PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
-        # l_embs = embs[..., -self.le*self.dim : ]
-        # l_embs = list(l_embs.chunk(self.le, dim=-1))
-        l_embs = []
-
         # skips = [None]*(self.n_layers - 2*len(v_embs))
         # v_embs = v_embs + skips + v_embs
         assert len(v_embs) == self.n_layers
 
-        skips = [None]*(self.n_layers - 2*len(l_embs))
-        l_embs = l_embs + skips + l_embs
-        assert len(l_embs) == self.n_layers
-
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
         ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
-        le_lambdas   = self.scalars[5*self.n_layers : 7*self.n_layers].view(-1, 2)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            f = lambda b: lambda z: b(z, x0, v_embs, l_embs, te_lambdas, ve_lambdas, le_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            x = checkpoint(f(blk), x, use_reentrant=False)
+            fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
         return x, x0
 
