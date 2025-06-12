@@ -257,8 +257,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     y   = y0 + model.head2(xy0)
     y   = norm(y)
 
-    x   = model.head1(x)
-    x   = norm(x)
+    # x   = model.head1(x)
+    # x   = norm(x)
 
     ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
