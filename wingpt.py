@@ -225,11 +225,11 @@ class WinGPT(nn.Module):
         x = x0 = norm(embs[..., : self.dim ])
 
         ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., self.dim : -self.n_layers*dim ]
+        v_embs = embs[..., self.dim : -self.n_layers*self.dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
-        l_embs = embs[..., -self.n_layers*dim : ]
+        l_embs = embs[..., -self.n_layers*self.dim : ]
         l_embs = list(l_embs.chunk(self.n_layers, dim=-1))
 
         skips = [None]*(self.n_layers - 2*len(v_embs))
