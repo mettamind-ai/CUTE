@@ -30,7 +30,7 @@ torch.manual_seed(1981 + rank)
 def print0(msg): is_master and print(msg)
 tokens_per_batch = args.bs*1024
 
-data = np.memmap(f"data{args.vocab}.bin", dtype=np.uint16, mode="r")
+data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = tokens_per_batch + 1
 N    = len(data) - CTX
 WIN  = torch.arange(CTX)
