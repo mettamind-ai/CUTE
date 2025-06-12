@@ -230,7 +230,7 @@ class WinGPT(nn.Module):
 
         ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
         l_embs = embs[..., -self.le*self.dim : ]
-        l_embs = list(l_embs.chunk(self.n_layers, dim=-1))
+        l_embs = list(l_embs.chunk(self.le, dim=-1))
 
         skips = [None]*(self.n_layers - 2*len(v_embs))
         v_embs = v_embs + skips + v_embs
