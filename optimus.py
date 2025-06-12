@@ -297,18 +297,19 @@ def per_label_sparsemax_loss(
     s        = tl.sum(tl.where(support, z_sorted, 0.), 0)
     tau      = (s - 1) / k # threshold cần tính
 
-    # 2) Tính y_i = max(z_i‑tau, 0) & grad = y_i - 1_{i=tgt}
+    # 2) Tính y_i = max(z_i‑tau, 0)
     z = tl.load(row + offs, mask=mask, other=0.).to(tl.float32)
     y = tl.maximum(z - tau, 0)
-
-    grad = y - tl.where(offs == tgt, 1, 0)
-    tl.store(row + offs, grad, mask=mask)  # ghi đè logits = grad
 
     # 3) Giản lược loss
     z_tgt       = tl.load(row + tgt).to(tl.float32)
     square_sum  = tl.sum(y*y, axis=0)
     loss        = 0.5 * square_sum - z_tgt + 0.5
     tl.store(loss_ptr + pid, loss)
+
+    # 4) Tính grad = y_i - 1_{i=tgt}
+    grad = y - tl.where(offs == tgt, 1, 0)
+    tl.store(row + offs, grad, mask=mask)  # ghi đè logits = grad
 
 
 class FusedLinearSparsemaxLoss(torch.autograd.Function):
@@ -332,7 +333,7 @@ class FusedLinearSparsemaxLoss(torch.autograd.Function):
         BLOCK = triton.next_power_of_2(vocab)
 
         num_warps = 8 if vocab <= 1024*8 else 16
-        step = min(1024*2, n_labels // 2) # để luôn test được chunked CE
+        step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
 
         for s in range(0, n_labels, step):
             e = min(s + step, n_labels)

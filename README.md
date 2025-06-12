@@ -89,3 +89,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [ ] Adap trong lúc pre-train
     - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
     - Hạ tần suất xuất hiện của những token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
+
+- MoE
+  - https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mixture-of-experts

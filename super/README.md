@@ -228,3 +228,27 @@ a framework that enables LLMs to **dynamically adjust token vocabulary at infere
 
 We show that an **existing LLM can be zip2zip-fied in 10 GPU-hours via parameter-efficient finetuning**. The resulting zip2zip LLMs effectively learn to use hypertokens at inference time, reducing input and output sequence length by 20-60\%, with significant improvements in inference latency.
 
+---
+
+# Large Concept Model ?!? giống Byte Latent Transformer (encoder / decoder thay tknz)
+- https://github.com/facebookresearch/large_concept_model
+
+---
+
+# OTT: Over Tokenized Transformer
+- https://arxiv.org/html/2501.16975v2
+- https://www.alphaxiv.org/abs/2501.16975v2
+
+A baseline tokenizer constructs a vocabulary using the three terminal characters defined by the CFG, tokenizing sentences character-wisely, which we refer as a `1-gram tokenizer`. We further define `n-gram tokenizers`, whose vocabulary comprises all `3^n possible combinations of n sequential characters`. We train both larger and smaller GPT-2 models using 1-gram and 3-gram tokenizers, respectively.
+
+- The left panel compares 1-gram and **3-gram tokenizers**, showing that 3-gram improves larger (85M parameters) models but harms smaller (2.4M parameters) ones
+- The right panel examines **3-gram usage in encoders and decoders**, revealing consistent gains with 3-gram encoders regardless of model size, while 3-gram decoders degrade performance in smaller models.
+
+|![](https://arxiv.org/html/2501.16975v2/x1.png)|![](https://arxiv.org/html/2501.16975v2/x2.png)|
+|-|-|
+|![](https://arxiv.org/html/2501.16975v2/x3.png)|![](https://arxiv.org/html/2501.16975v2/x4.png)|
+
+We conclude that, when using large tokenizers, the large input vocabulary is always positive while the large output vocabulary can be negative for smaller models. We hypothesize that the difference lies in their respective roles: the input embedding is responsible for encoding the context into feature embeddings, where a larger vocabulary enhances the representational capacity of the feature mapping, thereby positively impacting the model. In contrast, the output vocabulary determines the granularity of the prediction task. A larger output vocabulary implies more fine-grained supervision signals, which can either be beneficial (e.g., for large models prone to overfitting) or burdensome (e.g., for smaller models suffering from severe underfitting). Motivated by this observation, we extend our exploration to over-tokenized transformers in real-world natural language modeling.
+
+Under MTP-DS architecture, over-encoding enhances the representation capacity of token embeddings and directly participates future token predictions. On the one hand, the future token prediction tasks become easier to learn. On the other hand, the over-encoding can be trained more sufficiently. With these advantages, the integration of the two methods yields greater benefits, even on relatively smaller models.
+

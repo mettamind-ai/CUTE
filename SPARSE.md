@@ -1,3 +1,5 @@
+Logits bản chất là sparse!
+
 # HIỆU CHUẨN LOGITS
 - survey https://chatgpt.com/share/6848f5c0-5574-8003-83c3-710998a95115
 - o3-pro https://chatgpt.com/share/68491c15-4508-8003-87ae-81410849f187
@@ -322,3 +324,9 @@ Tác giả đưa ra họ biến đổi α-entmax dựa trên entropy Tsallis (d�
 - https://github.com/deep-spin/adasplash
 - https://www.alphaxiv.org/abs/2502.12082
 Thuật toán Halley-bisection lai: "Giảm 7 lần số vòng lặp cần thiết để tính α-entmax transformation"
+
+---
+
+# Sparse Attn
+- https://huggingface.co/blog/Kseniase/attentions
+- 
