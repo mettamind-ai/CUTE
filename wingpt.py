@@ -56,7 +56,10 @@ class ReLuSquareMLP(nn.Module):
         if self.use_cconv: self.cconv_proj = nn.Parameter(torch.zeros(dim, 1, cconv_width))
 
     # @torch.compile()
-    def forward(self, x):
+    def forward(self, x, le=None, le_lambdas=None):
+        if le is not None and le_lambdas is not None: # Per-layer embedding
+            x                 = x*le_lambdas[0] + le*le_lambdas[1]
+
         T, D = x.shape; assert D == self.dim
         if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
         y                     = self.fc1_proj(x)
@@ -170,10 +173,10 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     # @torch.compile()
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, le_lambdas, cu_seqlens, max_seqlen, rotary):
         x                     = te_lambdas[self.layer_id][0] *  x # te_lambdas[0] init là 1
         if x0 is not None: x += te_lambdas[self.layer_id][1] * x0 # trộn với tok emb gốc
-        x = x + self.mlp(norm(x))
+        x = x + self.mlp(norm(x), le[self.layer_id], le_lambdas[self.layer_id],)
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -192,12 +195,13 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2
-        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + n_layers*dim, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
+          *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # layer emb mix
         ]))
 
         self.future_mlp1 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
@@ -216,11 +220,17 @@ class WinGPT(nn.Module):
 
     # @torch.compile()
     def forward(self, input_seq, cu_seqlens, max_seqlen):
+        ## Token embeddings
         embs = self.embeddings(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
 
-        v_embs = embs[..., -self.kv_dim*self.ve : ]
+        ## Value embeddings, bổ trợ cho value trong attention
+        v_embs = embs[..., self.dim : -self.n_layers*dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
+
+        ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
+        l_embs = embs[..., -self.n_layers*dim : ]
+        l_embs = list(l_embs.chunk(self.n_layers, dim=-1))
 
         skips = [None]*(self.n_layers - 2*len(v_embs))
         v_embs = v_embs + skips + v_embs
@@ -229,12 +239,13 @@ class WinGPT(nn.Module):
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
         ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
+        le_lambdas   = self.scalars[5*self.n_layers : 7*self.n_layers].view(-1, 2)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            def fwd(blk): return lambda inp: blk(inp, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            x = checkpoint(fwd(blk), x, use_reentrant=False)
+            f = lambda b: lambda z: b(z, x0, v_embs, l_embs, te_lambdas, ve_lambdas, le_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = checkpoint(f(blk), x, use_reentrant=False)
             outputs.append(x)
         return x, x0
 
