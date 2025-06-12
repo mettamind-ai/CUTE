@@ -168,12 +168,12 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim, cconv_width=0)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, le, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, mlp_gates, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x))
+        x = x + self.mlp(norm(x)) * mlp_gates[self.layer_id] # Tokenwise MLP Gating, cần khởi tạo là 1
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
-        return x * le[self.layer_id]            # layer embedding là gating, cần khởi tạo là 1
+        return x
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -189,10 +189,12 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers // 2
-        self.le = n_layers
-        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.le, active_vocab)
-        self.embeds.weight.data[..., -self.dim*self.le : ] = 1 # le là gating nên khởi tạo 1
+        self.ve = n_layers // 2 # tokenwise layer value embeddings
+        self.mg = n_layers      # tokenwise layer MLP gatings
+
+        ## NOTE: vì tokenwise gatings là per token nên gửi luôn vào embeddings là hợp lý 
+        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.mg, active_vocab)
+        self.embeds.weight.data[..., -self.dim*self.mg : ] = 1  # lg là gating nên khởi tạo là 1
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
@@ -225,8 +227,9 @@ class WinGPT(nn.Module):
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
-        l_embs = embs[..., -self.le*self.dim : ]
-        l_embs = list(l_embs.chunk(self.le, dim=-1))
+        ## Tách giá trị gatings gửi vào trong embeddings để dùng ở cuối MLP
+        mlp_gates = embs[..., -self.mg*self.dim : ]
+        mlp_gates = list(mlp_gates.chunk(self.mg, dim=-1))
 
         skips  = [ None ] * ( self.n_layers - 2*self.ve )
         v_embs = v_embs + skips + v_embs  # U-shape theo kiểu 0,1,2 ... 0,1,2
@@ -239,7 +242,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            fw = lambda blk: lambda x: blk(x, x0, v_embs, l_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            fw = lambda blk: lambda x: blk(x, x0, v_embs, mlp_gates, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
         return norm(x), norm(outputs[self.n_layers//2]), x0
@@ -257,6 +260,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     y   = y0 + model.head2(xy0)
     y   = norm(y)
 
+    ## Early exit head
     x_half = model.head1(x_half)
     x_half = norm(x_half)
 

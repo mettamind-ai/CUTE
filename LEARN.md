@@ -272,7 +272,7 @@ gt = (gt / gnorm) * adaptive_norm
 
 ---
 
-LOGITS / DISTILL / CALIBRATE / SPARSE / ADAPTIVE TKNZ / N-GRAM VOCAB / 2-GRAM LOSS VIA MTP
+# LOGITS / DISTILL / CALIBRATE / SPARSE / ADAPTIVE TKNZ / N-GRAM VOCAB / 2-GRAM LOSS VIA MTP
 
 - https://www.alphaxiv.org/abs/2410.23771v4?conversation_id=68424c92c01a2de64aa2bd8c
 - https://www.alphaxiv.org/abs/2408.12168v1
