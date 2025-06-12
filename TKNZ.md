@@ -52,7 +52,7 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
 - Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
 
-=> !!! Có thể ADAT ngay trong lúc pre-train !!!
+=> !!! Có thể ADAPT ngay trong lúc pre-train !!!
 
 ## Scaling LLM Pre-training with Vocabulary Curriculum
 - DR https://chatgpt.com/s/dr_68499a6c2550819191a385cfb7d9bfee
