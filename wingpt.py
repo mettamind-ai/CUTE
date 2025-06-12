@@ -194,8 +194,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers // 2
-        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + n_layers*dim, active_vocab)
+        self.le = self.ve = n_layers // 2
+        self.embeddings = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.le*dim, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
           torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -225,16 +225,20 @@ class WinGPT(nn.Module):
         x = x0 = norm(embs[..., : self.dim ])
 
         ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., self.dim : -self.n_layers*self.dim ]
+        v_embs = embs[..., self.dim : -self.le*self.dim ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
 
         ## PLE: per layer embedding, bổ trợ cho đầu ra của MLP?
-        l_embs = embs[..., -self.n_layers*self.dim : ]
+        l_embs = embs[..., -self.le*self.dim : ]
         l_embs = list(l_embs.chunk(self.n_layers, dim=-1))
 
         skips = [None]*(self.n_layers - 2*len(v_embs))
         v_embs = v_embs + skips + v_embs
         assert len(v_embs) == self.n_layers
+
+        skips = [None]*(self.n_layers - 2*len(l_embs))
+        l_embs = l_embs + skips + l_embs
+        assert len(l_embs) == self.n_layers
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
