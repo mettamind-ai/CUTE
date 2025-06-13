@@ -51,7 +51,8 @@ class ReLuSquareMLP(nn.Module):
         
         self.cconv_width = cconv_width
         self.use_cconv = cconv_width >= 2
-        if self.use_cconv: self.cconv_proj = nn.Parameter(torch.zeros(dim, 1, cconv_width))
+        if self.use_cconv:  # khởi tạo là trung bình cộng
+            self.cconv_proj = nn.Parameter(torch.ones(dim, 1, cconv_width)/cconv_width)
 
     # @torch.compile()
     def forward(self, x):
@@ -200,7 +201,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=True)  # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)                 # Next of next token prediction
+        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, cconv_width=3)  # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
