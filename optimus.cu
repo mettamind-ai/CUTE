@@ -1,8 +1,7 @@
 /*******************************************************************
 *  optimus.cu  –  scaled INT8 GEMM + row/col scale (RTX 4090)     *
 *******************************************************************/
-// nvcc -arch=sm_86 -O3 --expt-relaxed-constexpr -std=c++17 -c optimus.cu -o optimus.o
-// nvcc -arch=sm_86 -shared -Xcompiler -fPIC optimus.o -o liboptimus.so
+// nvcc -arch=sm_86 -O3 --expt-relaxed-constexpr -std=c++17 -c optimus.cu -o optimus.o; nvcc -arch=sm_86 -shared -Xcompiler -fPIC optimus.o -o liboptimus.so
 
 #include <cuda.h>
 #include <mma.h>
