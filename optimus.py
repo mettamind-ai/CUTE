@@ -182,8 +182,7 @@ def per_label_cross_entropy(
         target_ptr, loss_ptr,  # 1 phần tử
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
-        z_scale: tl.constexpr, # scaler from https://www.jmlr.org/papers/v24/22-1144.html
-        num_warps: tl.constexpr
+        z_scale: tl.constexpr, # z_loss scaler from https://www.jmlr.org/papers/v24/22-1144.html
     ):
 
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
