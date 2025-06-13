@@ -1,29 +1,34 @@
 ADAPTIVE & FLEXIBLE TOKENIZATION
 --------------------------------
 
-## n-gram embedding https://www.alphaxiv.org/abs/2501.16975v1
+## Over Tokenized Transformer and n-gram Embeddings
+- https://arxiv.org/html/2501.16975v2
+- https://www.alphaxiv.org/abs/2501.16975v2
 
-**Kết quả đáng chú ý**: "Using a large input vocabulary, we achieve performance comparable to double-sized baselines with no additional cost" - với từ vựng đầu vào lớn, mô hình 400M tham số đạt hiệu suất tương đương mô hình 1B tham số mà không tốn thêm chi phí ?!?
+Dưới đây là bản tóm tắt bằng tiếng Việt với đầy đủ chi tiết quan trọng:
+
+Phương pháp tokenizer cơ bản (baseline tokenizer) xây dựng vốn từ vựng sử dụng 3 ký tự đầu cuối từ CFG, chia văn bản thành từng ký tự riêng biệt (gọi là tokenizer 1-gram). Ngoài ra, các tokenizer n-gram được định nghĩa dựa trên mọi tổ hợp có thể của $3^n$ chuỗi gồm $n$ ký tự liên tiếp. Nghiên cứu huấn luyện các mô hình GPT-2 kích thước lớn và nhỏ với tokenizer 1-gram và 3-gram.
+
+* Việc sử dụng 3-gram ở encoder luôn cải thiện hiệu suất cho mọi kích thước mô hình. Ngược lại, sử dụng tokenizer 3-gram ở decoder làm giảm hiệu suất trên các mô hình nhỏ.
+
+* Với tokenizer lớn, vocab lớn luôn có tác động tích cực, trong khi logits lớn có thể gây ảnh hưởng tiêu cực lên các mô hình nhỏ.
+
+* Lí do là embedding đầu vào giúp mã hóa ngữ cảnh tốt hơn nhờ khả năng biểu diễn phong phú hơn khi dùng vốn từ lớn, trong khi vốn từ đầu ra lớn làm tăng độ chi tiết của nhiệm vụ dự đoán, có thể tạo gánh nặng đối với các mô hình nhỏ.
+
+|![](https://arxiv.org/html/2501.16975v2/x1.png)|![](https://arxiv.org/html/2501.16975v2/x2.png)|
+|-|-|
+|![](https://arxiv.org/html/2501.16975v2/x3.png)|![](https://arxiv.org/html/2501.16975v2/x4.png)|
+
+Áp dụng kết luận này, nghiên cứu mở rộng sang transformer “over-tokenized” trong mô hình ngôn ngữ tự nhiên thực tế (MTP-DS). Kết quả cho thấy việc over-encoding làm tăng năng lực biểu diễn của embedding, giúp nhiệm vụ dự đoán token tiếp theo dễ dàng hơn và đạt huấn luyện đầy đủ hơn, qua đó mang lại lợi ích đáng kể ngay cả với các mô hình tương đối nhỏ.
+
+Theo kết quả thực nghiệm (Bảng 1), phương pháp OE-12.8M giảm loss huấn luyện ổn định ở cả hai quy mô mô hình, dù tỉ lệ tham số embedding giảm khi tăng quy mô mô hình. Tuy nhiên, lợi ích của OE với các chỉ số đánh giá nhiệm vụ thực tế lại giảm đi khi mô hình lớn hơn. Lý giải được đề xuất là do sự chồng lấn về lợi ích giữa các tham số sparse trong kiến trúc MoE và các tham số embedding sparse.
+
+**Kết quả đáng chú ý**: "Using a large input vocabulary, we achieve performance comparable to double-sized baselines with no additional cost" - với từ vựng đầu vào lớn, mô hình 400M tham số đạt hiệu suất tương đương mô hình 1B tham số mà không tốn thêm chi phí.
 
 **mối quan hệ log-linear** giữa kích thước từ vựng đầu vào và training loss: "exponentially increasing the input vocabulary size consistently results in a linear decrease in loss". => Cái này dễ hiểu!
 
-![](https://arxiv.org/html/2501.16975v1/x1.png)
+KẾT LUẬN: OVER ENCODE SCALE TUYẾN TÍNH VÀ ỔN ĐỊNH, OVER DECODE SCALE PHI TUYẾN VÀ PHỤ THUỘC KÍCH THƯỚC MÔ HÌNH.
 
-KẾT LUẬN: OE SCALE TUYẾN TÍNH VÀ ỔN ĐỊNH, OD SCALE PHI TUYẾN VÀ PHỤ THUỘC KÍCH THƯỚC MÔ HÌNH.
-
-## Larger Models Deserve Larger Vocabularies
-- https://www.alphaxiv.org/overview/2406.16508 (Large Vocabulary Size Improves Large Language Models)
-- https://www.alphaxiv.org/code/2407.13623
-
-![](https://substackcdn.com/image/fetch/w_1456,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F443f26f7-38c8-4e8a-85e6-a528b78f83a0_776x385.png)
-
-Ý chính 3: Thực trạng hiện tại "Most LLMs, however, use insufficient vocabulary sizes. For example, we predict that the optimal vocabulary size of Llama2-70B should have been at least 216K, 7 times larger than its vocabulary of 32K." - Tuy nhiên, hầu hết các LLM sử dụng kích thước từ vựng không đủ. Ví dụ, chúng tôi dự đoán rằng kích thước từ vựng tối ưu của Llama2-70B lẽ ra phải ít nhất 216K, lớn hơn 7 lần so với từ vựng 32K hiện tại.
-
-Scaling laws của vocabulary size mà bài báo phát hiện ra cho thấy kích thước từ vựng tối ưu có mối quan hệ toán học cụ thể với các thành phần khác của mô hình. Luật chính được thể hiện qua công thức `N_v^opt ∝ N_nv^γ` với `γ ≈ 0.83 < 1`, có nghĩa là **các tham số từ vựng nên được mở rộng chậm hơn các tham số phi từ vựng**.
-
-Lý do đằng sau scaling law này là khi đã có không gian embedding đủ phong phú thông qua từ vựng lớn, việc mở rộng các tham số phi từ vựng để học các cấu trúc cú pháp và ngữ nghĩa phức tạp của ngôn ngữ trở nên quan trọng hơn. Do đó, vocabulary size không cần tăng tỷ lệ thuận hoàn toàn với kích thước mô hình mà chỉ cần tăng theo tỷ lệ γ < 1.
-
----
 
 ## STOCHASTOK
 https://www.alphaxiv.org/overview/2506.01687
@@ -34,22 +39,12 @@ Với câu có 20 tokens thì expand 2 lần
 
 !!! Như vậy cũng có thể ngẫu nhiên merge 2 tokens lại để có được phiên bản 2-gram => TKNZ linh hoạt !!!
 
+Kết hợp OT và STOCHASTOK
+------------------------
 
-## Training free token transplantation via OMP (orthogonal matching pursuit)
-- https://www.alphaxiv.org/abs/2506.06607
+!!! Ta có thể huấn luyện cho model hiểu từ vựng có độ phân giản mịn hơn (tách 1 token làm 2 tokens) hoặc đô phân giải thô hơn(sử dụng 2-gram như là 1 token) bằng cách ngẫu nhiên tăng hoặc giảm độ phân giải của chuỗi đầu vào !!!
 
 ---
-
-# ADAT: Adaptive Tokenizer
-- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf
-
-Giải pháp – ADAT (Adaptive Tokenizer)
-
-- Khởi tạo từ từ-vựng lớn.
-- Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
-- Cắt bỏ token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
-
-=> !!! Có thể ADAPT ngay trong lúc pre-train !!!
 
 ## Scaling LLM Pre-training with Vocabulary Curriculum
 - https://ar5iv.labs.arxiv.org/html/2502.17910
@@ -59,29 +54,9 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 
 ban đầu mô hình học xử lý ký tự và các đơn vị nhỏ (giúp nắm chắc cấu trúc cơ bản), về sau dần “nâng cấp” lên các token lớn hơn cho những mẫu phổ biến. Yu và cộng sự cho biết cách làm này giúp mô hình GPT nhỏ đạt bpc (bits-per-character) thấp hơn ~6.7% so với mô hình dùng vocab cố định cùng kích thước. Hơn nữa, khi tăng gấp đôi kích thước vocab, mô hình thích ứng thu được hiệu quả cải thiện cao hơn ~34% so với mô hình truyền thống (tức là tận dụng vocab lớn tốt hơn). Kết quả cũng cho thấy một hệ thống phân cấp token tự nhiên hình thành: các token dài dần xuất hiện để đại diện cho các cụm từ phổ biến, dễ dự đoán, còn những đoạn nội dung khó dự đoán thì vẫn bị phân nhỏ thành token ngắn hơn để mô hình xử lý chi tiết. Điều này khớp với trực giác rằng tokenization động cho phép mô hình phân bổ tài nguyên tính toán hợp lý hơn – dành nhiều “não” hơn cho phần phức tạp, bớt tốn sức cho phần đơn giản.
 
----
-
-# OTT: Over Tokenized Transformer
-- https://arxiv.org/html/2501.16975v2
-- https://www.alphaxiv.org/abs/2501.16975v2
-
-A baseline tokenizer constructs a vocabulary using the three terminal characters defined by the CFG, tokenizing sentences character-wisely, which we refer as a `1-gram tokenizer`. We further define `n-gram tokenizers`, whose vocabulary comprises all `3^n possible combinations of n sequential characters`. We train both larger and smaller GPT-2 models using 1-gram and 3-gram tokenizers, respectively.
-
-- The left panel compares 1-gram and **3-gram tokenizers**, showing that 3-gram improves larger (85M parameters) models but harms smaller (2.4M parameters) ones
-- The right panel examines **3-gram usage in encoders and decoders**, revealing consistent gains with 3-gram encoders regardless of model size, while 3-gram decoders degrade performance in smaller models.
-
-|![](https://arxiv.org/html/2501.16975v2/x1.png)|![](https://arxiv.org/html/2501.16975v2/x2.png)|
-|-|-|
-|![](https://arxiv.org/html/2501.16975v2/x3.png)|![](https://arxiv.org/html/2501.16975v2/x4.png)|
-
-We conclude that, when using large tokenizers, the large input vocabulary is always positive while the large output vocabulary can be negative for smaller models. We hypothesize that the difference lies in their respective roles: the input embedding is responsible for encoding the context into feature embeddings, where a larger vocabulary enhances the representational capacity of the feature mapping, thereby positively impacting the model. In contrast, the output vocabulary determines the granularity of the prediction task. A larger output vocabulary implies more fine-grained supervision signals, which can either be beneficial (e.g., for large models prone to overfitting) or burdensome (e.g., for smaller models suffering from severe underfitting). Motivated by this observation, we extend our exploration to over-tokenized transformers in real-world natural language modeling.
-
-Under MTP-DS architecture, over-encoding enhances the representation capacity of token embeddings and directly participates future token predictions. On the one hand, the future token prediction tasks become easier to learn. On the other hand, the over-encoding can be trained more sufficiently. With these advantages, the integration of the two methods yields greater benefits, even on relatively smaller models.
-
-https://arxiv.org/html/2501.16975v2#S4.SS1.SSS0.Px2
-The results are shown in Table 1. We first compare the training loss. At two different model scales, OE-12.8M achieves approximately the same improvement in loss compared to the baseline, despite decreases in the proportion of embedding parameters as the model scales up (i.e., 10× dense parameters for OLMoE-1.3B and 3.7× for OLMoE-7B). However, in terms of downstream evaluation metrics, the performance improvement of OE diminishes. We hypothesize that this reduction is related to the sparse parameters utilized in the MoE architecture, which may overlap with the benefits provided by sparse embedding parameters.
 
 # ADATOK
+- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf
 ![](https://pbs.twimg.com/media/GtS0C4ybMAItNaH?format=jpg&name=large)
 
 ADAT bắt đầu với một từ vựng khổng lồ gồm 150 nghìn tokens được tạo ra bằng các thuật toán truyền thống như Unigram hoặc BytePiece. Mục tiêu là thu gọn từ vựng này xuống còn 50 nghìn tokens thông qua năm vòng lặp cắt tỉa liên tiếp.
@@ -96,3 +71,30 @@ Cuối cùng, các tokens được xếp hạng theo điểm số giảm dần v
 
 Điểm đặc biệt của phương pháp này là việc đánh giá tokens dựa trên cả tần suất xuất hiện lẫn khả năng thực sự giúp mô hình dự đoán tốt hơn, thay vì chỉ dựa vào thống kê tần suất đơn thuần như các phương pháp truyền thống.
 
+---
+
+=> 
+
+# EVOTOK: Where vocabularies evolve with learning (kết hợp Vocab Curriculum và ADATOK)
+https://www.alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65
+
+Cách tiếp cận đề xuất bắt đầu với một từ vựng trung bình khoảng 100 nghìn tokens, một điểm cân bằng tốt giữa độ bao phủ và hiệu quả, với mục tiêu cuối cùng là thu gọn xuống 50 nghìn tokens. Thay vì phải trải qua hai giai đoạn riêng biệt như các phương pháp trước đó, quy trình mới này thực hiện song song hai thao tác sau mỗi epoch huấn luyện.
+
+Đầu tiên là thao tác loại bỏ tokens kém hiệu quả. Hệ thống tính toán điểm số cho tất cả tokens theo công thức L(xi) bằng F(LP(xi), LM(xi)) rồi loại bỏ 20% tokens có điểm số thấp nhất, tương đương 20 nghìn tokens. Đồng thời, hệ thống cũng thực hiện thao tác thêm tokens mới bằng cách áp dụng entropy-guided merging trên corpus để tìm các sequences thỏa mãn điều kiện H(st|s1:t−1) nhỏ hơn H(st−1|s1:t−2) và H(st|s1:t−1) nhỏ hơn ngưỡng epsilon, sau đó thêm vào 10% tokens mới tốt nhất, tương đương 10 nghìn tokens.
+
+Kết quả sau mỗi iteration là từ vựng giảm dần từ 100 nghìn xuống 90 nghìn tokens, tạo nên một quá trình hội tụ có kiểm soát. Cách tiếp cận này mang lại nhiều ưu điểm vượt trội so với các phương pháp trước đó.
+
+Về mặt hiệu quả, việc chỉ cần một lần huấn luyện cho cả hai thao tác giúp giảm 50% chi phí tính toán so với approach riêng lẻ. Từ vựng có thể thích ứng liên tục với quá trình học của mô hình, loại bỏ những tokens đã trở nên lỗi thời và bổ sung những tokens phù hợp với giai đoạn học hiện tại.
+
+Quá trình hội tụ được kiểm soát chặt chẽ thông qua việc điều chỉnh tỷ lệ loại bỏ và thêm mới để đạt được kích thước mục tiêu, ví dụ từ 100 nghìn giảm dần qua các mốc 90 nghìn, 80 nghìn, 70 nghìn, 60 nghìn và cuối cùng là 50 nghìn tokens. Chất lượng được đảm bảo khi tokens mới được tạo ra dựa trên các entropy patterns hiện tại của mô hình, trong khi tokens cũ bị loại bỏ dựa trên performance thực tế.
+
+---
+
+**Cuối cùng làm thế nào để khởi tạo 1 bộ vocab mới theo ý mình từ 1 vocab / model sẵn có?**
+
+=>
+
+# Training free token transplantation via OMP (orthogonal matching pursuit)
+- https://www.alphaxiv.org/abs/2506.06607
+
+...
