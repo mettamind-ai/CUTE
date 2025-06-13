@@ -169,10 +169,10 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim, cconv_width=0)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, mlp_gates, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x)) #* mlp_gates[self.layer_id] # Tokenwise MLP Gating, cần khởi tạo là 1
+        x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -191,11 +191,7 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2 # tokenwise layer value embeddings
-        self.mg = 0             # tokenwise layer MLP gatings
-
-        ## NOTE: vì tokenwise gatings là per token nên gửi luôn vào embeddings là hợp lý 
-        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + self.dim*self.mg, active_vocab)
-        self.embeds.weight.data[..., -self.dim*self.mg : ] = 1  # lg là gating nên khởi tạo là 1
+        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
@@ -229,11 +225,6 @@ class WinGPT(nn.Module):
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
         v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
 
-        ## Tách giá trị gatings gửi vào trong embeddings để dùng ở cuối MLP
-        # mlp_gates = embs[..., -self.mg*self.dim : ]
-        # mlp_gates = list(mlp_gates.chunk(self.mg, dim=-1))
-        mlp_gates = [None]*(self.n_layers - self.mg) # Cho nhiêu dùng nhiêu
-
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
         ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
@@ -241,7 +232,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            fw = lambda blk: lambda x: blk(x, x0, v_embs, mlp_gates, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
         return norm(x), norm(outputs[self.n_layers//2]), x0
