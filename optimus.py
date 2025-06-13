@@ -19,28 +19,31 @@ lib_ops = torch.ops.qtrain
 
 
 @triton.jit
-def fp32_to_bf16_stochastic(x_f32, seed, offset):
-    # Generate 16-bit random numbers
-    rand_16bit = tl.rand(seed + offset, x_f32.shape) * (1 << 16)
-    rand_16bit = rand_16bit.to(tl.int32)
+def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    # Tạo 2D indices
+    m_idx = tl.arange(0, BLOCK_M)[:, None]
+    n_idx = tl.arange(0, BLOCK_N)[None, :]
+    flat_idx = m_idx * BLOCK_N + n_idx + base_offset
     
-    # Bit manipulation để extract fractional part
+    # Generate random values
+    rand_vals  = tl.rand(seed, flat_idx)
+    rand_16bit = (rand_vals * (1 << 16)).to(tl.int32)
+    
+    # Bit manipulation với signed int32
     x_f32_bits = x_f32.to(tl.int32, bitcast=True)
-    x_fraction = x_f32_bits & 0xFFFF        # Lower 16 bits
-    x_bf16_towards_zero = x_f32_bits & 0xFFFF0000  # Upper 16 bits
+    x_fraction = x_f32_bits & 0xFFFF                # Lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & (-65536)     # 0xFFFF0000 as signed = -65536
     
-    # Stochastic rounding decision
     should_round_away = rand_16bit < x_fraction
     
-    # Apply rounding
     x_f32_bits = tl.where(
         should_round_away,
-        x_bf16_towards_zero + 0x10000,  # Round away from zero
-        x_bf16_towards_zero             # Round towards zero
+        x_bf16_towards_zero + 65536,    # +2^16 instead of +0x10000
+        x_bf16_towards_zero
     )
     
-    # Convert back to float32 then to bf16
     return x_f32_bits.to(tl.float32, bitcast=True).to(tl.bfloat16)
+
 
 
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
@@ -93,7 +96,7 @@ def _scaled_mm_kernel(
 
     seed = pid * 999_999 + seed
     thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N  
-    acc_bf16 = fp32_to_bf16_stochastic(acc, seed, thread_offset)
+    acc_bf16 = fp32_to_bf16_stochastic(acc, seed, thread_offset, BLOCK_M, BLOCK_N)
 
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
