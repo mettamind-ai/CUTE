@@ -191,17 +191,17 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers // 2 # tokenwise layer value embeddings
+        self.ve = n_layers // 2     # tokenwise layer value embeddings
         self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve, active_vocab)
 
         self.scalars = nn.Parameter(torch.cat([
-            torch.ones(n_layers), # skip_weights khởi tạo là 1 cho tất cả layers
+            torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
         self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=True)  # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, cconv_width=3)  # Next of next token prediction
+        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=True)  # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
