@@ -86,13 +86,3 @@ Về mặt hiệu quả, việc chỉ cần một lần huấn luyện cho cả 
 
 Quá trình hội tụ được kiểm soát chặt chẽ thông qua việc điều chỉnh tỷ lệ loại bỏ và thêm mới để đạt được kích thước mục tiêu, ví dụ từ 100 nghìn giảm dần qua các mốc 90 nghìn, 80 nghìn, 70 nghìn, 60 nghìn và cuối cùng là 50 nghìn tokens. Chất lượng được đảm bảo khi tokens mới được tạo ra dựa trên các entropy patterns hiện tại của mô hình, trong khi tokens cũ bị loại bỏ dựa trên performance thực tế.
 
----
-
-**Cuối cùng làm thế nào để khởi tạo 1 bộ vocab mới theo ý mình từ 1 vocab / model sẵn có?**
-
-=>
-
-# Training free token transplantation via OMP (orthogonal matching pursuit)
-- https://www.alphaxiv.org/abs/2506.06607
-
-...
