@@ -5,8 +5,6 @@ ADAPTIVE & FLEXIBLE TOKENIZATION
 - https://arxiv.org/html/2501.16975v2
 - https://www.alphaxiv.org/abs/2501.16975v2
 
-Dưới đây là bản tóm tắt bằng tiếng Việt với đầy đủ chi tiết quan trọng:
-
 Phương pháp tokenizer cơ bản (baseline tokenizer) xây dựng vốn từ vựng sử dụng 3 ký tự đầu cuối từ CFG, chia văn bản thành từng ký tự riêng biệt (gọi là tokenizer 1-gram). Ngoài ra, các tokenizer n-gram được định nghĩa dựa trên mọi tổ hợp có thể của $3^n$ chuỗi gồm $n$ ký tự liên tiếp. Nghiên cứu huấn luyện các mô hình GPT-2 kích thước lớn và nhỏ với tokenizer 1-gram và 3-gram.
 
 * Việc sử dụng 3-gram ở encoder luôn cải thiện hiệu suất cho mọi kích thước mô hình. Ngược lại, sử dụng tokenizer 3-gram ở decoder làm giảm hiệu suất trên các mô hình nhỏ.
