@@ -23,13 +23,9 @@
   - DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
     - Activations are quantized in blocks of size 128x1 using the FP8 format
     - Weights are quantized in blocks of size 128x128 using the FP8 format
-    - Tốc độ đang chậm, có lẽ chỉ hợp để giảm vram khi train ở fp8
-  ![](https://camo.githubusercontent.com/64b6700947fead7f6c962daa2a5c2f77812da8cd4650f3866577d3d8a89bd289/68747470733a2f2f61727869762e6f72672f68746d6c2f323431322e313934333776312f78372e706e67)
-
+    - **Tốc độ đang chậm**, có lẽ chỉ hợp để giảm vram khi train ở fp8
 |    m |     k |     n | block_size | dtype         | fp16_latency (ms) | blockwise_latency (ms) | blockwise_speedup |
 |-----:|------:|------:|-----------:|:--------------|------------------:|-----------------------:|------------------:|
-|    1 |  8192 |  8192 |        128 | float8_e4m3fn |            83.744 |                 52.224 |          1.60355  |
-|    8 |  8192 | 57344 |        128 | float8_e4m3fn |           439.104 |                238.208 |          1.84336  |
 |   64 |  8192 | 57344 |        128 | float8_e4m3fn |           471.44  |                245.2   |          1.92268  |
 |  256 | 28672 |  8192 |        128 | float8_e4m3fn |           260.224 |                215.392 |          1.20814  |
 |  512 |  8192 |  8192 |        128 | float8_e5m2   |           121.184 |                114.592 |          1.05753  |
