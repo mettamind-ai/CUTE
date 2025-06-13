@@ -18,7 +18,7 @@ lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
-    [ ( 64, 128, 32, 4, 8), (128, 64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8), (256, 256,  64, 4, 8),]
+    [ ( 64, 128, 32, 4, 8), (128, 64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8),]
 ]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
@@ -52,10 +52,8 @@ def _scaled_mm_kernel(
     B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
-    for k in range(K, 0, -BLOCK_K):
-        a    = tl.load(A, cache_modifier=".cg")
-        b    = tl.load(B, cache_modifier=".cg")
-        acc += tl.dot(a, b)
+    for _ in range(K, 0, -BLOCK_K):
+        acc += tl.dot(tl.load(A), tl.load(B))
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 
