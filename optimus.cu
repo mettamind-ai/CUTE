@@ -36,7 +36,7 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
   int8_t* Bs = smem + M_PER_TB * K_PER_TB;             // offset next
 
   // per‑thread accumulator fragments
-  constexpr int FRAG_M = 16, FRAG_N = 8, FRAG_K = 16;
+  constexpr int FRAG_M = 16, FRAG_N = 16, FRAG_K = 16;
   constexpr int FRAG_PER_WARP_M = M_PER_TB / FRAG_M;
   constexpr int FRAG_PER_WARP_N = N_PER_TB / FRAG_N;
   // INT32 accumulator
