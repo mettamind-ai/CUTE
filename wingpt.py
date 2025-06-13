@@ -47,14 +47,14 @@ class ReLuSquareMLP(nn.Module):
             self.fc2_proj.weight.zero_()
         
 
-    @torch.compile(mode="max-autotune", fullgraph=True)  # fuse fwd+bwd
-    def forward(self, x, mlp_gate=None):
+    # @torch.compile(mode="max-autotune", fullgraph=True)  # fuse fwd+bwd
+    def forward(self, x, gating=None):
         y           = self.fc1_proj(x)
         if self.use_gate:
             y, g    = y.chunk(2, dim=-1)  # tách 2 nửa
             y       = y * g               # gating
-        if mlp_gate is not None:
-            y       = y * mlp_gate
+        if gating is not None:
+            y       = y * gating
         y           = F.relu(y).square()
         z           = self.fc2_proj(y)
         return z
