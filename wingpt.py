@@ -243,7 +243,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     y0  = x0[1:]
     xy0 = torch.cat([x_half[:-1], x[:-1], y0], dim=1)
-    y   = y0 + model.head2(xy0)
+    y   = model.head2(xy0)
     y   = norm(y)
 
     ## Chuẩn hoá đầu vào trước khi tính loss
