@@ -23,12 +23,9 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False, cconv_width=0):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False):
         super().__init__()
         self.use_gate = use_gate
-
-        cconv_width = int(cconv_width)
-        assert cconv_width >= 0 and cconv_width <= 16
 
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
@@ -49,21 +46,15 @@ class ReLuSquareMLP(nn.Module):
             self.fc1_proj.weight.copy_(w)
             self.fc2_proj.weight.zero_()
         
-        self.cconv_width = cconv_width
-        self.use_cconv = cconv_width >= 2
-        if self.use_cconv:  # khởi tạo là trung bình cộng
-            self.cconv_proj = nn.Parameter(torch.ones(dim, 1, cconv_width)/cconv_width)
 
-    # @torch.compile()
+    @torch.compile(mode="max-autotune", fullgraph=True)  # fuse fwd+bwd
     def forward(self, x):
-        T, D = x.shape
-        if self.use_cconv: x  = F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[...,:T].reshape(T,D)
-        y                     = self.fc1_proj(x)
+        y           = self.fc1_proj(x)
         if self.use_gate:
-            y, g              = y.chunk(2, dim=-1)  # tách 2 nửa
-            y                 = y * g               # gating
-        y                     = F.relu(y).square()
-        z                     = self.fc2_proj(y)
+            y, g    = y.chunk(2, dim=-1)  # tách 2 nửa
+            y       = y * g               # gating
+        y           = F.relu(y).square()
+        z           = self.fc2_proj(y)
         return z
 
 ##########################
@@ -200,8 +191,8 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim, use_gate=True)  # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, use_gate=True)  # Next of next token prediction
+        self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim)  # Early exit at half of the layers
+        self.head2 = ReLuSquareMLP(3*dim, hdim=6*dim, odim=dim)  # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -245,15 +236,15 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
-    ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    y0  = x0[1:]
-    xy0 = torch.cat([x[:-1], y0], dim=1)
-    y   = y0 + model.head2(xy0)
-    y   = norm(y)
-
     ## Early exit head
     x_half = model.head1(x_half)
     x_half = norm(x_half)
+
+    ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
+    y0  = x0[1:]
+    xy0 = torch.cat([x_half, x[:-1], y0], dim=1)
+    y   = y0 + model.head2(xy0)
+    y   = norm(y)
 
     ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
@@ -265,7 +256,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     yloss = FusedLinearCrossEntropy.apply(y,      w, ty, n_ignore, ignore)  # MTP: Next of next token prediction
 
     #      NTP         MTP         Early Exit
-    return xloss*0.7 + yloss*0.2 + hloss*0.1
+    return xloss*0.65 + yloss*0.25 + hloss*0.1
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
