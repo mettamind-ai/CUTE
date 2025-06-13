@@ -1,3 +1,16 @@
+/*******************************************************************
+*  scaled_gemm_int8.cu  --  NVCC -arch=sm_89 -O3                   *
+*******************************************************************/
+#include <cuda.h>
+#include <mma.h>
+using namespace nvcuda;
+
+// utilities -------------------------------------------------------
+#define CHECK_CUDA(call)  do { cudaError_t err = call; \
+  if (err != cudaSuccess) { printf("CUDA error %s:%d: %s\n",     \
+     __FILE__, __LINE__, cudaGetErrorString(err)); exit(-1);} } while(0)
+
+// kernel ----------------------------------------------------------
 // kernel ----------------------------------------------------------
 template <int TM, int TN, int TK>
 __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
