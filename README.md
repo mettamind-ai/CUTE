@@ -83,20 +83,19 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - Token được TỰ DO LỰA CHỌN:
     - cách nó attn (chính là query trong self-attn)
     - cách nó chọn số computing / hidden dim để biểu diễn chính nó (MoE)
-    - trong lúc build 
+      https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mixture-of-experts
+
   - [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head) để giữ head bé
     - trong lúc tknz có tỉ lệ nhỏ 1-2% tự động phân mảnh token hoặc gộp 2 token liền nhau (dùng model để chọn luôn)
       nhằm huấn luyện model thích ứng với nhiều cách tknz khác nhau và build embeddings của n-grams (n > 2)
-    - [ ] tìm cách tận dụng loss per token từ step trước để quyết định phân tách / gộp chính xác hơn.
-    - có lẽ nên init based khoảng 2k unit tokens, khởi tạo n-gram trước
-    - tính hashing để các n-gram hay xuất hiện ít collision nhất có thể
-    - để dành 2k new tokens cho model tự chọn theo ý nó, việc combine không vượt quá n-gram đã khởi tạo
-  - [ ] Bộ vocab tự tiến hoá (adapt) theo nhu cầu của model trong lúc training
-    - model tự drop những tokens kém được khởi tạo thô từ trước
+
+  - [ ] tìm cách tận dụng loss per token từ step trước để quyết định phân tách / gộp chính xác hơn.
+    **Cách nhóm tokens thế nào sẽ do model tính điểm 1 lần trên based tokens trước rồi mới quyết**
+
+  - [ ] Bắt đầu bằng bất kỳ khởi tạo vocab nào và nó tự tiến hoá theo nhu cầu của model trong lúc training
+    - model tự drop những tokens kém được khởi tạo thô từ trước (ADAT)
       - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
       - Hạ tần suất xuất hiện của những token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
-    - model tự promote những combined tokens theo tiêu chí của nó
-  - Nếu liên tục được promote những tokens mới thì model tự nhiên sẽ tạo ra SUPER TOKENS mà không cần sự can thiệp hay quy trình riêng.
+    - model tự promote những combined tokens theo tiêu chí của nó (Vocabulary Curriculum)
 
-- MoE
-  - https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mixture-of-experts
+  - **Nếu liên tục promote những tokens mới thì model tự nhiên sẽ tạo ra SUPER TOKENS của riêng nó.**

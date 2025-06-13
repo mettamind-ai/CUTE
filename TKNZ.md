@@ -59,18 +59,6 @@ Giải pháp – ADAT (Adaptive Tokenizer)
 
 ban đầu mô hình học xử lý ký tự và các đơn vị nhỏ (giúp nắm chắc cấu trúc cơ bản), về sau dần “nâng cấp” lên các token lớn hơn cho những mẫu phổ biến. Yu và cộng sự cho biết cách làm này giúp mô hình GPT nhỏ đạt bpc (bits-per-character) thấp hơn ~6.7% so với mô hình dùng vocab cố định cùng kích thước. Hơn nữa, khi tăng gấp đôi kích thước vocab, mô hình thích ứng thu được hiệu quả cải thiện cao hơn ~34% so với mô hình truyền thống (tức là tận dụng vocab lớn tốt hơn). Kết quả cũng cho thấy một hệ thống phân cấp token tự nhiên hình thành: các token dài dần xuất hiện để đại diện cho các cụm từ phổ biến, dễ dự đoán, còn những đoạn nội dung khó dự đoán thì vẫn bị phân nhỏ thành token ngắn hơn để mô hình xử lý chi tiết. Điều này khớp với trực giác rằng tokenization động cho phép mô hình phân bổ tài nguyên tính toán hợp lý hơn – dành nhiều “não” hơn cho phần phức tạp, bớt tốn sức cho phần đơn giản.
 
-
----
-
-# zip2zip
-- https://www.alphaxiv.org/abs/2506.01084v1
-a framework that enables LLMs to **dynamically adjust token vocabulary at inference time**, allowing for fewer generated tokens and thus faster inference. zip2zip consists of three key components:
-- (1) a tokenizer based on LZW compression that incrementally compresses tokens into reusable "`hypertokens`" on the fly;
-- (2) an embedding layer that computes embeddings for newly formed hypertokens at runtime; and
-- (3) a causal language modeling variant that trains the model to operate on hypertokenized, compressed sequences.
-
-We show that an **existing LLM can be zip2zip-fied in 10 GPU-hours via parameter-efficient finetuning**. The resulting zip2zip LLMs effectively learn to use hypertokens at inference time, reducing input and output sequence length by 20-60\%, with significant improvements in inference latency.
-
 ---
 
 # OTT: Over Tokenized Transformer
@@ -93,6 +81,18 @@ Under MTP-DS architecture, over-encoding enhances the representation capacity of
 https://arxiv.org/html/2501.16975v2#S4.SS1.SSS0.Px2
 The results are shown in Table 1. We first compare the training loss. At two different model scales, OE-12.8M achieves approximately the same improvement in loss compared to the baseline, despite decreases in the proportion of embedding parameters as the model scales up (i.e., 10× dense parameters for OLMoE-1.3B and 3.7× for OLMoE-7B). However, in terms of downstream evaluation metrics, the performance improvement of OE diminishes. We hypothesize that this reduction is related to the sparse parameters utilized in the MoE architecture, which may overlap with the benefits provided by sparse embedding parameters.
 
-# ADAPTOK
+# ADATOK
 ![](https://pbs.twimg.com/media/GtS0C4ybMAItNaH?format=jpg&name=large)
+
+ADAT bắt đầu với một từ vựng khổng lồ gồm 150 nghìn tokens được tạo ra bằng các thuật toán truyền thống như Unigram hoặc BytePiece. Mục tiêu là thu gọn từ vựng này xuống còn 50 nghìn tokens thông qua năm vòng lặp cắt tỉa liên tiếp.
+
+Trong mỗi vòng lặp, quá trình diễn ra qua bốn bước chính. Đầu tiên, một mô hình LLM nhỏ được khởi tạo ngẫu nhiên và huấn luyện trên 0.3 tỷ tokens với từ vựng hiện tại. Tiếp theo, mô hình này thực hiện inference trên 0.1 tỷ tokens để thu thập dữ liệu về hiệu suất của từng token.
+
+Hệ thống sau đó tính toán hai loại loss quan trọng cho mỗi token. Loss tần suất Unigram LP(xi) được tính bằng công thức LP(V) trừ đi LP(V-xi), phản ánh tầm quan trọng của token theo góc độ thống kê. Loss hiệu suất LLM LM(xi) được tính bằng tổng các giá trị cross-entropy CE(M(xi-1), xi), đánh giá khả năng của token trong việc giúp mô hình dự đoán chính xác.
+
+Hai loại loss này được kết hợp thành điểm số cuối cùng theo công thức L(xi) bằng LP(xi) chia cho λ nhân với logarit của LM(xi) cộng một. Để tăng tính ổn định, hệ thống áp dụng kỹ thuật momentum với công thức L^j_momentum(xi) bằng β nhân L^j-1_momentum(xi) cộng với L^j(xi).
+
+Cuối cùng, các tokens được xếp hạng theo điểm số giảm dần và 20% tokens có điểm thấp nhất sẽ bị loại bỏ. Quá trình này lặp lại qua năm vòng, từ 150 nghìn tokens ban đầu giảm dần xuống 120 nghìn, 96 nghìn, 77 nghìn, 62 nghìn và cuối cùng là 50 nghìn tokens.
+
+Điểm đặc biệt của phương pháp này là việc đánh giá tokens dựa trên cả tần suất xuất hiện lẫn khả năng thực sự giúp mô hình dự đoán tốt hơn, thay vì chỉ dựa vào thống kê tần suất đơn thuần như các phương pháp truyền thống.
 
