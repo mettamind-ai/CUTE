@@ -85,28 +85,28 @@ def _scaled_mm_kernel(
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
-    seed = pid * 999_999 + seed
-    thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N  
-    acc_bf16 = fp32_to_bf16_stochastic(acc, seed, thread_offset, BLOCK_M, BLOCK_N)
+    if seed > 0:
+        thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
+        acc = fp32_to_bf16_stochastic(acc, pid*999_999 + seed, thread_offset, BLOCK_M, BLOCK_N)
 
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
-    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc_bf16, mask)
+    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
 
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, sr=False) -> Tensor:
     return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, sr=False):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, sr=False):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
-    seed = int(time.time_ns()) % (2**31)  # nanosecond for higher precision
+    seed = int(time.time_ns()) % (2**31) if sr else 0
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, seed, *A.stride(), *B.stride(), *C.stride(),)
     return C
