@@ -53,9 +53,6 @@ def _scaled_mm_kernel(
     B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
-    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
-    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
-
     for k in range(K, 0, -BLOCK_K):
         a    = tl.load(A, cache_modifier=".cg")
         b    = tl.load(B, cache_modifier=".cg")
@@ -70,6 +67,8 @@ def _scaled_mm_kernel(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
+    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
+    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
     xindex = idx_m * stride_cm + idx_n * stride_cn
