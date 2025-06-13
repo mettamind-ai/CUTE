@@ -18,21 +18,22 @@ aten = torch.ops.aten
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
-cfgs, _grid = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
-    # (128, 128,  32, 4, 4),  (128,  64,  32, 4, 4),  ( 64, 128,  32, 4, 4),
-    # (128, 128,  32, 2, 8),  ( 64, 128,  32, 4, 8),  (128,  64,  32, 4, 8),
+cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
+    (128, 128,  32, 4, 4),  ( 64, 128,  32, 4, 8),  (128,  64,  32, 4, 8),
     (128, 128, 128, 4, 4),  (128,  64,  64, 4, 4),  ( 64, 128,  64, 4, 4),
     (256, 128,  64, 4, 8),  (128, 256,  64, 4, 8),  (128, 128,  64, 3, 8), 
-
-], lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+]
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
+_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
 
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,
-    stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
-    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, GROUP_M: tl.constexpr = 8,
+    stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
+    stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
+    BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
+    GROUP_M:   tl.constexpr = 8,
 ):
     pid = tl.program_id(0)
     grid_m = (M + BLOCK_M - 1) // BLOCK_M
