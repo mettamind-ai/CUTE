@@ -26,7 +26,7 @@ def _scaled_mm_kernel(
     stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
     stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
     BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
-    GROUP_M:   tl.constexpr = 8,
+    GROUP_M:   tl.constexpr = 8, # số khối theo chiều M được nhóm lại (để tối ưu L2 cache)
 ):
     pid = tl.program_id(0)
     grid_m = (M + BLOCK_M - 1) // BLOCK_M
@@ -40,12 +40,13 @@ def _scaled_mm_kernel(
     pid_m = group_id * GROUP_M + (pid % group_size)
     pid_n = (pid % width) // (group_size)
 
+    # `r` range arrays (rm, rn, rk là các mảng chỉ số)
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     rk =                   tl.arange(0, BLOCK_K)
 
-    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
-    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+    ram = tl.max_contiguous(tl.multiple_of(rm, BLOCK_M), BLOCK_M) # tl.max_contiguous => tối đa BLOCK_M phần tử liền kề trong memory
+    rbn = tl.max_contiguous(tl.multiple_of(rn, BLOCK_N), BLOCK_N) # 
 
     A = A_ptr + (ram[:, None] * stride_am +  rk[None, :] * stride_ak)
     B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
