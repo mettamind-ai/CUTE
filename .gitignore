@@ -11,3 +11,5 @@ nohup.out
 data
 cutlass
 cpm.cu
+*.o
+*.so

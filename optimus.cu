@@ -1,12 +1,13 @@
 /*******************************************************************
 *  optimus.cu  –  scaled INT8 GEMM + row/col scale (RTX 4090)     *
 *******************************************************************/
-// nvcc -arch=sm_89 -O3 --expt-relaxed-constexpr -std=c++17 -c optimus.cu -o optimus.o
-// nvcc -arch=sm_89 -shared -Xcompiler -fPIC optimus.o -o liboptimus.so
+// nvcc -arch=sm_86 -O3 --expt-relaxed-constexpr -std=c++17 -c optimus.cu -o optimus.o
+// nvcc -arch=sm_86 -shared -Xcompiler -fPIC optimus.o -o liboptimus.so
 
 #include <cuda.h>
 #include <mma.h>
 #include <stdint.h>
+#include <stdio.h>
 
 using namespace nvcuda;
 
@@ -61,12 +62,23 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
       if (idx < M_PER_TB * K_PER_TB) {
         int row = idx / K_PER_TB;
         int col = idx % K_PER_TB;
-        As[idx] = a_tile_global[row * lda + (k0 + col)];
+        // Boundary check to prevent out-of-bounds memory access
+        if ((tb_row * M_PER_TB + row) < M && (k0 + col) < K) {
+          As[idx] = a_tile_global[row * lda + (k0 + col)];
+        } else {
+          As[idx] = 0;
+        }
       } else {
         int j = idx - M_PER_TB * K_PER_TB;
         int row = j / N_PER_TB;
         int col = j % N_PER_TB;
-        Bs[j] = b_tile_global[(k0 + row) * ldb + col];
+        // Boundary check to prevent out-of-bounds memory access
+        if ((k0 + row) < K && (tb_col * N_PER_TB + col) < N) {
+          // transpose B-tile on the fly
+          Bs[col * K_PER_TB + row] = b_tile_global[(k0 + row) * ldb + col];
+        } else {
+          Bs[col * K_PER_TB + row] = 0;
+        }
       }
     }
     __syncthreads();
@@ -76,7 +88,7 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
     for (int kk = 0; kk < K_PER_TB; kk += FRAG_K)
     {
       const int8_t* a_panel = As + kk;
-      const int8_t* b_panel = Bs + kk * N_PER_TB;
+      const int8_t* b_panel = Bs + kk;
 
       #pragma unroll
       for (int mi = 0; mi < M_PER_TB; mi += FRAG_M)
@@ -97,7 +109,7 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
         wmma::load_matrix_sync(
             a_frag, a_panel + mi * K_PER_TB, K_PER_TB);
         wmma::load_matrix_sync(
-            b_frag, b_panel + nj, N_PER_TB);
+            b_frag, b_panel + nj * K_PER_TB, K_PER_TB);
 
         int frag_idx = (mi / FRAG_M) * FRAG_PER_WARP_N + (nj / FRAG_N);
         wmma::mma_sync(acc_frags[frag_idx],
@@ -142,12 +154,28 @@ void launch_scaled_int8(const int8_t* dA, const int8_t* dB,
                         const float* dColS,
                         int M, int N, int K)
 {
+  // Initialize output to zeros
+  cudaMemset(dC, 0, M * N * sizeof(float));
+  
   dim3 block(32, 8, 1);      // 256 threads
   dim3 grid((N + TN - 1)/TN,
             (M + TM - 1)/TM);
   size_t smem = (TM * TK + TK * TN) * sizeof(int8_t);
+  
+  // Synchronize before launch to ensure previous operations are complete
+  cudaDeviceSynchronize();
+  
   s8s8_scales_gemm<TM, TN, TK>
       <<<grid, block, smem>>>(
           dA, dB, dC, dRowS, dColS,
           M, N, K,         /*lda*/K, /*ldb*/N, /*ldc*/N);
+  
+  // Synchronize after launch to ensure kernel completion before checking errors
+  cudaDeviceSynchronize();
+  
+  // Check for CUDA errors
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("CUDA Error: %s\n", cudaGetErrorString(err));
+  }
 }
