@@ -1,118 +1,150 @@
 /*******************************************************************
-*  scaled_gemm_int8.cu  --  NVCC -arch=sm_89 -O3                   *
+*  optimus.cu  –  scaled INT8 GEMM + row/col scale (RTX 4090)     *
 *******************************************************************/
 #include <cuda.h>
 #include <mma.h>
+#include <stdint.h>
 
 using namespace nvcuda;
 
-// utilities -------------------------------------------------------
-#define CHECK_CUDA(call)  do { cudaError_t err = call; \
-  if (err != cudaSuccess) { printf("CUDA error %s:%d: %s\n",     \
-     __FILE__, __LINE__, cudaGetErrorString(err)); exit(-1);} } while(0)
+// ---------------- parameters you may tune ------------------------
+#define TM 128
+#define TN 128
+#define TK 64
+// -----------------------------------------------------------------
 
-// kernel ----------------------------------------------------------
-template <int TM, int TN, int TK>
+// kernel -----------------------------------------------------------
+template <int M_PER_TB, int N_PER_TB, int K_PER_TB>
 __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
                                  const int8_t* __restrict__ B,
                                  float*       __restrict__ C,
                                  const float* __restrict__ row_s,
                                  const float* __restrict__ col_s,
-                                 int M, int N, int K, int lda, int ldb, int ldc)
+                                 int M, int N, int K,
+                                 int lda, int ldb, int ldc)
 {
-  // 1. Threadblock indices
-  int block_row = blockIdx.y;
-  int block_col = blockIdx.x;
+  // block index
+  int tb_row = blockIdx.y;
+  int tb_col = blockIdx.x;
 
-  // 2. Tile pointers in global mem
-  const int8_t* A_tile = A + block_row * TM * lda;
-  // For row-major B, the starting point is different
-  const int8_t* B_tile = B + block_col * TN;
-
-  // 3. Shared memory
+  // shared memory layout: A‑tile (M_PER_TB × K_PER_TB) | B‑tile (K_PER_TB × N_PER_TB)
   extern __shared__ int8_t smem[];
-  int8_t* As = smem;                                  // TM x TK
-  int8_t* Bs = smem + TM*TK;                          // TK x TN
+  int8_t* As = smem;                                   // offset 0
+  int8_t* Bs = smem + M_PER_TB * K_PER_TB;             // offset next
 
-  // 4. Accumulator fragment (per‑thread, INT32) - Use 16x8x16 for sm_89
-  wmma::fragment<wmma::accumulator, 16, 8, 16, int32_t> c_frag[ (TM/16)*(TN/8) ];
+  // per‑thread accumulator fragments
+  constexpr int FRAG_M = 16, FRAG_N = 8, FRAG_K = 32;
+  constexpr int FRAG_PER_WARP_M = M_PER_TB / FRAG_M;
+  constexpr int FRAG_PER_WARP_N = N_PER_TB / FRAG_N;
+  // INT32 accumulator
+  wmma::experimental::fragment<wmma::experimental::accumulator,
+                               FRAG_M, FRAG_N, FRAG_K, int32_t>
+      acc_frags[FRAG_PER_WARP_M * FRAG_PER_WARP_N];
   #pragma unroll
-  for (auto &frag : c_frag) wmma::fill_fragment(frag, 0);
+  for (auto &f : acc_frags) wmma::experimental::fill_fragment(f, 0);
 
-  // 5. Main loop over K
-  for (int k0=0; k0 < K; k0 += TK) {
-    // -- Load A & B tiles to SMEM
-    // This part needs to be carefully implemented for performance.
-    // A simple implementation is shown for correctness.
-    __syncthreads();
-    for (int i = threadIdx.x; i < TM * TK; i += blockDim.x) {
-        int row = i / TK;
-        int col = i % TK;
-        As[i] = A_tile[row * lda + col + k0];
-    }
-    for (int i = threadIdx.x; i < TK * TN; i += blockDim.x) {
-        int row = i / TN;
-        int col = i % TN;
-        // B is row-major, ldb is K
-        Bs[i] = B_tile[(row + k0) * ldb + col];
+  // pointer to the first element of this TB in global mem
+  const int8_t* a_tile_global = A + (tb_row * M_PER_TB) * lda;
+  const int8_t* b_tile_global = B + (tb_col * N_PER_TB);
+  // main loop over K
+  for (int k0 = 0; k0 < K; k0 += K_PER_TB)
+  {
+    // ----------------------------------------------------------------
+    // 1. copy A & B sub‑tiles (INT8) from GMEM → SMEM (coalesced copy)
+    // each thread copies multiple elements
+    for (int idx = threadIdx.x; idx < M_PER_TB * K_PER_TB + K_PER_TB * N_PER_TB;
+         idx += blockDim.x)
+    {
+      if (idx < M_PER_TB * K_PER_TB) {
+        int row = idx / K_PER_TB;
+        int col = idx % K_PER_TB;
+        As[idx] = a_tile_global[row * lda + (k0 + col)];
+      } else {
+        int j = idx - M_PER_TB * K_PER_TB;
+        int row = j / N_PER_TB;
+        int col = j % N_PER_TB;
+        Bs[j] = b_tile_global[(k0 + row) * ldb + col];
+      }
     }
     __syncthreads();
 
-    // -- Iterate subTiles 16x8x16
-    for (int kk = 0; kk < TK; kk += 16) {
-      const int8_t *tileA = As + kk;
-      const int8_t *tileB = Bs + kk*TN;
+    // ----------------------------------------------------------------
+    // 2. tensor‑core MMA on the loaded tile
+    for (int kk = 0; kk < K_PER_TB; kk += FRAG_K)
+    {
+      const int8_t* a_panel = As + kk;
+      const int8_t* b_panel = Bs + kk * N_PER_TB;
 
       #pragma unroll
-      for (int i=0; i < TM; i+=16)
+      for (int mi = 0; mi < M_PER_TB; mi += FRAG_M)
       #pragma unroll
-      for (int j=0; j < TN; j+=8) {
-        // For sm_89, both A and B must be row_major for s8 operands
-        wmma::fragment<wmma::matrix_a, 16, 8, 16, int8_t, wmma::row_major> a_frag;
-        wmma::fragment<wmma::matrix_b, 16, 8, 16, int8_t, wmma::row_major> b_frag; // <-- Changed to row_major
-        wmma::load_matrix_sync(a_frag, tileA + i*TK, TK);
-        wmma::load_matrix_sync(b_frag, tileB + j, TN); // ldb is TN for row-major tile in smem
-        int idx = (i/16)*(TN/8) + (j/8);
-        wmma::mma_sync(c_frag[idx], a_frag, b_frag, c_frag[idx]);
+      for (int nj = 0; nj < N_PER_TB; nj += FRAG_N)
+      {
+        // load fragments
+        wmma::experimental::fragment<wmma::experimental::matrix_a,
+            FRAG_M, FRAG_N, FRAG_K,
+            wmma::experimental::precision::s8,
+            wmma::row_major> a_frag;
+
+        wmma::experimental::fragment<wmma::experimental::matrix_b,
+            FRAG_M, FRAG_N, FRAG_K,
+            wmma::experimental::precision::s8,
+            wmma::col_major> b_frag;
+
+        wmma::experimental::load_matrix_sync(
+            a_frag, a_panel + mi * K_PER_TB, K_PER_TB);
+        wmma::experimental::load_matrix_sync(
+            b_frag, b_panel + nj, N_PER_TB);
+
+        int frag_idx = (mi / FRAG_M) * FRAG_PER_WARP_N + (nj / FRAG_N);
+        wmma::experimental::mma_sync(acc_frags[frag_idx],
+                                     a_frag, b_frag, acc_frags[frag_idx]);
       }
     }
     __syncthreads();
   }
 
-  // 6. Epilogue: write C with row/col scale
-  int row_base = block_row * TM;
-  int col_base = block_col * TN;
-  for (int i=0; i < TM; i+=16)
-  for (int j=0; j < TN; j+=8) {
-    int idx = (i/16)*(TN/8) + (j/8);
-    wmma::fragment<wmma::accumulator, 16,8,16,int32_t>& frag = c_frag[idx];
-    // convert & scale
-    #pragma unroll
-    for (int t=0; t < frag.num_elements; ++t) {
-      // Mapping from fragment element to matrix coordinates
-      int frag_row_in_tile = t / 8;
-      int frag_col_in_tile = t % 8;
-      int r = row_base + i + frag_row_in_tile;
-      int c = col_base + j + frag_col_in_tile;
-      if (r < M && c < N) {
-        float val = static_cast<float>(frag.x[t]);
-        val *= row_s[r] * col_s[c];
-        C[r*ldc + c] = val;
-      }
+  // ------------------------------------------------------------------
+  // 3. Epilogue: scale & store to global mem
+  int row0 = tb_row * M_PER_TB + threadIdx.y;          // warp‑row offset
+  int col0 = tb_col * N_PER_TB + threadIdx.x;          // warp‑col offset
+
+  // we use one thread to write one FP32 element
+  for (int mi = threadIdx.y; mi < M_PER_TB; mi += blockDim.y)
+  for (int nj = threadIdx.x; nj < N_PER_TB; nj += blockDim.x)
+  {
+    int frag_idx = (mi / FRAG_M) * FRAG_PER_WARP_N + (nj / FRAG_N);
+    auto &frag = acc_frags[frag_idx];
+
+    int local_m = mi % FRAG_M;
+    int local_n = nj % FRAG_N;
+    int elt_idx = local_m * FRAG_N + local_n;
+
+    int global_m = tb_row * M_PER_TB + mi;
+    int global_n = tb_col * N_PER_TB + nj;
+
+    if (global_m < M && global_n < N) {
+      float val = static_cast<float>(frag.x[elt_idx]);
+      val *= row_s[global_m] * col_s[global_n];
+      C[global_m * ldc + global_n] = val;
     }
   }
 }
 
-// host helper -----------------------------------------------------
+// ------------------------ host wrapper ----------------------------
+extern "C"
 void launch_scaled_int8(const int8_t* dA, const int8_t* dB,
-                        float* dC, const float* row_s, const float* col_s,
+                        float* dC,
+                        const float* dRowS,
+                        const float* dColS,
                         int M, int N, int K)
 {
-  const int TM = 64, TN = 64, TK = 64;
-  dim3 grid( (N+TN-1)/TN, (M+TM-1)/TM );
-  dim3 block(256);
-  size_t smem = (TM*TK + TK*TN) * sizeof(int8_t);
-  s8s8_scales_gemm<TM,TN,TK><<<grid, block, smem>>>(
-      dA, dB, dC, row_s, col_s,
-      M, N, K, /*lda*/K, /*ldb*/K, /*ldc*/N); // ldb is now K for row-major B
+  dim3 block(32, 8, 1);      // 256 threads
+  dim3 grid((N + TN - 1)/TN,
+            (M + TM - 1)/TM);
+  size_t smem = (TM * TK + TK * TN) * sizeof(int8_t);
+  s8s8_scales_gemm<TM, TN, TK>
+      <<<grid, block, smem>>>(
+          dA, dB, dC, dRowS, dColS,
+          M, N, K,         /*lda*/K, /*ldb*/N, /*ldc*/N);
 }
