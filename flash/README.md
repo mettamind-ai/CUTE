@@ -60,6 +60,7 @@ ROUNDING & SMOOTHING
 |dOV^T	        | FP16	|🔴 FP16	|Critical cho gradient accuracy!  |
 |dS, dQ, dK	    | FP16	|INT8	|Gradients cần FP16 storage           |
 
+|||
 |-|-|
 |The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's grad) and `dK` during the recurrent process along the sequence length in FlashAttention’s backward pass, meaning longer sequences lead to greater error accumulation. Therefore, we maintain `dOV^T` in FP16 while accelerating the other four matrix multiplications using INT8 per-block quantization.|![](https://paper-assets.alphaxiv.org/figures/2505.11594/x10.png)|
 
