@@ -52,9 +52,6 @@ def _scaled_mm_kernel(
     B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
-    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
-    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
-
     for k in range(K, 0, -BLOCK_K):
         a    = tl.load(A, cache_modifier=".cg")
         b    = tl.load(B, cache_modifier=".cg")
@@ -63,16 +60,17 @@ def _scaled_mm_kernel(
         B   += BLOCK_K * stride_bk
 
     # rematerialize rm and rn to save registers
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-    idx_m = rm[:, None]
-    idx_n = rn[None, :]
+    idx_m = ( pid_m * BLOCK_M + tl.arange(0, BLOCK_M) )[:, None]
+    idx_n = ( pid_n * BLOCK_N + tl.arange(0, BLOCK_N) )[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
+    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
+    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
+
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
 def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
