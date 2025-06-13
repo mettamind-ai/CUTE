@@ -17,12 +17,38 @@ from torch import Tensor, nn
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
+
+@triton.jit
+def fp32_to_bf16_stochastic(x_f32, seed, offset):
+    # Generate 16-bit random numbers
+    rand_16bit = tl.rand(seed + offset, x_f32.shape) * (1 << 16)
+    rand_16bit = rand_16bit.to(tl.int32)
+    
+    # Bit manipulation để extract fractional part
+    x_f32_bits = x_f32.to(tl.int32, bitcast=True)
+    x_fraction = x_f32_bits & 0xFFFF        # Lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & 0xFFFF0000  # Upper 16 bits
+    
+    # Stochastic rounding decision
+    should_round_away = rand_16bit < x_fraction
+    
+    # Apply rounding
+    x_f32_bits = tl.where(
+        should_round_away,
+        x_bf16_towards_zero + 0x10000,  # Round away from zero
+        x_bf16_towards_zero             # Round towards zero
+    )
+    
+    # Convert back to float32 then to bf16
+    return x_f32_bits.to(tl.float32, bitcast=True).to(tl.bfloat16)
+
+
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
 [(128, 128, 32, 4, 4), ( 64, 128, 32, 4, 8), (128,  64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8)]]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
-    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,
+    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K, seed,
     stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
     stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
     BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
@@ -57,17 +83,21 @@ def _scaled_mm_kernel(
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 
-    # rematerialize rm and rn to save registers
+    # Không dùng lại `rm, rn`, mà tính trực tiếp để `rm, rn` được giải phóng ở trước vòng for, tiết kiệm registers
     idx_m = ( pid_m * BLOCK_M + tl.arange(0, BLOCK_M) )[:, None]
     idx_n = ( pid_n * BLOCK_N + tl.arange(0, BLOCK_N) )[None, :]
-    mask = (idx_m < M) & (idx_n < N)
 
     A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
-    xindex = idx_m * stride_cm + idx_n * stride_cn
-    tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
+    seed = pid * 999_999 + seed
+    thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N  
+    acc_bf16 = fp32_to_bf16_stochastic(acc, seed, thread_offset)
+
+    mask  = (idx_m < M) & (idx_n < N)
+    index = idx_m * stride_cm + idx_n * stride_cn
+    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
 
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
@@ -82,8 +112,9 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
+    seed = int(time.time_ns()) % (2**31)  # nanosecond for higher precision
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
-    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, seed, *A.stride(), *B.stride(), *C.stride(),)
     return C
 
 @torch.no_grad()
