@@ -158,7 +158,7 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
 
-        self.mlp = ReLuSquareMLP(dim, cconv_width=0)
+        self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
