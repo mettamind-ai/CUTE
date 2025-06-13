@@ -45,10 +45,10 @@ def _scaled_mm_kernel(
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     rk =                   tl.arange(0, BLOCK_K)
 
-    ram = tl.max_contiguous(tl.multiple_of(rm, BLOCK_M), BLOCK_M) # tl.max_contiguous => tối đa BLOCK_M phần tử liền kề trong memory
-    rbn = tl.max_contiguous(tl.multiple_of(rn, BLOCK_N), BLOCK_N) # 
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M) # tl.max_contiguous => tối đa BLOCK_M phần tử liền kề trong memory
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N) # tl.multiple_of => gợi ý alignment, chỉ số là bội số của BLOCK_N
 
-    A = A_ptr + (ram[:, None] * stride_am +  rk[None, :] * stride_ak)
+    A = A_ptr + (ram[:, None] * stride_am +  rk[None, :] * stride_ak) # 2D layout để chuẩn bị nhân ma trận
     B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
