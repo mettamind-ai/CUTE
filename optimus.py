@@ -126,7 +126,7 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
         B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
-        return scaled_mm(A, B, As, Bs,)
+        return scaled_mm(A, B, As, Bs)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -141,12 +141,12 @@ class Int8MixedLinear(torch.autograd.Function):
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
         B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs,)
+        grad_input = scaled_mm(A, B, As, Bs)
 
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
-            grad_weight = scaled_mm(A, B, As, Bs,)
+            grad_weight = scaled_mm(A, B, As, Bs, sr=True)        # phép rounding này rẻ
 
         return grad_input, grad_weight, grad_bias
 
