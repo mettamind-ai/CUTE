@@ -58,7 +58,7 @@ def _scaled_mm_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        acc += tl.dot(tl.load(A), tl.load(B))
+        acc += tl.dot(tl.load(A, cache_modifier=".cg"), tl.load(B, cache_modifier=".cg"))
         A   += BLOCK_K * stride_ak
         B   += BLOCK_K * stride_bk
 
