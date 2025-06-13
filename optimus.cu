@@ -1,6 +1,9 @@
 /*******************************************************************
 *  optimus.cu  –  scaled INT8 GEMM + row/col scale (RTX 4090)     *
 *******************************************************************/
+// nvcc -arch=sm_89 -O3 --expt-relaxed-constexpr -std=c++17 -c optimus.cu -o optimus.o
+// nvcc -arch=sm_89 -shared -Xcompiler -fPIC optimus.o -o liboptimus.so
+
 #include <cuda.h>
 #include <mma.h>
 #include <stdint.h>
@@ -37,11 +40,11 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
   constexpr int FRAG_PER_WARP_M = M_PER_TB / FRAG_M;
   constexpr int FRAG_PER_WARP_N = N_PER_TB / FRAG_N;
   // INT32 accumulator
-  wmma::experimental::fragment<wmma::experimental::accumulator,
+  wmma::fragment<wmma::accumulator,
                                FRAG_M, FRAG_N, FRAG_K, int32_t>
       acc_frags[FRAG_PER_WARP_M * FRAG_PER_WARP_N];
   #pragma unroll
-  for (auto &f : acc_frags) wmma::experimental::fill_fragment(f, 0);
+  for (auto &f : acc_frags) wmma::fill_fragment(f, 0);
 
   // pointer to the first element of this TB in global mem
   const int8_t* a_tile_global = A + (tb_row * M_PER_TB) * lda;
@@ -81,23 +84,23 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
       for (int nj = 0; nj < N_PER_TB; nj += FRAG_N)
       {
         // load fragments
-        wmma::experimental::fragment<wmma::experimental::matrix_a,
+        wmma::fragment<wmma::matrix_a,
             FRAG_M, FRAG_N, FRAG_K,
-            wmma::experimental::precision::s8,
+            wmma::precision::s8,
             wmma::row_major> a_frag;
 
-        wmma::experimental::fragment<wmma::experimental::matrix_b,
+        wmma::fragment<wmma::matrix_b,
             FRAG_M, FRAG_N, FRAG_K,
-            wmma::experimental::precision::s8,
+            wmma::precision::s8,
             wmma::col_major> b_frag;
 
-        wmma::experimental::load_matrix_sync(
+        wmma::load_matrix_sync(
             a_frag, a_panel + mi * K_PER_TB, K_PER_TB);
-        wmma::experimental::load_matrix_sync(
+        wmma::load_matrix_sync(
             b_frag, b_panel + nj, N_PER_TB);
 
         int frag_idx = (mi / FRAG_M) * FRAG_PER_WARP_N + (nj / FRAG_N);
-        wmma::experimental::mma_sync(acc_frags[frag_idx],
+        wmma::mma_sync(acc_frags[frag_idx],
                                      a_frag, b_frag, acc_frags[frag_idx]);
       }
     }
