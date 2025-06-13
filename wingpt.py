@@ -26,7 +26,6 @@ class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False, cconv_width=0):
         super().__init__()
         self.use_gate = use_gate
-        self.dim = dim
 
         cconv_width = int(cconv_width)
         assert cconv_width >= 0 and cconv_width <= 16
@@ -34,20 +33,20 @@ class ReLuSquareMLP(nn.Module):
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
-        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
+        self.fc1_proj = nn.Linear(dim, hdim * (2 if use_gate else 1), bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
         self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
-        if use_gate:
-            self.gate_proj = nn.Linear(dim, hdim, bias=False)
-            self.gate_proj.wd_mul = 2.0
-
         with torch.no_grad():
-            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            if use_gate: self.gate_proj.weight.data.fill_(1)
+            w = init_linear(torch.empty(hdim, dim))
+            if use_gate:
+                gate_w = torch.ones_like(w) / hdim**0.5 # ổn định phương sai
+                w = torch.cat([w, gate_w], 0)
+
+            self.fc1_proj.weight.copy_(w)
             self.fc2_proj.weight.zero_()
         
         self.cconv_width = cconv_width
@@ -56,11 +55,13 @@ class ReLuSquareMLP(nn.Module):
 
     # @torch.compile()
     def forward(self, x):
-        T, D = x.shape; assert D == self.dim
-        if self.use_cconv: x  = x + F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[..., :T].reshape(T,D)
+        T, D = x.shape
+        if self.use_cconv: x  = F.conv1d(x.view(1,D,T), self.cconv_proj, padding=self.cconv_width-1, groups=D)[...,:T].reshape(T,D)
         y                     = self.fc1_proj(x)
+        if self.use_gate:
+            y, g              = y.chunk(2, dim=-1)  # tách 2 nửa
+            y                 = y * g               # gating
         y                     = F.relu(y).square()
-        if self.use_gate:  y  = y *self.gate_proj(x)
         z                     = self.fc2_proj(y)
         return z
 
