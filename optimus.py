@@ -19,7 +19,7 @@ lib_ops = torch.ops.qtrain
 
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) \
     for m, n, k, s, w in [  (128, 128,  32, 4, 4),  ( 64, 128,  32, 4, 8),  (128,  64,  32, 4, 8),
-                            (128, 128, 128, 4, 4),  (128,  64,  64, 4, 4),  ( 64, 128,  64, 4, 4),
+                            # (128, 128, 128, 4, 4),  (128,  64,  64, 4, 4),  ( 64, 128,  64, 4, 4),
                             (256, 128,  64, 4, 8),  (128, 256,  64, 4, 8),  (256, 256,  64, 4, 8),  ]
 ]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
