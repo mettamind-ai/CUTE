@@ -4,7 +4,7 @@
 - Muon optimizer github.com/nil0x9/flash-muon
 - Fused LCE github.com/linkedin/Liger-Kernel
 '''
-import functools, torch, triton, os, re
+import functools, torch, triton, os, re, time
 import triton.language as tl, torch.distributed as dist
 import torch.nn.functional as F, torch.utils._pytree as pytree
 
