@@ -195,7 +195,7 @@ class WinGPT(nn.Module):
         ]))
 
         self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim)  # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(3*dim, hdim=6*dim, odim=dim)  # Next of next token prediction
+        self.head2 = ReLuSquareMLP(2*dim, hdim=6*dim, odim=dim)  # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -244,7 +244,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     x_half = norm(model.head1(x_half))
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    xy0 = torch.cat([x_half[:-1]*0.6, x[:-1], x0[1:]], dim=1)
+    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
     y   = norm(model.head2(xy0, mlp_gates[1:]))
 
     ## Chuẩn hoá đầu vào trước khi tính loss
