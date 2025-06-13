@@ -14,18 +14,14 @@ from torch import Tensor, nn
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
-aten = torch.ops.aten
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
-cfgs = [ # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
-    (128, 128,  32, 4, 4),  ( 64, 128,  32, 4, 8),  (128,  64,  32, 4, 8),
-    (128, 128, 128, 4, 4),  (128,  64,  64, 4, 4),  ( 64, 128,  64, 4, 4),
-    (256, 128,  64, 4, 8),  (128, 256,  64, 4, 8),  (128, 128,  64, 3, 8), 
+cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) \
+    for m, n, k, s, w in [  (128, 128,  32, 4, 4),  ( 64, 128,  32, 4, 8),  (128,  64,  32, 4, 8),
+                            (128, 128, 128, 4, 4),  (128,  64,  64, 4, 4),  ( 64, 128,  64, 4, 4),
+                            (256, 128,  64, 4, 8),  (128, 256,  64, 4, 8),  (128, 128,  64, 3, 8),]
 ]
-cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in cfgs]
-_grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
-
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
@@ -89,6 +85,7 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
+    _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
     return C
 
@@ -135,6 +132,7 @@ class Int8MixedLinear(torch.autograd.Function):
 ''' Chuyển tiếp F.linear func call tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
 dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch 2.
 '''
+aten = torch.ops.aten
 class Int8MixedLWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
