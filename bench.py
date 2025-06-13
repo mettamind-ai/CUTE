@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# sudo nvidia-smi -pm 1
 # ncu --set full --metrics --target-processes ./bench.py 
 # ------------------------------------------------------------
 # Triton benchmark: INT8 (A·B -> FP32) with row/col scaling
