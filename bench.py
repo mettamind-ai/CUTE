@@ -11,6 +11,16 @@ DEVICE = "cuda"
 lib = ctypes.cdll.LoadLibrary("./liboptimus.so")
 f = lib.launch_scaled_int8
 f.restype = None
+f.argtypes = [
+    ctypes.c_void_p,  # A pointer
+    ctypes.c_void_p,  # B pointer
+    ctypes.c_void_p,  # C pointer
+    ctypes.c_void_p,  # As pointer
+    ctypes.c_void_p,  # Bs pointer
+    ctypes.c_int,     # M
+    ctypes.c_int,     # N
+    ctypes.c_int      # K
+]
 
 def run_benchmark(sizes=[512, 1024, 2048, 4096], rep=20):
     print("\nMatrix Size | Triton (ms) | CUDA (ms) | Speedup | TFLOP/s | Match")
