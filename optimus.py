@@ -17,7 +17,6 @@ from torch import Tensor, nn
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
-
 @triton.jit
 def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
     # Tạo 2D indices
@@ -31,19 +30,11 @@ def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLO
     
     # Bit manipulation với signed int32
     x_f32_bits = x_f32.to(tl.int32, bitcast=True)
-    x_fraction = x_f32_bits & 0xFFFF                # Lower 16 bits
-    x_bf16_towards_zero = x_f32_bits & (-65536)     # 0xFFFF0000 as signed = -65536
+    x_fraction = x_f32_bits & 0xFFFF            # Lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & (-65536) # 0xFFFF0000 as signed = -65536
     
-    should_round_away = rand_16bit < x_fraction
-    
-    x_f32_bits = tl.where(
-        should_round_away,
-        x_bf16_towards_zero + 65536,    # +2^16 instead of +0x10000
-        x_bf16_towards_zero
-    )
-    
-    return x_f32_bits.to(tl.float32, bitcast=True).to(tl.bfloat16)
-
+    x_f32_bits = tl.where(rand_16bit < x_fraction, x_bf16_towards_zero + 65536, x_bf16_towards_zero)
+    return x_f32_bits.to(tl.float32, bitcast=True)
 
 
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
@@ -100,7 +91,7 @@ def _scaled_mm_kernel(
 
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
-    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
+    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc_bf16, mask)
 
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
