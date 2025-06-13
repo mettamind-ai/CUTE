@@ -24,6 +24,7 @@
     - Activations are quantized in blocks of size 128x1 using the FP8 format
     - Weights are quantized in blocks of size 128x128 using the FP8 format
     - **Tốc độ đang chậm**, có lẽ chỉ hợp để giảm vram khi train ở fp8
+
 |    m |     k |     n | block_size | dtype         | fp16_latency (ms) | blockwise_latency (ms) | blockwise_speedup |
 |-----:|------:|------:|-----------:|:--------------|------------------:|-----------------------:|------------------:|
 |   64 |  8192 | 57344 |        128 | float8_e4m3fn |           471.44  |                245.2   |          1.92268  |
