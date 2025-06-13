@@ -69,24 +69,11 @@ The accuracy loss in `dS` will continuously accumulate errors into `dQ` (Q's gra
 |-|-|-|
 
 ## infllmv2_cuda (biến flash_attn thành sparse)
-Vì dựa trên code của flash attn nên nhanh hơn và linh hoạt như flast attn!
-```py
-out_unpad = infllmv2_sparse_attn_func(
-    q_unpad, k_unpad, v_unpad,
-    cu_seqlens_q, cu_seqlens_k,
-    topk_idx,  # Use topk_idx directly instead of base_blockmask
-    max_seqlen_q, max_seqlen_k,
-    block_window_size, 
-)
-```
-
 |![](https://pbs.twimg.com/media/GsxEgeOa0AAYvL3?format=png)|![](https://pbs.twimg.com/media/GsxFmaTa0AAZ70F?format=jpg)|
 |-|-|
-|![](https://pbs.twimg.com/media/GsxGcl_b0AALEVB?format=png)|![](https://pbs.twimg.com/media/GsxHgUnbAAAnPV3?format=jpg)|
-|![](https://pbs.twimg.com/media/GsxInb6aQAAHXtB?format=jpg)|![](https://pbs.twimg.com/media/GsxTQU-aQAAySEY?format=png)|
-|![](https://pbs.twimg.com/media/GsxUc82a4AAk4_g?format=jpg)|![](https://pbs.twimg.com/media/GsxWtlDa0AA35ER?format=png)|
-|![](https://pbs.twimg.com/media/GsxZV1pbwAE_yBT?format=jpg)|
+|![](https://pbs.twimg.com/media/GsxHgUnbAAAnPV3?format=jpg)|![](https://pbs.twimg.com/media/GsxInb6aQAAHXtB?format=jpg)|
+|![](https://pbs.twimg.com/media/GsxTQU-aQAAySEY?format=png)|![](https://pbs.twimg.com/media/GsxUc82a4AAk4_g?format=jpg)|
+|![](https://pbs.twimg.com/media/GsxWtlDa0AA35ER?format=png)|![](https://pbs.twimg.com/media/GsxZV1pbwAE_yBT?format=jpg)|
 
-## MesaNet: Sequence Modeling by Locally Optimal Test-Time Training 
-- https://www.alphaxiv.org/abs/2506.05233
-
+## Fused activation vào 8-bit matmul
+- https://github.com/triton-lang/triton/issues/5583
