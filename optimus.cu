@@ -36,7 +36,7 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
   int8_t* Bs = smem + M_PER_TB * K_PER_TB;             // offset next
 
   // per‑thread accumulator fragments
-  constexpr int FRAG_M = 16, FRAG_N = 8, FRAG_K = 32;
+  constexpr int FRAG_M = 16, FRAG_N = 8, FRAG_K = 16;
   constexpr int FRAG_PER_WARP_M = M_PER_TB / FRAG_M;
   constexpr int FRAG_PER_WARP_N = N_PER_TB / FRAG_N;
   // INT32 accumulator
@@ -86,12 +86,12 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
         // load fragments
         wmma::fragment<wmma::matrix_a,
             FRAG_M, FRAG_N, FRAG_K,
-            wmma::precision::s8,
+            int8_t,
             wmma::row_major> a_frag;
 
         wmma::fragment<wmma::matrix_b,
             FRAG_M, FRAG_N, FRAG_K,
-            wmma::precision::s8,
+            int8_t,
             wmma::col_major> b_frag;
 
         wmma::load_matrix_sync(
