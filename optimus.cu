@@ -1,15 +1,3 @@
-/*******************************************************************
-*  scaled_gemm_int8.cu  --  NVCC -arch=sm_89 -O3                   *
-*******************************************************************/
-#include <cuda.h>
-#include <mma.h>
-using namespace nvcuda;
-
-// utilities -------------------------------------------------------
-#define CHECK_CUDA(call)  do { cudaError_t err = call; \
-  if (err != cudaSuccess) { printf("CUDA error %s:%d: %s\n",     \
-     __FILE__, __LINE__, cudaGetErrorString(err)); exit(-1);} } while(0)
-
 // kernel ----------------------------------------------------------
 template <int TM, int TN, int TK>
 __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
@@ -32,8 +20,8 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
   int8_t* As = smem;                                  // TM x TK
   int8_t* Bs = smem + TM*TK;                          // TK x TN
 
-  // 4. Accumulator fragment (per‑thread, INT32)
-  wmma::fragment<wmma::accumulator, 16, 8, 32, int32_t> c_frag[ (TM/16)*(TN/8) ];
+  // 4. Accumulator fragment (per‑thread, INT32) - Use 16x8x16 for sm_89
+  wmma::fragment<wmma::accumulator, 16, 8, 16, int32_t> c_frag[ (TM/16)*(TN/8) ];
   #pragma unroll
   for (auto &frag : c_frag) wmma::fill_fragment(frag, 0);
 
@@ -49,8 +37,8 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
     }
     __syncthreads();
 
-    // -- Iterate subTiles 16x8x32
-    for (int kk = 0; kk < TK; kk += 32) {
+    // -- Iterate subTiles 16x8x16
+    for (int kk = 0; kk < TK; kk += 16) { // <--- Step changed to 16
       // pointers inside smem
       const int8_t *tileA = As + kk;
       const int8_t *tileB = Bs + kk*TN;
@@ -59,8 +47,9 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
       for (int i=0; i < TM; i+=16)
       #pragma unroll
       for (int j=0; j < TN; j+=8) {
-        wmma::fragment<wmma::matrix_a, 16, 8, 32, int8_t, wmma::row_major> a_frag;
-        wmma::fragment<wmma::matrix_b, 16, 8, 32, int8_t, wmma::col_major> b_frag;
+        // Use 16x8x16 shape for sm_89
+        wmma::fragment<wmma::matrix_a, 16, 8, 16, int8_t, wmma::row_major> a_frag;
+        wmma::fragment<wmma::matrix_b, 16, 8, 16, int8_t, wmma::col_major> b_frag;
         wmma::load_matrix_sync(a_frag, tileA + i*TK, TK);
         wmma::load_matrix_sync(b_frag, tileB + j, TN);
         int idx = (i/16)*(TN/8) + (j/8);
@@ -76,7 +65,8 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
   for (int i=0; i < TM; i+=16)
   for (int j=0; j < TN; j+=8) {
     int idx = (i/16)*(TN/8) + (j/8);
-    wmma::fragment<wmma::accumulator, 16,8,32,int32_t>& frag = c_frag[idx];
+    // Use 16x8x16 shape for sm_89
+    wmma::fragment<wmma::accumulator, 16,8,16,int32_t>& frag = c_frag[idx];
     // convert & scale
     #pragma unroll
     for (int t=0; t < frag.num_elements; ++t) {
@@ -89,18 +79,4 @@ __global__ void s8s8_scales_gemm(const int8_t* __restrict__ A,
       }
     }
   }
-}
-
-// host helper -----------------------------------------------------
-void launch_scaled_int8(const int8_t* dA, const int8_t* dB,
-                        float* dC, const float* row_s, const float* col_s,
-                        int M, int N, int K)
-{
-  const int TM = 128, TN = 128, TK = 64;
-  dim3 grid( (N+TN-1)/TN, (M+TM-1)/TM );
-  dim3 block(256);
-  size_t smem = (TM*TK + TK*TN) * sizeof(int8_t);
-  s8s8_scales_gemm<TM,TN,TK><<<grid, block, smem>>>(
-      dA, dB, dC, row_s, col_s,
-      M, N, K, /*lda*/K, /*ldb*/N, /*ldc*/N);
 }
