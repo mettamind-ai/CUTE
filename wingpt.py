@@ -3,7 +3,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, quantize_int8, FusedCE 
+from optimus import Int8MixedLinear, quantize_int8, FusedCE, ChunkedCE
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 
@@ -249,7 +249,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     # hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore)  # NTP but Early exit
-    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore)  # NTP: Next token prediction
+    xloss = ChunkedCE.apply(x,      w, tx)#, n_ignore, ignore)  # NTP: Next token prediction
     # yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore)  # MTP: Next of next token prediction
     return xloss
     #      NTP         MTP         Early Exit
