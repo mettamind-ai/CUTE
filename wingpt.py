@@ -256,7 +256,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     y = torch.cat([x[:-1], x0[1:]], dim=1)
     fc1, fc2 = model.head2.fc1_proj.weight, model.head2.fc2_proj.weight
-    yloss = FusedHead.apply(fc1, fc2, w, y, ty, n_ignore, ignore, 0.25)[0]   # MTP: Next of next token prediction
+    yloss = FusedHead.apply(fc1, fc2, w, y, ty, n_ignore, ignore, 0.25)      # MTP: Next of next token prediction
 
     fc1, fc2 = model.head1.fc1_proj.weight, model.head1.fc2_proj.weight
     hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10) # Early exit
