@@ -48,13 +48,11 @@ class ReLuSquareMLP(nn.Module):
         
 
     # @torch.compile(mode="max-autotune", fullgraph=True)  # fuse fwd+bwd
-    def forward(self, x, gating=None):
+    def forward(self, x):
         y           = self.fc1_proj(x)
         if self.use_gate:
             y, g    = y.chunk(2, dim=-1)  # tách 2 nửa
             y       = y * g               # gating
-        if gating is not None:
-            y       = y * gating
         y           = F.relu(y).square()
         z           = self.fc2_proj(y)
         return z
@@ -186,7 +184,6 @@ class WinGPT(nn.Module):
         
         self.ve = n_layers // 2     # tokenwise layer value embeddings
         self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + 6*dim, active_vocab)
-        with torch.no_grad(): self.embeds.weight.data[..., -6*dim : ] = 1 # gating nên khởi tạo 1
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -214,7 +211,6 @@ class WinGPT(nn.Module):
         ## Token embeddings
         embs = self.embeds(input_seq.long())
         x = x0 = norm(embs[..., : self.dim ])
-        mlp_gates = embs[..., -6*self.dim : ]
 
         ## Value embeddings, bổ trợ cho value trong attention
         v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
@@ -231,13 +227,13 @@ class WinGPT(nn.Module):
             fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
-        return norm(x), norm(outputs[self.n_layers//2]), x0, mlp_gates
+        return norm(x), norm(outputs[self.n_layers//2]), x0
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, x_half, x0, mlp_gates = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
+    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     ## Early exit head
@@ -245,7 +241,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
-    y   = norm(model.head2(xy0, mlp_gates[1:]))
+    y   = norm(model.head2(xy0))
 
     ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
