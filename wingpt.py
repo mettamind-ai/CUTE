@@ -23,14 +23,12 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, use_gate=False):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3):
         super().__init__()
-        self.use_gate = use_gate
-
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
-        self.fc1_proj = nn.Linear(dim, hdim * (2 if use_gate else 1), bias=False)
+        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
@@ -39,22 +37,14 @@ class ReLuSquareMLP(nn.Module):
 
         with torch.no_grad():
             w = init_linear(torch.empty(hdim, dim))
-            if use_gate:
-                gate_w = torch.ones_like(w) / hdim**0.5 # ổn định phương sai
-                w = torch.cat([w, gate_w], 0)
-
             self.fc1_proj.weight.copy_(w)
             self.fc2_proj.weight.zero_()
         
 
-    # @torch.compile(mode="max-autotune", fullgraph=True)  # fuse fwd+bwd
     def forward(self, x):
-        y           = self.fc1_proj(x)
-        if self.use_gate:
-            y, g    = y.chunk(2, dim=-1)  # tách 2 nửa
-            y       = y * g               # gating
-        y           = F.relu(y).square()
-        z           = self.fc2_proj(y)
+        y = self.fc1_proj(x)
+        y = F.relu(y).square()
+        z = self.fc2_proj(y)
         return z
 
 ##########################
@@ -230,15 +220,36 @@ class WinGPT(nn.Module):
             outputs.append(x)
         return x, norm(outputs[self.n_layers//2]), x0
 
-    
+
+
+class FusedHead(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, fc1, fc2, weight, _input, target, n_ignores, ignore, ratio):
+        def compute_loss(fc1, fc2, weight, _input, target, n_ignores, ignore, ratio):
+            x =  _input @ fc1.t()
+            x = F.relu(x).square()
+            x = x @ fc2.t()
+            return F.cross_entropy((x @ weight.t()).float(), target)
+            # return FusedCE.apply(norm(x), weight, target, n_ignores, ignore, ratio)[0]
+        # compute_loss = torch.compile(compute_loss)
+
+        (grad_fc1, grad_fc2, grad_weight, grad_input), loss = \
+            torch.func.grad_and_value(compute_loss, argnums=(0,1,2,3))(fc1, fc2, weight, _input, target, n_ignores, ignore, ratio)
+
+        ctx.save_for_backward(grad_fc1, grad_fc2, grad_weight, grad_input)
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (grad_fc1, grad_fc2, grad_weight, grad_input) = ctx.saved_tensors
+        return (grad_fc1, grad_fc2, grad_weight, grad_input, None, None, None, None)
+
+
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)      # async offload old token weight ...
     x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
-
-    ## Early exit head
-    x_half = norm(model.head1(x_half))
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
@@ -249,9 +260,11 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore, 0.65)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
-    hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore, 0.10)  # NTP: but Early exit
+    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)  # NTP: Next token prediction
+    yloss = FusedCE.apply(y, w, ty, n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+
+    fc1, fc2 = model.head1.fc1_proj.weight, model.head1.fc2_proj.weight
+    hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10)  # Early exit
     return xloss + yloss + hloss
 
 
