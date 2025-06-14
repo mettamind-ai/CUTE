@@ -7,7 +7,6 @@
 import functools, torch, triton, os, re, time
 import triton.language as tl, torch.distributed as dist
 import torch.nn.functional as F, torch.utils._pytree as pytree
-import helion, helion.language as hl
 
 from typing import NamedTuple
 from torch import Tensor, nn
@@ -15,20 +14,102 @@ from torch import Tensor, nn
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
+lib = torch.library.Library("qtrain", "DEF")
+lib_ops = torch.ops.qtrain
 
-@helion.kernel(config={"block_sizes": [[32, 32], 32]}, dot_precision="ieee")
-def scaled_mm(x: torch.Tensor, y: torch.Tensor, xs: Tensor, ys: Tensor) -> torch.Tensor:
-    m, k = x.size()
-    k, n = y.size()
+@triton.jit
+def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    # https://github.com/pytorch/ao/blob/main/torchao/optim/quant_utils.py#L120
+    # Tạo 2D indices
+    m_idx = tl.arange(0, BLOCK_M)[:, None]
+    n_idx = tl.arange(0, BLOCK_N)[None, :]
+    flat_idx = m_idx * BLOCK_N + n_idx + base_offset
+    
+    # Generate random values
+    rand_vals  = tl.rand(seed, flat_idx)
+    rand_16bit = (rand_vals * (1 << 16)).to(tl.int32)
+    
+    # Bit manipulation với signed int32
+    x_f32_bits = x_f32.to(tl.int32, bitcast=True)
+    x_fraction = x_f32_bits & 0xFFFF            # Lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & (-65536) # 0xFFFF0000 as signed = -65536
+    
+    x_f32_bits = tl.where(rand_16bit < x_fraction, x_bf16_towards_zero + 65536, x_bf16_towards_zero)
+    return x_f32_bits.to(tl.float32, bitcast=True)
 
-    out = torch.empty([m, n], dtype=xs.dtype, device=x.device)
-    for tile_m, tile_n in hl.tile([m, n]):
-        acc = hl.zeros([tile_m, tile_n], dtype=torch.int32)
-        for tile_k in hl.tile(k):
-            acc += torch.matmul(x[tile_m, tile_k], y[tile_k, tile_n])
-        acc = acc.to(torch.float32) * xs[tile_m, 1] * ys[1, tile_n]
-        out[tile_m, tile_n] = acc
-    return out
+
+cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
+[(128, 128, 32, 4, 4), ( 64, 128, 32, 4, 8), (128,  64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8)]]
+@triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
+@triton.jit
+def _scaled_mm_kernel(
+    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,
+    stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
+    stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
+    BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
+    GROUP_M:   tl.constexpr = 8, # số khối theo chiều M được nhóm lại (để tối ưu L2 cache)
+):
+    pid = tl.program_id(0)
+    grid_m = (M + BLOCK_M - 1) // BLOCK_M
+    grid_n = (N + BLOCK_N - 1) // BLOCK_N
+
+    # re-order program ID for better L2 performance
+    width = GROUP_M * grid_n
+    group_id = pid // width
+    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
+
+    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_n = (pid % width) // (group_size)
+
+    # `r` range arrays (rm, rn, rk là các mảng chỉ số)
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    rk =                   tl.arange(0, BLOCK_K)
+
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M) # tl.max_contiguous => tối đa BLOCK_M phần tử liền kề trong memory
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N) # tl.multiple_of => gợi ý alignment, chỉ số là bội số của BLOCK_N
+
+    A = A_ptr + (ram[:, None] * stride_am +  rk[None, :] * stride_ak) # 2D layout để chuẩn bị nhân ma trận
+    B = B_ptr + ( rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
+    for _ in range(K, 0, -BLOCK_K):
+        acc += tl.dot(tl.load(A), tl.load(B))
+        A   += BLOCK_K * stride_ak
+        B   += BLOCK_K * stride_bk
+
+    # Không dùng lại `rm, rn`, mà tính trực tiếp để `rm, rn` được giải phóng ở trước vòng for, tiết kiệm registers
+    idx_m = ( pid_m * BLOCK_M + tl.arange(0, BLOCK_M) )[:, None]
+    idx_n = ( pid_n * BLOCK_N + tl.arange(0, BLOCK_N) )[None, :]
+
+    A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
+    B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
+    acc = acc.to(tl.float32) * A_scale * B_scale
+
+    # if M <= 4096 and N <= 4096:  # sr cho ma trận đầu ra nhỏ
+    #     thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
+    #     acc = fp32_to_bf16_stochastic(acc, pid*999_999, thread_offset, BLOCK_M, BLOCK_N)
+
+    mask  = (idx_m < M) & (idx_n < N)
+    index = idx_m * stride_cm + idx_n * stride_cn
+    tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
+
+
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+
+@torch.library.impl(lib, "scaled_mm", "Meta")
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
+
+@torch.library.impl(lib, "scaled_mm", "CUDA")
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+    M, K = A.shape; _, N = B.shape
+    C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
+    _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
+    return C
 
 
 @torch.no_grad()
