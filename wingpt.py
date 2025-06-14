@@ -3,7 +3,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, quantize_int8, FusedLinearCrossEntropy
+from optimus import Int8MixedLinear, quantize_int8, FusedCE, ChunkedCE
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 
@@ -248,9 +248,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    hloss = FusedLinearCrossEntropy.apply(x_half, w, tx, n_ignore, ignore)  # NTP but Early exit
-    xloss = FusedLinearCrossEntropy.apply(x,      w, tx, n_ignore, ignore)  # NTP: Next token prediction
-    yloss = FusedLinearCrossEntropy.apply(y,      w, ty, n_ignore, ignore)  # MTP: Next of next token prediction
+    hloss = ChunkedCE.apply(x_half, w, tx)#, n_ignore, ignore)  # NTP but Early exit
+    xloss = ChunkedCE.apply(x,      w, tx)#, n_ignore, ignore)  # NTP: Next token prediction
+    yloss = ChunkedCE.apply(y,      w, ty)#, n_ignore, ignore)  # MTP: Next of next token prediction
 
     #      NTP         MTP         Early Exit
     return xloss*0.65 + yloss*0.25 + hloss*0.1

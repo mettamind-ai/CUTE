@@ -55,6 +55,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 - FLASH INFER + HIỆU CHỈNH LOGITS
   - [ ] save/quant params + inference <= `nanovllm`
+  - https://github.com/pytorch-labs/gpt-fast
   - top-nơ https://www.alphaxiv.org/abs/2411.07641
   - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
   - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
