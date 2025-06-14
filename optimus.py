@@ -226,7 +226,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 loss_ptr    = losses[s:e],
                 stride      = logits.stride(-2),
                 ignore      = ignore,
-                BLOCK       = vocab, 
+                vocab       = vocab, 
                 num_warps   = num_warps,
             )
             grad_input[s:e] = logits @ weight
