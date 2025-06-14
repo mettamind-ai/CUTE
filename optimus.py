@@ -239,7 +239,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
-        reduction = 1.0 * step / (step - n_ignores)
+        reduction = 1.0 * step / (n_labels - n_ignores)
         ctx.save_for_backward(
             grad_input .detach() * reduction, 
             grad_weight.detach() * reduction if weight.requires_grad else None
