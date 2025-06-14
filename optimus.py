@@ -201,6 +201,7 @@ def per_label_cross_entropy(
     grad = e_x / d
     grad = grad * (1 + 2*z_scale*lse)
     grad = tl.where(offs == tgt, grad - 1, grad)
+
     tgt_logit = tl.load(row + tgt).to(tl.float32)
     tl.store(row + offs, grad, mask=offs < vocab)
 
