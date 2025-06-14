@@ -169,51 +169,6 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
             )
     return names, params
 
-#############################
-##  Chunked Cross Entropy  ##
-#############################
-
-class ChunkedCE(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, _input, weight, target, compiled=True):
-        CHUNK_SIZE=1024*4
-        def compute_loss(input_chunk, weight, target):
-            logits = input_chunk @ weight.t
-            logits = logits.float()
-            loss = ce(logits, target)
-            return loss
-
-        grad_weight = torch.zeros_like(weight)
-        grad_inputs = []
-        loss_acc = torch.zeros((), device=_input.device)
-
-        chunks = _input.shape[0] // CHUNK_SIZE
-        def accumulate_chunk(input_chunk, target_chunk):
-            (chunk_grad_input, chunk_grad_weight,), chunk_loss = \
-                torch.func.grad_and_value(compute_loss, argnums=(0,1,2))(input_chunk, weight, target_chunk)
-            grad_weight.add_(chunk_grad_weight)
-            loss_acc.add_(chunk_loss)
-            return chunk_grad_input
-
-        if compiled:
-            accumulate_chunk = torch.compile(accumulate_chunk)
-        
-        input_chunks = torch.chunk(_input, chunks=chunks, dim=0)
-        target_chunks = torch.chunk(target, chunks=chunks, dim=0)
-        for input_chunk, target_chunk in zip(input_chunks, target_chunks):
-            grad_inputs.append(accumulate_chunk(input_chunk, target_chunk))
-        
-        ctx.save_for_backward(
-            torch.cat(grad_inputs, dim=0)/chunks,
-            grad_weight/chunks,
-        )
-        return loss_acc / chunks
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        (grad_input, grad_weight) = ctx.saved_tensors
-        return (grad_input, grad_weight, None, None)
-
 
 ###########################
 ##  Fused Cross Entropy  ##
