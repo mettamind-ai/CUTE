@@ -164,8 +164,8 @@ class Block(nn.Module):
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-        x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
+        x = x + self.mlp(norm(x))
         return x
 
 class WinGPT(nn.Module):
