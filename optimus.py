@@ -179,6 +179,7 @@ def per_label_cross_entropy(
         target_ptr, loss_ptr,  # 1 phần tử
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
+        reduction: tl.constexpr,
     ):
 
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
@@ -200,11 +201,11 @@ def per_label_cross_entropy(
     grad  = tl.where(offs == tgt, grad - 1, grad)   # Cross-entropy gradient
 
     tgt_logit = tl.load(row + tgt).to(tl.float32)   # load trước khi ghi đè grad vào logits
-    tl.store(row + offs, grad, mask=offs < vocab)
+    tl.store(row + offs, grad * reduction, mask=offs < vocab)
 
     loss  = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
     loss += 1e-5*lse*lse        # cộng thêm z_loss penalty giúp ổn định training
-    tl.store(loss_ptr + pid, loss)                  
+    tl.store(loss_ptr + pid, loss * reduction)                  
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -229,6 +230,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 loss_ptr    = losses[s:e],
                 stride      = logits.stride(-2),
                 ignore      = ignore,
+                reduction   = 1.0 / (n_labels - n_ignores)
                 vocab       = vocab,
                 BLOCK       = triton.next_power_of_2(vocab), 
                 num_warps   = 32 # 16 if vocab <= 1024*8 else 32,
@@ -237,12 +239,11 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
-        mean_reduction = 1.0 / (n_labels - n_ignores)
         ctx.save_for_backward(
-            grad_input .detach() * mean_reduction, 
-            grad_weight.detach() * mean_reduction if weight.requires_grad else None
+            grad_input .detach(), 
+            grad_weight.detach() if weight.requires_grad else None
         )
-        return torch.sum(losses) * mean_reduction
+        return torch.sum(losses)
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
