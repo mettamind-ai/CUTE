@@ -230,20 +230,21 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 loss_ptr    = losses[s:e],
                 stride      = logits.stride(-2),
                 ignore      = ignore,
-                reduction   = 1.0 / (n_labels - n_ignores),
                 vocab       = vocab,
                 BLOCK       = triton.next_power_of_2(vocab), 
-                num_warps   = 32 # 16 if vocab <= 1024*8 else 32,
+                num_warps   = 16 if vocab <= 1024*8 else 32,
+                reduction   = 1.0 / step,
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
+        reduction = 1.0 * step / (step - n_ignores)
         ctx.save_for_backward(
-            grad_input .detach(), 
-            grad_weight.detach() if weight.requires_grad else None
+            grad_input .detach() * reduction, 
+            grad_weight.detach() * reduction if weight.requires_grad else None
         )
-        return torch.sum(losses)
+        return torch.sum(losses) * reduction
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
