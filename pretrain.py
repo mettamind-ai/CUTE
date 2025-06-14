@@ -114,11 +114,14 @@ print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* GPU(s) {world_size}\n* {tokens_per_ba
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
+## end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
+eot = 6399 if args.vocab < 32000 else 31999
+
 started_at = time.time()
 for step in range(args.steps):  # training loop
 
     tokens, targets = batch[:-1], batch[1:]
-    c, m = get_cu_max_seqlens_from(tokens, eot=args.vocab-1)
+    c, m = get_cu_max_seqlens_from(tokens, eot=eot)
 
     loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch

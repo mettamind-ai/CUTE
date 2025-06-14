@@ -185,16 +185,15 @@ class ChunkedCE(torch.autograd.Function):
         grad_inputs = []
         loss_acc = torch.zeros((), device=_input.device)
 
-        chunks = _input.shape[0] // CHUNK_SIZE
         def accumulate_chunk(input_chunk, target_chunk):
-            (chunk_grad_input, chunk_grad_weight), chunk_loss = torch.func.grad_and_value(compute_loss, argnums=(0,1))(input_chunk, weight, target_chunk)
+            (chunk_grad_input, chunk_grad_weight), chunk_loss = \
+                torch.func.grad_and_value(compute_loss, argnums=(0,1))(input_chunk, weight, target_chunk)
             grad_weight.add_(chunk_grad_weight)
             loss_acc.add_(chunk_loss)
             return chunk_grad_input
-
-        # if compiled:
-        #     accumulate_chunk = torch.compile(accumulate_chunk)
+        if compiled: accumulate_chunk = torch.compile(accumulate_chunk)
         
+        chunks = _input.shape[0] // CHUNK_SIZE
         input_chunks = torch.chunk(_input, chunks=chunks, dim=0)
         target_chunks = torch.chunk(target, chunks=chunks, dim=0)
         for input_chunk, target_chunk in zip(input_chunks, target_chunks):
@@ -255,7 +254,7 @@ class FusedCE(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
         grad_input  = torch.empty_like(_input, device=_input.device)
@@ -282,7 +281,7 @@ class FusedCE(torch.autograd.Function):
             if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
-        reduction = 1.0 * step / (n_labels - n_ignores)
+        reduction = ratio * step / (n_labels - n_ignores)
         ctx.save_for_backward(
             grad_input .detach() * reduction, 
             grad_weight.detach() * reduction if weight.requires_grad else None

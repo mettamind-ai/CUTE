@@ -238,23 +238,21 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     ## Early exit head
-    # x_half = norm(model.head1(x_half))
+    x_half = norm(model.head1(x_half))
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    # xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
-    # y   = norm(model.head2(xy0))
+    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
+    y   = norm(model.head2(xy0))
 
     ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    # hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore)  # NTP but Early exit
-    xloss = ChunkedCE.apply(x,      w, tx)#, n_ignore, ignore)  # NTP: Next token prediction
-    # yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore)  # MTP: Next of next token prediction
-    return xloss
-    #      NTP         MTP         Early Exit
-    # return xloss*0.65 + yloss*0.25 + hloss*0.1
+    hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore, 0.10)  # NTP but Early exit
+    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore, 0.25)  # NTP: Next token prediction
+    yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore, 0.65)  # MTP: Next of next token prediction
+    return xloss + yloss + hloss
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
