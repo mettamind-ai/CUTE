@@ -164,6 +164,7 @@ class Block(nn.Module):
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+        if self.layer_id != 0: x = norm(x)      # layer_0 ko cần norm vì embs đã
         x = x + self.mlp(x)
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
@@ -226,9 +227,8 @@ class WinGPT(nn.Module):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
             fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
-            x = norm(x)
             outputs.append(x)
-        return x, outputs[self.n_layers//2], x0
+        return x, norm(outputs[self.n_layers//2]), x0
 
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
