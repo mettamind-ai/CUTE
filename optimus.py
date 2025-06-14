@@ -198,13 +198,13 @@ def per_label_cross_entropy(
     lse  = M + tl.log(d)        # log(Σe^logits) => (L)og-(S)um-(E)xp
 
     grad = e_x / d             # p(xi) = exp(xi-M) / Σexp(xj-M)
-    grad = grad*(1 + 2e-5*lse) # z-loss modification
+    grad = grad*(1 + 2e-4*lse) # z-loss modification
     grad = tl.where(offs == tgt, grad - 1, grad)   # Cross-entropy gradient
     tgt_logit = tl.load(row + tgt).to(tl.float32)  # load trước khi ghi đè grad vào logits
     tl.store(row + offs, grad, mask=offs < vocab)
 
     loss = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
-    loss = loss + 1e-5*lse*lse # cộng thêm z_loss penalty giúp ổn định training
+    loss = loss + 1e-4*lse*lse # cộng thêm z_loss penalty giúp ổn định training
     tl.store(loss_ptr + pid, loss)                  
 
 
