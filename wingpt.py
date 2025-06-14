@@ -233,9 +233,9 @@ class WinGPT(nn.Module):
     
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
-    if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)# tất cả đã được norm
-    if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
+    if ohmaihead: target = model.unembeds.activate(target)      # async offload old token weight ...
+    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả đã được norm
+    if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
 
     ## Early exit head
     x_half = norm(model.head1(x_half))
@@ -249,9 +249,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore, 0.10)  # NTP but Early exit
-    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore, 0.25)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore, 0.65)  # MTP: Next of next token prediction
+    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore, 0.65)  # NTP: Next token prediction
+    yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+    hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore, 0.10)  # NTP: but Early exit
     return xloss + yloss + hloss
 
 
