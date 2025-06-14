@@ -42,7 +42,7 @@ cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_w
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _scaled_mm_kernel(
-    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,  sr: tl.constexpr,
+    A_ptr, B_ptr, C_ptr, A_scale_ptr, B_scale_ptr, M, N, K,
     stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
     stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
     BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
@@ -85,7 +85,7 @@ def _scaled_mm_kernel(
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
-    if sr > 0:
+    if M <= 4096 and N <= 4096:
         thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
         acc = fp32_to_bf16_stochastic(acc, pid*999_999, thread_offset, BLOCK_M, BLOCK_N)
 
@@ -109,6 +109,7 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, sr=False):
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, 1 if sr else 0, *A.stride(), *B.stride(), *C.stride(),)
     return C
+
 
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
@@ -145,7 +146,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
-            grad_weight = scaled_mm(A, B, As, Bs, sr=True)        # phép rounding này rẻ
+            grad_weight = scaled_mm(A, B, As, Bs)
 
         return grad_input, grad_weight, grad_bias
 
