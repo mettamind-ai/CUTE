@@ -317,7 +317,7 @@ def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có ngh�
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0.0069, momentum=0.96, **args):
+    def __init__(self, params, lr=0.02, weight_decay=0.0069, momentum=0.95, **args):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
     @torch.no_grad()
@@ -331,8 +331,8 @@ class Muon1GPU(torch.optim.Optimizer):
                 if 'mm' not in st: 
                     st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.96 + gradient * 0.04
-                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.04 + momentum * 0.96
+                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
 
                 if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
                 g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz g => g(o)rthogonalized
