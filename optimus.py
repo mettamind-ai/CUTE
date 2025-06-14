@@ -251,8 +251,8 @@ def per_label_cross_entropy(
 class FusedCE(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
-    @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
+    # @torch.amp.custom_fwd(device_type="cuda")
+    def forward(_input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
         grad_input  = torch.empty_like(_input, device=_input.device)
@@ -261,34 +261,41 @@ class FusedCE(torch.autograd.Function):
         n_labels, vocab = _input.shape[0], weight.shape[0]
         step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
 
-        for s in range( 0, n_labels, step ):
-            e = min(s + step, n_labels)
-            logits = ( _input[s:e] @ weight.t() ).contiguous()
-            per_label_cross_entropy[( logits.shape[0], )](
-                logits_ptr  = logits,
-                target_ptr  = target[s:e],
-                loss_ptr    = losses[s:e],
-                stride      = logits.stride(-2),
-                ignore      = ignore,
-                vocab       = vocab,
-                BLOCK       = triton.next_power_of_2(vocab), 
-                num_warps   = 16 if vocab <= 1024*8 else 32,
-                reduction   = 1.0 / step,
-            )
-            grad_input[s:e] = logits @ weight
-            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
+        with torch.autocast(device_type="cuda"):
+            for s in range( 0, n_labels, step ):
+                e = min(s + step, n_labels)
+                logits = ( _input[s:e] @ weight.t() ).contiguous()
+                per_label_cross_entropy[( logits.shape[0], )](
+                    logits_ptr  = logits,
+                    target_ptr  = target[s:e],
+                    loss_ptr    = losses[s:e],
+                    stride      = logits.stride(-2),
+                    ignore      = ignore,
+                    vocab       = vocab,
+                    BLOCK       = triton.next_power_of_2(vocab), 
+                    num_warps   = 16 if vocab <= 1024*8 else 32,
+                    reduction   = 1.0 / step,
+                )
+                grad_input[s:e] = logits @ weight
+                if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
         reduction = ratio * step / (n_labels - n_ignores)
-        ctx.save_for_backward(
-            grad_input .detach() * reduction, 
-            grad_weight.detach() * reduction if weight.requires_grad else None
-        )
-        return torch.sum(losses) * reduction
+        grad_input  *= reduction
+        grad_weight *= reduction
+        loss = losses.sum() * reduction
+
+        # trả về loss + hai tensor đã detach → không tham gia đồ thị
+        return loss, grad_input.detach(), grad_weight.detach()
 
     @staticmethod
-    @torch.amp.custom_bwd(device_type="cuda")
-    def backward(ctx, grad_output):
+    def setup_context(ctx, inputs, output):
+        _, grad_input, grad_weight = output
+        ctx.save_for_backward(grad_input, grad_weight)
+
+    @staticmethod
+    # @torch.amp.custom_bwd(device_type="cuda")
+    def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):
         grad_input, grad_weight = ctx.saved_tensors
         grad_input = grad_input * grad_output
         if grad_weight is not None: grad_weight = grad_weight * grad_output

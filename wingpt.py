@@ -229,8 +229,8 @@ class FusedHead(torch.autograd.Function):
             x =  _input @ fc1.t()
             x = F.relu(x).square()
             x = x @ fc2.t()
-            return F.cross_entropy((x @ weight.t()).float(), target)
-            # return FusedCE.apply(norm(x), weight, target, n_ignores, ignore, ratio)[0]
+            # return F.cross_entropy((x @ weight.t()).float(), target)
+            return FusedCE.apply(norm(x), weight, target, n_ignores, ignore, ratio)[0]
         # compute_loss = torch.compile(compute_loss)
 
         (grad_fc1, grad_fc2, grad_weight, grad_input), loss = \
@@ -260,8 +260,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y, w, ty, n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)[0]  # NTP: Next token prediction
+    yloss = FusedCE.apply(y, w, ty, n_ignore, ignore, 0.25)[0]  # MTP: Next of next token prediction
 
     fc1, fc2 = model.head1.fc1_proj.weight, model.head1.fc2_proj.weight
     hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10)  # Early exit
