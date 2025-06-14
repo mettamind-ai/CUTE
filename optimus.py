@@ -19,6 +19,7 @@ lib_ops = torch.ops.qtrain
 
 @triton.jit
 def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    # https://github.com/pytorch/ao/blob/main/torchao/optim/quant_utils.py#L120
     # Tạo 2D indices
     m_idx = tl.arange(0, BLOCK_M)[:, None]
     n_idx = tl.arange(0, BLOCK_N)[None, :]
@@ -95,19 +96,19 @@ def _scaled_mm_kernel(
 
 
 lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, sr=False) -> Tensor:
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
     return lib_ops.scaled_mm(A, B, scale_A, scale_B)
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, sr=False):
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, sr=False):
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
-    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, 1 if sr else 0, *A.stride(), *B.stride(), *C.stride(),)
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
     return C
 
 
