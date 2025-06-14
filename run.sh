@@ -10,20 +10,19 @@
 ######################################################################
 ## Others, data, test run ...
 ######################################################################
-pip install numpy wandb einops
+pip install numpy wandb einops helion
 pip install torch==2.7.1 -U --user
 
 git clone https://github.com/NVIDIA/cutlass.git flash/attn/cutlass
 cd flash/attn/cutlass;      git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3
 
-git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
-cd flash/infllmv2/cutlass;  git checkout 4c42f73fdab5787e3bb57717f35a8cb1b3c0dc6d;  cd ../../.. # infllmv2
-
-cd flash; ./bench.py; cd ..
+# git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
+# cd flash/infllmv2/cutlass;  git checkout 4c42f73fdab5787e3bb57717f35a8cb1b3c0dc6d;  cd ../../.. # infllmv2
+# cd flash; ./bench.py; cd ..
 
 ./wingpt.py
 if [ ! -f data6400.bin ]; then
     wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
     xz -d data6400.bin.xz
 fi
-# ./pretrain.py --ohmai 2028 --bs 2
+./pretrain.py --bs 1
