@@ -16,10 +16,11 @@ from torch import Tensor, nn
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
 
-@helion.kernel(dot_precision="ieee")
+@helion.kernel(config={"block_sizes": [[32, 32], 32]}, dot_precision="ieee")
 def scaled_mm(x: torch.Tensor, y: torch.Tensor, xs: Tensor, ys: Tensor) -> torch.Tensor:
     m, k = x.size()
     k, n = y.size()
+
     out = torch.empty([m, n], dtype=xs.dtype, device=x.device)
     for tile_m, tile_n in hl.tile([m, n]):
         acc = hl.zeros([tile_m, tile_n], dtype=torch.int32)
