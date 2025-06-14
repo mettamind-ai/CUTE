@@ -21,6 +21,7 @@ cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_w
 [(128, 128, 32, 4, 4), ( 64, 128, 32, 4, 8), (128,  64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8)]]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
+def _scaled_mm_kernel(
     A_ptr, B_ptr, C_ptr,
     row_scale_ptr, col_scale_ptr,
     M, N, K,
@@ -88,8 +89,8 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
 @torch.library.impl(lib, "scaled_mm", "CUDA")
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
     M, K = A.shape; _, N = B.shape
-    assert scale_A.is_contiguous()
-    assert scale_B.is_contiguous()
+    assert row_scale_A.is_contiguous()
+    assert col_scale_B.is_contiguous()
     C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
