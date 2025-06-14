@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=32) # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=8192)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
-parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
+parser.add_argument("--ohmai", type=int, default=0)         # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
