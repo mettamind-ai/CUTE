@@ -174,24 +174,16 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 ###########################
 
 @triton.jit
-def per_label_cross_entropy(
-        logits_ptr,            # [vocab]  — ghi đè thành ∂L/∂logit
-        target_ptr, loss_ptr,  # 1 phần tử
-        stride:  tl.constexpr, vocab: tl.constexpr,
-        ignore:  tl.constexpr, BLOCK: tl.constexpr,
-    ):
-
+def per_label_cross_entropy(logits_ptr, target_ptr, loss_ptr, stride: tl.constexpr, ignore: tl.constexpr, vocab: tl.constexpr):
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
     row  = logits_ptr + pid * stride
-    offs = tl.arange(0, BLOCK)
+    offs = tl.arange(0, vocab)
 
     tgt = tl.load(target_ptr + pid)
-    if tgt == ignore:
-        tl.store(row + offs, 0.0)
-        return
+    if tgt == ignore: tl.store(row + offs, 0); return
 
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
+    x    = tl.load(row + offs).to(tl.float32)
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)        # e^(xi-M)
     d    = tl.sum(e_x, axis=0)  # Σ(e^(xj-M))
@@ -201,7 +193,7 @@ def per_label_cross_entropy(
     grad = grad*(1 + 2e-4*lse) # z-loss modification
     grad = tl.where(offs == tgt, grad - 1, grad)   # Cross-entropy gradient
     tgt_logit = tl.load(row + tgt).to(tl.float32)  # load trước khi ghi đè grad vào logits
-    tl.store(row + offs, grad, mask=offs < vocab)
+    tl.store(row + offs, grad)
 
     loss = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
     loss = loss + 1e-4*lse*lse # cộng thêm z_loss penalty giúp ổn định training
@@ -220,7 +212,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
-        BLOCK = triton.next_power_of_2(vocab)
+        assert vocab == triton.next_power_of_2(vocab)
 
         step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
         num_warps = 8 if vocab <= 1024*8 else 16
@@ -234,8 +226,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 loss_ptr    = losses[s:e],
                 stride      = logits.stride(-2),
                 ignore      = ignore,
-                vocab       = vocab,
-                BLOCK       = BLOCK, 
+                BLOCK       = vocab, 
                 num_warps   = num_warps,
             )
             grad_input[s:e] = logits @ weight
