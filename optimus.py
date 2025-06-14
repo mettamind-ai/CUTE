@@ -184,31 +184,29 @@ def per_label_cross_entropy(
 
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
     row  = logits_ptr + pid * stride
+    offs = tl.arange(0, BLOCK)
 
-    tgt  = tl.load(target_ptr + pid)
+    tgt = tl.load(target_ptr + pid)
     tgt_logit = tl.load(row + tgt).to(tl.float32)
 
-    offs = tl.arange(0, BLOCK)
-    row_offs = row + offs
-
     if tgt == ignore:
-        tl.store(row_offs, 0.0)
+        tl.store(row + offs, 0.0)
         return
 
-    x    = tl.load(row_offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
+    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
     m    = tl.max(x, axis=0)
 
     e_x  = tl.exp(x - m)
     d    = tl.sum(e_x, axis=0)
 
-    lse  = m + tl.log(d)
-    loss  = (lse - tgt_logit) + z_scale*lse*lse  # cộng thêm z_loss giúp ổn định training
-    tl.store(loss_ptr + pid, loss)
-
     grad = e_x / d
     grad = grad * (1 + 2*z_scale*lse)
     grad = tl.where(offs == tgt, grad - 1, grad)
-    tl.store(row_offs, grad, mask=offs < vocab)
+    tl.store(row + offs, grad, mask=offs < vocab)
+
+    lse  = m + tl.log(d)
+    loss  = (lse - tgt_logit) + z_scale*lse*lse  # cộng thêm z_loss giúp ổn định training
+    tl.store(loss_ptr + pid, loss)
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
