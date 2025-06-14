@@ -194,13 +194,12 @@ def per_label_cross_entropy(
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
     x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
     M    = tl.max(x, axis=0)
+    m    = tl.min(x, axis=0)
 
-    # Áp dụng top-nơ trong training
-    x_var = tl.var(x, axis=0)  # Triton's built-in variance
-    std   = tl.sqrt(x_var + 1e-8)
-    threshold = M_thresh - 1.0 * std                # 1.0 n_sigma
+    approx_std = (x_max - x_min) / 6.0              # Áp dụng top-nơ trong training
+    threshold = M_thresh - 1.0 * approx_std         # 1.0 n_sigma
     mask_vals = tl.sigmoid((x - threshold) / 0.1)   # 0.1 temperature
-    x = x + tl.log(mask_vals + 1e-8)
+    x = x + tl.log(mask_vals + 1e-8)                # Soft masking
 
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)        # e^(xi-M)
