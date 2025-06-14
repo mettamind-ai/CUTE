@@ -53,14 +53,14 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- FLASH INFER
-  - [ ] save/quant params + inference <= nanovllm
-  - CUTE flash attn impl, cpm.cu
+- FLASH INFER + HIỆU CHỈNH LOGITS
+  - [ ] save/quant params + inference <= `nanovllm`
+  - [ ] top-nơ https://www.alphaxiv.org/abs/2411.07641
+  - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
+  - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
-- SPARSE
+- SPARSE / LOGITS is SPARSE
   - NSA, infllmv2 (selective attn), block/sparse attn nói chung (moba, mosa ...)
-
-- LOGITS is SPARSE too
   - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
     - giảm dataset phải chuẩn bị cho nó học?
     - học cách phân bổ dữ liệu nhanh hơn?

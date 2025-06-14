@@ -179,7 +179,6 @@ def per_label_cross_entropy(
         target_ptr, loss_ptr,  # 1 phần tử
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
-        z_scale: tl.constexpr, # z_loss scaler from https://www.jmlr.org/papers/v24/22-1144.html
     ):
 
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
@@ -192,21 +191,32 @@ def per_label_cross_entropy(
         tl.store(row + offs, 0.0)
         return
 
+    # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
     x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
-    m    = tl.max(x, axis=0)
-    e_x  = tl.exp(x - m)
-    d    = tl.sum(e_x, axis=0)
-    lse  = m + tl.log(d)
+    M    = tl.max(x, axis=0)
 
-    grad = e_x / d
-    grad = grad * (1 + 2*z_scale*lse)
-    grad = tl.where(offs == tgt, grad - 1, grad)
+    # Áp dụng top-nơ trong training
+    x_var = tl.var(x, axis=0)  # Triton's built-in variance
+    std   = tl.sqrt(x_var + 1e-8)
+    threshold = M_thresh - 1.0 * std                # 1.0 n_sigma
+    mask_vals = tl.sigmoid((x - threshold) / 0.1)   # 0.1 temperature
+    x = x + tl.log(mask_vals + 1e-8)
 
-    tgt_logit = tl.load(row + tgt).to(tl.float32)
+    M    = tl.max(x, axis=0)
+    e_x  = tl.exp(x - M)        # e^(xi-M)
+    d    = tl.sum(e_x, axis=0)  # Σ(e^(xj-M))
+    lse  = M + tl.log(d)        # log(Σe^logits) => (L)og-(S)um-(E)xp
+
+    grad  = e_x / d             # p(xi) = exp(xi-M) / Σexp(xj-M)
+    grad *= 1 + 2e-5 * lse      # z-loss modification
+    grad  = tl.where(offs == tgt, grad - 1, grad)   # Cross-entropy gradient
+
+    tgt_logit = tl.load(row + tgt).to(tl.float32)   # load trước khi ghi đè grad vào logits
     tl.store(row + offs, grad, mask=offs < vocab)
 
-    loss  = (lse - tgt_logit) + z_scale * lse * lse  # cộng thêm z_loss giúp ổn định training
-    tl.store(loss_ptr + pid, loss)
+    loss  = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
+    loss += 1e-5*lse*lse        # cộng thêm z_loss penalty giúp ổn định training
+    tl.store(loss_ptr + pid, loss)                  
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
@@ -214,7 +224,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, z_scale=1e-5):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
         grad_input  = torch.empty_like(_input, device=_input.device)
@@ -236,7 +246,6 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 stride      = logits.stride(-2),
                 ignore      = ignore,
                 vocab       = vocab,
-                z_scale     = z_scale,
                 BLOCK       = BLOCK, 
                 num_warps   = num_warps,
             )
