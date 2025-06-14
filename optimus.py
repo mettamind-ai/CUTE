@@ -196,9 +196,9 @@ def per_label_cross_entropy(
     M    = tl.max(x, axis=0)
     m    = tl.min(x, axis=0)
 
-    approx_std = (x_max - x_min) / 6.0              # Áp dụng top-nơ trong training
-    threshold = M_thresh - 1.0 * approx_std         # 1.0 n_sigma
-    mask_vals = tl.sigmoid((x - threshold) / 0.1)   # 0.1 temperature
+    approx_std = (M - m) / 6.0                      # Áp dụng top-nơ trong training
+    threshold = M - 1.0 * approx_std                # 1.0 = n_sigma
+    mask_vals = tl.sigmoid((x - threshold) / 0.1)   # 0.1 = temperature
     x = x + tl.log(mask_vals + 1e-8)                # Soft masking
 
     M    = tl.max(x, axis=0)
