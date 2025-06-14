@@ -17,27 +17,6 @@ from torch import Tensor, nn
 lib = torch.library.Library("qtrain", "DEF")
 lib_ops = torch.ops.qtrain
 
-@triton.jit
-def fp32_to_bf16_stochastic(x_f32, seed, base_offset, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
-    # https://github.com/pytorch/ao/blob/main/torchao/optim/quant_utils.py#L120
-    # Tạo 2D indices
-    m_idx = tl.arange(0, BLOCK_M)[:, None]
-    n_idx = tl.arange(0, BLOCK_N)[None, :]
-    flat_idx = m_idx * BLOCK_N + n_idx + base_offset
-    
-    # Generate random values
-    rand_vals  = tl.rand(seed, flat_idx)
-    rand_16bit = (rand_vals * (1 << 16)).to(tl.int32)
-    
-    # Bit manipulation với signed int32
-    x_f32_bits = x_f32.to(tl.int32, bitcast=True)
-    x_fraction = x_f32_bits & 0xFFFF            # Lower 16 bits
-    x_bf16_towards_zero = x_f32_bits & (-65536) # 0xFFFF0000 as signed = -65536
-    
-    x_f32_bits = tl.where(rand_16bit < x_fraction, x_bf16_towards_zero + 65536, x_bf16_towards_zero)
-    return x_f32_bits.to(tl.float32, bitcast=True)
-
-
 cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n, BLOCK_K=k), num_stages=s, num_warps=w) for m, n, k, s, w in \
 [(128, 128, 32, 4, 4), ( 64, 128, 32, 4, 8), (128,  64, 32, 4, 8), (256, 128, 64, 4, 8), (128, 256, 64, 4, 8)]]
 @triton.autotune(configs=cfgs, key=["M", "N", "K", "stride_ak", "stride_bk"])
@@ -85,10 +64,6 @@ def _scaled_mm_kernel(
     A_scale = tl.load(A_scale_ptr + idx_m, mask=idx_m < M)
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
-
-    # if M <= 4096 and N <= 4096:  # sr cho ma trận đầu ra nhỏ
-    #     thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
-    #     acc = fp32_to_bf16_stochastic(acc, pid*999_999, thread_offset, BLOCK_M, BLOCK_N)
 
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
