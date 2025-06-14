@@ -175,7 +175,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 
 class ChunkedCE(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, _input, weight, target, compiled=True):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
         CHUNK_SIZE = min(1024*4, _input.shape[0])
         def compute_loss(input_chunk, weight, target):
             logits = input_chunk @ weight.t()
@@ -191,19 +191,17 @@ class ChunkedCE(torch.autograd.Function):
             grad_weight.add_(chunk_grad_weight)
             loss_acc.add_(chunk_loss)
             return chunk_grad_input
-        if compiled: accumulate_chunk = torch.compile(accumulate_chunk)
-        
+        accumulate_chunk = torch.compile(accumulate_chunk)
+
         chunks = _input.shape[0] // CHUNK_SIZE
         input_chunks = torch.chunk(_input, chunks=chunks, dim=0)
         target_chunks = torch.chunk(target, chunks=chunks, dim=0)
         for input_chunk, target_chunk in zip(input_chunks, target_chunks):
             grad_inputs.append(accumulate_chunk(input_chunk, target_chunk))
         
-        ctx.save_for_backward(
-            torch.cat(grad_inputs, dim=0)/chunks,
-            grad_weight/chunks
-        )
-        return loss_acc / chunks
+        reduction = ratio / chunks
+        ctx.save_for_backward(torch.cat(grad_inputs, dim=0) * reduction, grad_weight * reduction)
+        return loss_acc * reduction
 
     @staticmethod
     def backward(ctx, grad_output):
