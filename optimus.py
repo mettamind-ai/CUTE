@@ -208,7 +208,6 @@ def per_label_cross_entropy(
 
 
 class FusedLinearCrossEntropy(torch.autograd.Function):
-    """ TÍNH GRADIENT NGAY TRONG FORWARD. Nhờ đó không cần lưu input và target cho backward """
     @staticmethod
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
@@ -222,7 +221,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
         BLOCK = triton.next_power_of_2(vocab)
 
         step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
-        num_warps = 8 if vocab <= 1024*8 else 16
+        num_warps = 16 if vocab <= 1024*8 else 32
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
