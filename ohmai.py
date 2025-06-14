@@ -71,8 +71,7 @@ class OhMaiEmbedding(nn.Module):
         self.active[new_token_indices] = new_tokens
 
         # Update new token embeddings
-        self.active_weight.data[ new_token_indices ] = \
-        self.weight.data[new_tokens.cpu()].cuda(non_blocking=True)
+        self.active_weight.data[ new_token_indices ] = self.weight.data[new_tokens.cpu()].cuda()
 
         # Sử dụng stream để async transfer unuse_embeddings from GPU to CPU
         with torch.cuda.stream(self.update_stream):

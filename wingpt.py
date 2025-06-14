@@ -345,7 +345,7 @@ if __name__ == "__main__":
         ## Đảm bảo 2 cách lấy embedding là giống nhau
         a = ohmai.embeds(input_seq).cpu()
         b = ohmai.embeds.weight[input_seq.cpu().long()]
-        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp"
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp\n{a}\n{b}"
 
         loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         loss_ohmai = fused_loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
@@ -354,7 +354,7 @@ if __name__ == "__main__":
         a = ohmai.unembeds.weight.cuda()[target]
         inverse = ohmai.unembeds.activate(target)
         b = ohmai.unembeds.active_weight[inverse]
-        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp"
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp\n{a}\n{b}"
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
