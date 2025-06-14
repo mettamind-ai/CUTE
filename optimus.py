@@ -230,7 +230,7 @@ class FusedLinearCrossEntropy(torch.autograd.Function):
                 loss_ptr    = losses[s:e],
                 stride      = logits.stride(-2),
                 ignore      = ignore,
-                reduction   = 1.0 / (n_labels - n_ignores)
+                reduction   = 1.0 / (n_labels - n_ignores),
                 vocab       = vocab,
                 BLOCK       = triton.next_power_of_2(vocab), 
                 num_warps   = 32 # 16 if vocab <= 1024*8 else 32,
