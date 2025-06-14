@@ -1,5 +1,5 @@
-ADAPTIVE & FLEXIBLE TOKENIZATION
---------------------------------
+EVOT: Evolutionary Vocabulary Optimization for Large Language Models
+--------------------------------------------------------------------
 
 ## Over Tokenized Transformer and n-gram Embeddings
 - https://arxiv.org/html/2501.16975v2
