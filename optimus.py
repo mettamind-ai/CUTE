@@ -194,14 +194,6 @@ def per_label_cross_entropy(
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
     x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
     M    = tl.max(x, axis=0)
-    m    = tl.min(x, axis=0)
-
-    approx_std = (M - m) / 6.0                      # Áp dụng top-nơ trong training
-    threshold = M - 0.5 * approx_std                # n_sigma
-    mask_vals = tl.sigmoid((x - threshold) / 0.3)   # temperature
-    x = x + tl.log(mask_vals + 1e-8)                # Soft masking
-
-    M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)        # e^(xi-M)
     d    = tl.sum(e_x, axis=0)  # Σ(e^(xj-M))
     lse  = M + tl.log(d)        # log(Σe^logits) => (L)og-(S)um-(E)xp
