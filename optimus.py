@@ -86,9 +86,9 @@ def _scaled_mm_kernel(
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
-    if M <= 4096 and N <= 4096:
-        thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
-        acc = fp32_to_bf16_stochastic(acc, pid*999_999, thread_offset, BLOCK_M, BLOCK_N)
+    # if M <= 4096 and N <= 4096:  # sr cho ma trận đầu ra nhỏ
+    #     thread_offset = (pid_m * grid_n + pid_n) * BLOCK_M * BLOCK_N
+    #     acc = fp32_to_bf16_stochastic(acc, pid*999_999, thread_offset, BLOCK_M, BLOCK_N)
 
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
