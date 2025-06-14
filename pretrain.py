@@ -18,7 +18,7 @@ parser.add_argument("--vocab", type=int, default=8192)      # nên là luỹ th�
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
-parser.add_argument("--muonlr", type=float, default=0.030)  # default 0.02, modded gpt 0.025
+parser.add_argument("--muonlr", type=float, default=0.020)  # default 0.02, modded gpt 0.025
 parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
 parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
