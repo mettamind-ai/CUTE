@@ -229,9 +229,8 @@ class FusedHead(torch.autograd.Function):
             x =  _input @ fc1.t()
             x = F.relu(x).square()
             x = x @ fc2.t()
-            # return F.cross_entropy((x @ weight.t()).float(), target)
             return FusedCE.apply(norm(x), weight, target, n_ignores, ignore, ratio)[0]
-        # compute_loss = torch.compile(compute_loss)
+        compute_loss = torch.compile(compute_loss)
 
         (grad_fc1, grad_fc2, grad_weight, grad_input), loss = \
             torch.func.grad_and_value(compute_loss, argnums=(0,1,2,3))(fc1, fc2, weight, _input, target, n_ignores, ignore, ratio)
@@ -252,19 +251,17 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
-    y   = norm(model.head2(xy0))
-
-    ## Chuẩn hoá đầu vào trước khi tính loss
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
-    ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)[0]  # NTP: Next token prediction
-    yloss = FusedCE.apply(y, w, ty, n_ignore, ignore, 0.25)[0]  # MTP: Next of next token prediction
+    y = torch.cat([x[:-1], x0[1:]], dim=1)
+    fc1, fc2 = model.head2.fc1_proj.weight, model.head2.fc2_proj.weight
+    yloss = FusedHead.apply(fc1, fc2, w, y, ty, n_ignore, ignore, 0.25)[0]   # MTP: Next of next token prediction
 
     fc1, fc2 = model.head1.fc1_proj.weight, model.head1.fc2_proj.weight
-    hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10)  # Early exit
+    hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10) # Early exit
+
+    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)[0]               # NTP: Next token prediction
     return xloss + yloss + hloss
 
 
