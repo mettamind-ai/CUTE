@@ -70,18 +70,18 @@ def _scaled_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor) -> Tensor:
-    return lib_ops.scaled_mm(A, B, scale_A, scale_B)
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, ScalarType? dtype=None) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None) -> Tensor:
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B, dtype)
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor):
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=scale_A.dtype)
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None):
     M, K = A.shape; _, N = B.shape
-    C = torch.empty(M, N, device=A.device, dtype=row_scale_A.dtype)
+    C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
     _grid = lambda meta: ( triton.cdiv(meta["M"], meta["BLOCK_M"])*triton.cdiv(meta["N"], meta["BLOCK_N"]), )
     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
     return C
@@ -89,12 +89,13 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor):
 
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
-    scale  = tensor.abs().amax(dim, keepdim=True) / 127
-    tensor = tensor.float() / scale.float().clip(eps) # clip(cận_dưới_eps) tránh chia cho 0
-    if sr:   tensor = (tensor + torch.rand_like(tensor)).floor()
-    else:    tensor.round_()    # ^^^ stochastic rounding ^^^^
-    tensor = tensor.clip(-128, 127).to(torch.int8)
-    return ( tensor, scale )
+    tensor = tensor.float()                             # float32
+    scale  = tensor.abs().amax(dim, keepdim=True) / 127 # float32
+    tensor = tensor / scale.float().clip(eps)           # clip(cận_dưới_eps) tránh chia cho 0
+    if sr:   tensor = (tensor+torch.rand_like(tensor)).floor()  # float32
+    else:    tensor.round_()  # ^^^ stochastic rounding ^^^^    # float32
+    tensor = tensor.clip(-128, 127).to(torch.int8)      # int8
+    return ( tensor, scale )                            # int8, float32
 
 
 class Int8MixedLinear(torch.autograd.Function):
@@ -102,7 +103,7 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
         B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
-        return scaled_mm(A, B, As, Bs)
+        return scaled_mm(A, B, As, Bs, dtype=inp.dtype)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -117,12 +118,12 @@ class Int8MixedLinear(torch.autograd.Function):
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
         B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs)
+        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.float16)
 
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
-            grad_weight = scaled_mm(A, B, As, Bs)
+            grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float16)
 
         return grad_input, grad_weight, grad_bias
 
@@ -213,7 +214,7 @@ class FusedCE(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(_input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
         grad_input  = torch.empty_like(_input, device=_input.device)
@@ -264,7 +265,6 @@ class FusedCE(torch.autograd.Function):
 @torch.compile()
 def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
-    X = X.bfloat16()                                # Need for Speed
     if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
     a, b, c = ( 3.4445, -4.7750, 2.0315 )           # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
@@ -276,7 +276,7 @@ def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có ngh�
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, **args):
+    def __init__(self, params, lr=0.02, weight_decay=0.008, momentum=0.95, **args):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
     @torch.no_grad()
@@ -286,9 +286,9 @@ class Muon1GPU(torch.optim.Optimizer):
             for p in group['params']:                   # với mỗi tham số p trong model
                 if p.grad is None: continue             # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]           # lấy gradient và optim state và khởi tạo momentum nếu chưa có
-                if 'mm' not in st: 
-                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
+                g, st = p.grad.half(), self.state[p]    # lấy gradient và optim state và ...
+                if 'mm' not in st:                      # ... khởi tạo momentum nếu chưa có
+                    st['mm'] = torch.zeros_like(g, dtype=torch.float16)
 
                 st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
