@@ -1,5 +1,5 @@
-EVOT: Evolutionary Vocabulary Optimization for LLM Tokenization
----------------------------------------------------------------
+LVOT: LLM-based Vocabulary Optimization for Tokenization
+--------------------------------------------------------
 
 ## Over Tokenized Transformer and n-gram Embeddings
 - https://arxiv.org/html/2501.16975v2
@@ -73,7 +73,7 @@ Cuối cùng, các tokens được xếp hạng theo điểm số giảm dần v
 
 => 
 
-# EVOT: Evolutionary Vocabulary Optimization for LLM Tokenization
+# LVOT: LLM-based Vocabulary Optimization for Tokenization
 - Where vocabularies evolve with learning (kết hợp Vocab Curriculum và ADATOK)
 - https://www.alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65
 
