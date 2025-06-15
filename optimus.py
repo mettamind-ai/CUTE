@@ -284,14 +284,13 @@ class Muon1GPU(torch.optim.Optimizer):
 
                 g, st = p.grad, self.state[p]               # lấy gradient và optim state và ...
                 if 'mm' not in st:                          # ... khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
+                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16) # bfloat16 là đủ cho muon
 
                 st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
 
-                if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
-                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao Newton-Schulz g => g(o)rthogonalized
-                if g.shape != p.shape: g=g.view_as(p)       # Reshape back if needed
+                assert g.dim() == 2, "Muon only supports 2D weight matrices"
+                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao hoá g, bfloat16 to speedup matmul
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])         # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
