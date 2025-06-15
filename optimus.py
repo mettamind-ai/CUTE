@@ -129,8 +129,7 @@ class Int8MixedLinear(torch.autograd.Function):
 
 
 ''' Chuyển tiếp F.linear func call tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
-dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch 2.
-'''
+dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch. '''
 aten = torch.ops.aten
 class Int8MixedLWeight(Tensor):
     @staticmethod
@@ -177,13 +176,10 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 
 @triton.jit
 def per_label_cross_entropy(
-        logits_ptr,            # [vocab]  — ghi đè thành ∂L/∂logit
-        target_ptr, loss_ptr,  # 1 phần tử
+        logits_ptr, target_ptr, loss_ptr, reduction,
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
-        reduction: tl.constexpr,
     ):
-
     pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
     row  = logits_ptr + pid * stride
     offs = tl.arange(0, BLOCK)
@@ -286,9 +282,9 @@ class Muon1GPU(torch.optim.Optimizer):
             for p in group['params']:                   # với mỗi tham số p trong model
                 if p.grad is None: continue             # bỏ qua nếu không có gradient
 
-                g, st = p.grad.half(), self.state[p]    # lấy gradient và optim state và ...
+                g, st = p.grad.bfloat16(), self.state[p]    # lấy gradient và optim state và ...
                 if 'mm' not in st:                      # ... khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g, dtype=torch.float16)
+                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
                 st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
