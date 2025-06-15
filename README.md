@@ -53,6 +53,8 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
+- [ ] LoRA một hoặc vài `attn -> mlp ...` cuối cho MTP
+
 - FLASH INFER + HIỆU CHỈNH LOGITS
   - [ ] save/quant params + inference <= `nanovllm`
   - https://github.com/pytorch-labs/gpt-fast

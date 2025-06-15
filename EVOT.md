@@ -86,3 +86,14 @@ Về mặt hiệu quả, việc chỉ cần một lần huấn luyện cho cả 
 
 Quá trình hội tụ được kiểm soát chặt chẽ thông qua việc điều chỉnh tỷ lệ loại bỏ và thêm mới để đạt được kích thước mục tiêu, ví dụ từ 100 nghìn giảm dần qua các mốc 90 nghìn, 80 nghìn, 70 nghìn, 60 nghìn và cuối cùng là 50 nghìn tokens. Chất lượng được đảm bảo khi tokens mới được tạo ra dựa trên các entropy patterns hiện tại của mô hình, trong khi tokens cũ bị loại bỏ dựa trên performance thực tế.
 
+---
+
+CẤU TRÚC DỮ LIỆU ĐỂ EMBED VÔ HẠN TOKENS
+---------------------------------------
+
+Mô tả bài toán: tôi có một số lượng rất lớn L tokens ti với i = 1..L, và số đếm count_ti tương đương được thống kê từ tập dữ liệu huấn luyện (training data). Vấn đề là tôi chỉ được phép lưu trữ S embeddings với S nhỏ hơn L rất nhiều. Tôi dự định tạo một hàm hash để mapping L tokens vào S embedding slots, sao cho các tokens có count lớn sẽ ít bị trùng lặp hơn những tokens có count thấp. Nói cách khác là luôn ưu tiên các tokens có count lớn hơn được sử dụng embeddings riêng, và các tokens có counts thấp sẽ buộc phải dùng chung nhiều hơn.
+
+Câu hỏi: có cấu trúc dữ liệu hay hàm hashing nào phù hợp cho đề bài của tôi?
+
+o3-pro: https://chatgpt.com/share/684e6fa5-ef94-8003-988d-13d8fdf2b118
+

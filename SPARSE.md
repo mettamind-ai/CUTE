@@ -361,5 +361,4 @@ In contrast, EvaByte keeps things simple: it directly operates on bytes with a f
 
 # Sparse Attn
 - https://huggingface.co/blog/Kseniase/attentions
-- 
-
+- https://alphaxiv.org/abs/2504.20966?conversation_id=684e6278abf0e855a46ea031   softpick

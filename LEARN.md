@@ -274,8 +274,9 @@ gt = (gt / gnorm) * adaptive_norm
 
 # LOGITS / DISTILL / CALIBRATE / SPARSE / ADAPTIVE TKNZ / N-GRAM VOCAB / 2-GRAM LOSS VIA MTP
 
-- https://www.alphaxiv.org/abs/2410.23771v4?conversation_id=68424c92c01a2de64aa2bd8c
-- https://www.alphaxiv.org/abs/2408.12168v1
-- https://www.alphaxiv.org/abs/2506.01084v1
-- https://www.alphaxiv.org/abs/2501.16975v2
-- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf
+- https://alphaxiv.org/abs/2410.23771v4?conversation_id=68424c92c01a2de64aa2bd8c LongCE
+- https://alphaxiv.org/abs/2408.12168v1 FIRST
+- https://alphaxiv.org/abs/2506.01084v1 zip2zip ??
+- https://alphaxiv.org/abs/2501.16975v2?conversation_id=684a2e78d4c8b5ddb23672b5 Over Tokenized Transformer
+- https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf ADATOK
+- https://alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65 EVOT

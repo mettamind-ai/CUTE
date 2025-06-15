@@ -152,6 +152,8 @@
 - Cross-Layer Attention (CLA) -  sharing key and value heads between adjacent layers - https://arxiv.org/abs/2405.12981
 - LIMe https://www.alphaxiv.org/abs/2502.09245 | https://github.com/corl-team/lime
   - giải quyết vấn đề representation collapse trong Transformers
+  - Thảm hoạ bộ nhớ vì phải cache lại kv_sate của mọi layers
+  ![](https://pbs.twimg.com/media/Gtdn_yWbgAAZAHB?format=jpg)
 - tìm hiểu cách torch.compile tối ưu và fuse các phép toán ...
 
 --------
