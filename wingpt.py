@@ -104,6 +104,7 @@ class CausalSelfAttention(nn.Module):
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024*1
+        if layer_id == -1:  self.window  = 512
 
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
