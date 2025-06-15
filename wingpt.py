@@ -173,8 +173,10 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2     # tokenwise layer value embeddings
-        self.embeds = Embedding(vocab_size, dim*2 + self.kv_dim*self.ve, active_vocab)
+        self.embeds  = Embedding(vocab_size, dim*2 + self.kv_dim*self.ve, active_vocab)
         self.emb_mlp = ReLuSquareMLP(dim*2, hdim=4*dim, odim=dim)
+        with torch.no_grad(): # proj đầu ra là 0 nên cần init lại là random
+            self.emb_mlp.fc2_proj.weight.copy_(init_linear(torch.empty(dim, 4*dim)))
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -218,7 +220,7 @@ class WinGPT(nn.Module):
             fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
-        return x, norm(outputs[self.n_layers//2]), x0
+        return norm(x), norm(outputs[self.n_layers//2]), norm(x0)
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
