@@ -5,13 +5,12 @@ from sagefwd import sageattn_varlen
 from sparse_attn.parallel_nsa import parallel_nsa
 from sparse_attn.parallel_attn import parallel_attn
 
-from infllmv2 import infllmv2_attn_varlen_func, generate_topk_indices
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
 
 if __name__ == "__main__":
 
-    lines = "flash_attn_varlen infllmv2_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
+    lines = "flash_attn_varlen sageattn_varlen parallel_nsa parallel_attn flash_attn".split()
     BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
     assert N_HEADS // Hkv == 16 # cần để infllmv2_varlen chạy
 
@@ -48,11 +47,6 @@ if __name__ == "__main__":
         assert H // Hkv == 16 # for infllmv2_varlen
 
         def attn_fn(provider, q, k, v):
-            if provider == "infllmv2_varlen":
-                sparsity = 0.8
-                topk_idx = generate_topk_indices(Hkv, qq.shape[0], max_seqlen, sparsity, block_size, "cuda")
-                infllmv2_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen)#, topk_idx=topk_idx, block_window_size=3)
-
             if provider == "parallel_nsa":
                 return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=block_size)
 
@@ -66,9 +60,9 @@ if __name__ == "__main__":
             if provider == "sageattn_varlen":
                 return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-            # if provider == "flash_attn":
-            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
-                    causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+            if provider == "flash_attn":
+                return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
+                        causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
         ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
 
@@ -106,6 +100,6 @@ if __name__ == "__main__":
         if torch.allclose(x, y, rtol=0.25*1e-1, atol=0.3*1e-1): print("torch ~= sage")
         else: print(f"torch ~= sage AssertionError")
 
-    # assert_sage_attn_is_same_as_sdpa()
+    assert_sage_attn_is_same_as_sdpa()
     bench_flash_attention.run(save_path=None, print_data=True)
     print("total_flops, higher is better.")
