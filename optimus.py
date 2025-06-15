@@ -118,7 +118,7 @@ class Int8MixedLinear(torch.autograd.Function):
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
         B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs)
+        grad_input = scaled_mm(A, B, As, Bs, dtype=grad_output.dtype)
 
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
