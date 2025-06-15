@@ -3,7 +3,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, quantize_int8, FusedCE, ChunkedCE
+from optimus import Int8MixedLinear, quantize_int8, FusedCE
 from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 
