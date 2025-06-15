@@ -148,14 +148,13 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
 
-        self.mlp = ReLuSquareMLP(dim)
+        self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         x = te_lambdas[self.layer_id][0] * x + \
             te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-        if self.layer_id != 0: x = norm(x)      # layer_0 ko cần norm vì embs đã
-        x = x + self.mlp(x)
+        x = x + self.mlp(norm(x)) if self.mlp is not None else x
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -174,7 +173,8 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve = n_layers // 2     # tokenwise layer value embeddings
-        self.embeds = Embedding(vocab_size, dim + self.kv_dim*self.ve + 6*dim, active_vocab)
+        self.embeds = Embedding(vocab_size, dim*2 + self.kv_dim*self.ve, active_vocab)
+        self.emb_mlp = ReLuSquareMLP(dim*2, hdim=4*dim, odim=dim)
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -200,11 +200,11 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         ## Token embeddings
-        embs = self.embeds(input_seq.long())
-        x = x0 = norm(embs[..., : self.dim ])
+        embs   = self.embeds(input_seq.long())
+        x = x0 = self.emb_mlp(norm(embs[..., : self.dim*2 ])) # thu dim*2 về dim
 
         ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., self.dim : self.dim + self.ve*self.kv_dim ]
+        v_embs = embs[..., -self.ve*self.kv_dim : ]
         v_embs = list(v_embs.chunk(self.ve, dim=-1))
         v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
 
