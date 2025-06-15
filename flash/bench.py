@@ -2,8 +2,8 @@
 import triton, torch, torch.nn.functional as F
 
 from sagefwd import sageattn_varlen
-from sparse_attn.parallel_nsa import parallel_nsa
-from sparse_attn.parallel_attn import parallel_attn
+from sparse.parallel_nsa import parallel_nsa
+from sparse.parallel_attn import parallel_attn
 
 try: from flash_attn_interface import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 3
 except: from attn import flash_attn_func, flash_attn_varlen_func; FA_ENABLED = 2
