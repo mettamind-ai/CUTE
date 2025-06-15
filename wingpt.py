@@ -23,7 +23,7 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=3, zero_out=True):
         super().__init__()
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
@@ -37,7 +37,7 @@ class ReLuSquareMLP(nn.Module):
 
         with torch.no_grad():
             self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            if dim == odim: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
+            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
             else:self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
@@ -108,10 +108,12 @@ class CausalSelfAttention(nn.Module):
         if layer_id >= 0: print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
+
     def qkv(self, x):
         q    = self.q_proj(x)  # TODO: có thể tiết kiệm 1 phép int8quant cho x ở đây
         k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
         return q, k, v
+
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         q, k, v = self.qkv(x)
@@ -135,7 +137,8 @@ class CausalSelfAttention(nn.Module):
         ).contiguous()
 
         y = y.reshape(T, H * D)
-        return self.o_proj(y)
+        z = self.o_proj(y)
+        return z
 
 
 ##############################
@@ -171,9 +174,10 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve = n_layers // 2     # tokenwise layer value embeddings
-        self.embeds = Embedding(vocab_size, dim*2 + self.kv_dim*self.ve, active_vocab)
-        self.mlp0   = ReLuSquareMLP(dim*2, hdim=4*dim, odim=dim)
+        self.ve     = n_layers // 2 # tokenwise layer value embeddings
+        self.edim   = dim
+        self.embeds = Embedding(vocab_size, self.edim + self.kv_dim*self.ve, active_vocab)
+        self.mlp0   = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim)
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -181,8 +185,8 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1 = ReLuSquareMLP(1*dim, hdim=4*dim, odim=dim)  # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=6*dim, odim=dim)  # Next of next token prediction
+        self.head1 = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim)                 # Early exit at half of the layers
+        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -200,7 +204,9 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         ## Token embeddings
         embs   = self.embeds(input_seq.long())
-        x = x0 = self.mlp0(norm(embs[..., : self.dim*2 ])) # thu dim*2 về dim
+        x0     = norm(embs[..., : self.edim ])
+        x      = torch.cat([torch.zeros_like(x0[:1]), x0[:-1]], dim=0)
+        x = x0 = x0 + self.mlp0(torch.cat([x, x0], dim=1)) # thu dim*2 về dim
 
         ## Value embeddings, bổ trợ cho value trong attention
         v_embs = embs[..., -self.ve*self.kv_dim : ]
