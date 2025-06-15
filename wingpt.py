@@ -232,11 +232,14 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    zeros = torch.zeros_like(x[:1])
-    xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
-    xx_x0 = torch.cat([xx, x0], dim=1)
-    y     = (xx + x0)/2 + model.head2_mlp(norm(xx_x0))
-    y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
+    def mtp(x, x0):
+        zeros = torch.zeros_like(x[:1])
+        xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
+        xx_x0 = torch.cat([xx, x0], dim=1)
+        y     = (xx + x0)/2 + model.head2_mlp(norm(xx_x0))
+        y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
+        return y
+    y = checkpoint(mtp, x, x0, use_reentrant=False)
 
     x_half = x_half + model.head1_mlp(norm(x_half))
     ty     = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
