@@ -175,9 +175,9 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.ve     = n_layers // 2 # tokenwise layer value embeddings
-        self.edim   = dim
+        self.edim   = dim*2
         self.embeds = Embedding(vocab_size, self.edim + self.kv_dim*self.ve, active_vocab)
-        self.mlp0   = ReLuSquareMLP(2*self.edim, hdim=4*self.edim, odim=dim, zero_out=False)
+        self.mlp0   = ReLuSquareMLP(self.edim, hdim=2*self.edim, odim=dim, zero_out=False)
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -204,10 +204,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         ## Token embeddings
         embs   = self.embeds(input_seq.long())
-        x0     = embs[..., : self.edim ]
-        zeros  = torch.zeros_like(x0[:1])           # khởi tạo 1 feat vector là 0
-        x      = torch.cat([zeros, x0[:-1]], dim=0) # chèn vào đầu x0 dịch phải 1 phần tử
-        x = x0 = self.mlp0(torch.cat([norm(x), norm(x0)], dim=1)) # thu dim*2 về dim
+        x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
 
         ## Value embeddings, bổ trợ cho value trong attention
         v_embs = embs[..., -self.ve*self.kv_dim : ]
