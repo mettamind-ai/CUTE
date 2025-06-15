@@ -58,7 +58,7 @@ class FusedCE(torch.autograd.Function):
         losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
-        step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
+        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
