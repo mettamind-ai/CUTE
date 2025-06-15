@@ -240,8 +240,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx_x0 = torch.cat([xx, x0], dim=1)
         y     = (xx_x0) + model.head2_mlp(norm(xx_x0))
         y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
-        z     = (xx+x0)/3 + model.head2_mlp2(norm(y))
-        return z
+        y     = model.head2_mlp2(norm(y))
+        return y
     y = checkpoint(mtp, x, x0, use_reentrant=False)
 
     x_half = x_half + model.head1_mlp(norm(x_half))
