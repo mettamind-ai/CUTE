@@ -185,8 +185,8 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1 = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim)                 # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # Next of next token prediction
+        self.head1 = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim, zero_out=True) # Early exit at half of the layers
+        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=True) # Next of next token prediction
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -231,10 +231,11 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
-    y   = norm(model.head2(xy0))
+    xx,y0 = x[:-1], x0[1:]
+    xx_y0 = torch.cat([xx, y0], dim=1)
+    y     = (xx + y0)/2 + norm(model.head2(xx_y0))
 
-    x_half = norm(x_half + model.head1(x_half))
+    x_half = x_half + norm(model.head1(x_half))
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
