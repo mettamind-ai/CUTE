@@ -17,9 +17,9 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
     return F.rms_norm(x, (x.size(-1),))
 
 @torch.no_grad()
-def init_linear(w: Tensor):
-    std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better
-    bound = (3 ** 0.5) * std         # than default 1/sqrt(3)
+def init_linear(w: Tensor, scale=1):
+    std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better ...
+    bound = (3 ** 0.5) * std * scale # ... than default 1/sqrt(3)
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
@@ -38,7 +38,7 @@ class ReLuSquareMLP(nn.Module):
         with torch.no_grad():
             self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
-            else:self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
+            else: self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim), scale=0.3)) # gần zeros hơn
 
     def forward(self, x):
         y = self.fc1_proj(x)
@@ -185,9 +185,11 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1_mlp  = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim, zero_out=True) # Early exit at half of the layers
-        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=True) # Next of next token prediction
-        self.head2_attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim)
+        ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
+        self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
+        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim) # head2 to predict next of next token (MTP)
+        self.head2_attn = CausalSelfAttention(2*dim, num_heads, num_kv_heads, max_seq_len, head_dim, dim*2)
+        self.head2_mlp2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -236,9 +238,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=1)
-        y     = (xx + x0)/2 + model.head2_mlp(norm(xx_x0))
+        y     = (xx_x0) + model.head2_mlp(norm(xx_x0))
         y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
-        return y
+        z     = (xx+x0)/3 + model.head2_mlp2(norm(y))
+        return z
     y = checkpoint(mtp, x, x0, use_reentrant=False)
 
     x_half = x_half + model.head1_mlp(norm(x_half))
