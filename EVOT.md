@@ -1,5 +1,5 @@
-EVOT: Evolutionary Vocabulary Optimization for Large Language Models
---------------------------------------------------------------------
+EVOT: Evolutionary Vocabulary Optimization for LLM Tokenization
+---------------------------------------------------------------
 
 ## Over Tokenized Transformer and n-gram Embeddings
 - https://arxiv.org/html/2501.16975v2
@@ -73,8 +73,9 @@ Cuối cùng, các tokens được xếp hạng theo điểm số giảm dần v
 
 => 
 
-# EVOTOK: Where vocabularies evolve with learning (kết hợp Vocab Curriculum và ADATOK)
-https://www.alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65
+# EVOT: Evolutionary Vocabulary Optimization for LLM Tokenization
+- Where vocabularies evolve with learning (kết hợp Vocab Curriculum và ADATOK)
+- https://www.alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65
 
 Cách tiếp cận đề xuất bắt đầu với một từ vựng trung bình khoảng 100 nghìn tokens, một điểm cân bằng tốt giữa độ bao phủ và hiệu quả, với mục tiêu cuối cùng là thu gọn xuống 50 nghìn tokens. Thay vì phải trải qua hai giai đoạn riêng biệt như các phương pháp trước đó, quy trình mới này thực hiện song song hai thao tác sau mỗi epoch huấn luyện.
 
