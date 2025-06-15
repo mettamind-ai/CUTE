@@ -207,7 +207,7 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) # không cần round vì grad ko truyền tiếp
             B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
-            grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
+            grad_weight = scaled_mm(A, B, As, Bs, dtype=weight.dtype)
 
         return grad_input, grad_weight, grad_bias
 
@@ -259,16 +259,16 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
 #################################################################
 
 @torch.compile()
-def zeropower_via_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
-    need_invert = X.size(-2) > X.size(-1)           # Sẽ báo lỗi nếu X.dim < 2
-    if need_invert: X = X.mT                        # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
-    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7     # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
-    a, b, c = ( 3.4445, -4.7750, 2.0315 )           # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 2: error ≈ ε²
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 3: error ≈ ε⁴
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ? ...
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X       # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
+def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
+    need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
+    if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 1: error ≈ ε  (NS có sai số giảm theo lũy thừa)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 2: error ≈ ε²
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ? ...
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
@@ -279,23 +279,22 @@ class Muon1GPU(torch.optim.Optimizer):
     @torch.compiler.disable
     def step(self):
         for group in self.param_groups:
-            for p in group['params']:                   # với mỗi tham số p trong model
-                if p.grad is None: continue             # bỏ qua nếu không có gradient
+            for p in group['params']:                       # với mỗi tham số p trong model
+                if p.grad is None: continue                 # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]           # lấy gradient và optim state và ...
-                if 'mm' not in st:                      # ... khởi tạo momentum nếu chưa có
+                g, st = p.grad, self.state[p]               # lấy gradient và optim state và ...
+                if 'mm' not in st:                          # ... khởi tạo momentum nếu chưa có
                     st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
-                st['mm'].lerp_(g, 1 - group['mm'])      # momentum = momentum * 0.95 + gradient * 0.05
-                g = g.lerp_(st['mm'], group['mm'])      # gradient = gradient * 0.05 + momentum * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
 
-                g = g.half() # tăng tốc phép nhân ma trận trong trực giao hoá
-                if g.ndim != 2: g = g.view(len(g), -1)  # 2D hoá
-                g = zeropower_via_newtonschulz5(g)      # Trực giao Newton-Schulz g => g(o)rthogonalized
-                if g.shape != p.shape: g=g.view_as(p)   # Reshape back if needed
+                if g.ndim != 2: g = g.view(len(g), -1)      # 2D hoá
+                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao Newton-Schulz g => g(o)rthogonalized
+                if g.shape != p.shape: g=g.view_as(p)       # Reshape back if needed
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
-                p.mul_(1 - group['lr']*group['wd'])     # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
-                rows, cols = p.size(-2), p.size(-1)     # 2) p -= go * lr * sqrt(max(1, rows / cols))
+                p.mul_(1 - group['lr']*group['wd'])         # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
+                rows, cols = p.size(-2), p.size(-1)         # 2) p -= go * lr * sqrt(max(1, rows / cols))
                 x = max(1, rows / cols)**0.5 
                 p.add_(g, alpha=-group['lr']*x)
