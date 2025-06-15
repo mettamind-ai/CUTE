@@ -167,3 +167,6 @@
   ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-4.jpeg)
   ![](https://paper-assets.alphaxiv.org/figures/2109.08668/img-3.jpeg)
   - `depthwise convolution 3x1`: tích chập theo chiều sâu, xử lý từng kênh độc lập
+
+- [x] Full / LoRA một hoặc vài `attn -> mlp ...` cuối cho MTP
+- [x] ~~Adaptive Softmax~~ https://docs.pytorch.org/docs/stable/_modules/torch/nn/modules/adaptive.html (xấp xỉ, old tech)

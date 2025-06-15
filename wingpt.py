@@ -187,9 +187,8 @@ class WinGPT(nn.Module):
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
-        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=2*dim) # head2 to predict next of next token (MTP)
-        self.head2_attn = CausalSelfAttention(2*dim, num_heads, num_kv_heads, max_seq_len, head_dim, dim*2)
-        self.head2_mlp2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False)
+        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim) # head2 to predict next of next token (MTP)
+        self.head2_attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -238,9 +237,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=1)
-        y     = (xx_x0) + model.head2_mlp(norm(xx_x0))
+        y     = (xx+x0)*0.5 + model.head2_mlp(norm(xx_x0))
         y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
-        y     = model.head2_mlp2(norm(y))
         return y
     y = checkpoint(mtp, x, x0, use_reentrant=False)
 

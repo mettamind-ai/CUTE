@@ -53,9 +53,6 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- [ ] Full / LoRA một hoặc vài `attn -> mlp ...` cuối cho MTP
-- [ ] Adaptive Softmax https://docs.pytorch.org/docs/stable/_modules/torch/nn/modules/adaptive.html
-
 - FLASH INFER + HIỆU CHỈNH LOGITS
   - [ ] save/quant params + inference <= `nanovllm`
   - https://github.com/pytorch-labs/gpt-fast
@@ -101,3 +98,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
     - model tự promote những combined tokens theo tiêu chí của nó (Vocabulary Curriculum)
 
   - **Nếu liên tục promote những tokens mới thì model tự nhiên sẽ tạo ra SUPER TOKENS của riêng nó.**
+
+---
+
+- [ ] Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py
