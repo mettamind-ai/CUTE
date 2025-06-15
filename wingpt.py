@@ -36,10 +36,9 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
         with torch.no_grad():
-            w = init_linear(torch.empty(hdim, dim))
-            self.fc1_proj.weight.copy_(w)
-            self.fc2_proj.weight.zero_()
-        
+            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            if dim == odim: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
+            else:self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
         y = self.fc1_proj(x)
@@ -175,8 +174,6 @@ class WinGPT(nn.Module):
         self.ve = n_layers // 2     # tokenwise layer value embeddings
         self.embeds  = Embedding(vocab_size, dim*2 + self.kv_dim*self.ve, active_vocab)
         self.emb_mlp = ReLuSquareMLP(dim*2, hdim=4*dim, odim=dim)
-        with torch.no_grad(): # proj đầu ra là 0 nên cần init lại là random
-            self.emb_mlp.fc2_proj.weight.copy_(init_linear(torch.empty(dim, 4*dim)))
 
         self.scalars = nn.Parameter(torch.cat([
             torch.ones(n_layers),   # skip_weights khởi tạo là 1 cho tất cả layers
@@ -233,7 +230,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
     y   = norm(model.head2(xy0))
 
-    x_half = norm(model.head1(x_half))
+    x_half = norm(x_half + model.head1(x_half))
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
