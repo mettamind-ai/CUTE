@@ -97,4 +97,24 @@ Mô tả bài toán: tôi có một số lượng rất lớn L tokens ti với 
 Câu hỏi: có cấu trúc dữ liệu hay hàm hashing nào phù hợp cho đề bài của tôi?
 
 o3-pro: https://chatgpt.com/share/684e6fa5-ef94-8003-988d-13d8fdf2b118
+![](https://pbs.twimg.com/media/Gte4qHwb0AIIomp?format=png&name=large)
 
+```py Gợi ý thuật toán “Frequency‑Aware Slotting”
+N = 4*(1024**3)						# N = 4M là tổng số embeddings
+K = 2*(1024**3)  					# K = 2M là số tokens cho tầng 1, ko va chạm
+B = N - K 							# Số embeddings còn lại
+									# dim=1024, bfloat16 		=>  4K bytes / feat vector
+E1 = Embedding(K, dim)				# full dim					=>  8GB
+E2 = Embedding(B, dim//2)			# half dim (concat => full) =>  4GB
+									# E1 + E2					=> 12GB RAM 
+def slot(token_id):  				# dim=2048 					=> 24GB RAM
+    if token in < K:
+        return E[token_id]      	# Level 1: no collision
+    else: 							# 
+        a = murmur32(token_id)%B 	# băm 1 lần xác xuất va chạm 1/B   => 1/2M
+        b = farmhash64(token_id)%B 	# băm 2 lần xác xuất va chạm 1/B^2 => 1/4B
+        return concat(E2[a], E2[b]) # Level 2: 1/B va chạm 1 phần, 1/B^2 va chạm toàn phần (ko xảy ra)
+```
+* `B = S − K` là kích thước bảng hash.
+* concat E[h1] và E[h2]
+* Tăng K → giảm va chạm
