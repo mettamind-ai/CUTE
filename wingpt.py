@@ -189,7 +189,6 @@ class WinGPT(nn.Module):
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
         self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim) # head2 to predict next of next token (MTP)
-        # self.head2_attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -229,28 +228,27 @@ class WinGPT(nn.Module):
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
-    if ohmaihead: target = model.unembeds.activate(target)      # async offload old token weight ...
-    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả chưa norm
-    if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
+    if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
+    x, xe, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả chưa norm
+    if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    def mtp(x, x0):
+    early_exit = lambda xe: xe + model.head1_mlp(norm(xe))
+    xe = checkpoint(early_exit, xe, use_reentrant=False)
+
+    def prepare_to_predict_next_of_next_token(x, x0):
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=1)
-        y     = (xx+x0)*0.5 + model.head2_mlp(norm(xx_x0))
-        # y     = y           + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
-        return  y
-    y = checkpoint(mtp, x, x0, use_reentrant=False)
-
-    x_half = x_half + model.head1_mlp(norm(x_half))
-    ty     = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
-    w      = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
+        return  (xx+x0)*0.5 + model.head2_mlp(norm(xx_x0))
+    y  = checkpoint(prepare_to_predict_next_of_next_token, x, x0, use_reentrant=False)
+    ty = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    hloss = FusedCE.apply(norm(x_half), w, target, n_ignore, ignore, 0.10)  # NTP: Early exit
-    xloss = FusedCE.apply(norm(x),      w, target, n_ignore, ignore, 0.65)  # NTP: Next token prediction
-    yloss = FusedCE.apply(norm(y),      w, ty,     n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+    w     = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
+    hloss = FusedCE.apply(norm(xe), w, target, n_ignore, ignore, 0.10)  # NTP: Early exit
+    xloss = FusedCE.apply(norm(x),  w, target, n_ignore, ignore, 0.65)  # NTP: Next token prediction
+    yloss = FusedCE.apply(norm(y),  w, ty,     n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
     return xloss + yloss + hloss
 
 
