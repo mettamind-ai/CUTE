@@ -105,7 +105,7 @@ class CausalSelfAttention(nn.Module):
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024*1
 
-        if layer_id >= 0: print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
+        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
         self.attn_scale = 0.12
 
 
@@ -185,8 +185,9 @@ class WinGPT(nn.Module):
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
 
-        self.head1 = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim, zero_out=True) # Early exit at half of the layers
-        self.head2 = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=True) # Next of next token prediction
+        self.head1_mlp  = ReLuSquareMLP(1*dim, hdim=3*dim, odim=dim, zero_out=True) # Early exit at half of the layers
+        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=True) # Next of next token prediction
+        self.head2_attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -221,30 +222,30 @@ class WinGPT(nn.Module):
             fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
-        return norm(x), norm(outputs[self.n_layers//2]), norm(x0)
+        return x, outputs[self.n_layers//2], x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)      # async offload old token weight ...
-    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả đã được norm
+    x, x_half, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả chưa norm
     if ohmaihead: model.unembeds.update_new_tokens_weight()     # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     zeros = torch.zeros_like(x[:1])
-    xx    = torch.cat([zeros, x[:-1]], dim=0)
-    y0    = torch.cat([zeros, x0[1:]], dim=0)
-    xx_y0 = torch.cat([xx, y0], dim=1)
-    y     = (xx+y0)/2 + norm(model.head2(xx_y0))
+    xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
+    xx_x0 = torch.cat([xx, x0], dim=1)
+    y     = (xx + x0)/2 + model.head2_mlp(norm(xx_x0))
+    y     = y + model.head2_attn(y, None, None, cu_seqlens, max_seqlen, rotary=model.rotary)
 
-    x_half = x_half + norm(model.head1(x_half))
+    x_half = x_half + model.head1_mlp(norm(x_half))
     ty     = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
     w      = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    hloss = FusedCE.apply(x_half, w, target, n_ignore, ignore, 0.10)  # NTP: Early exit
-    xloss = FusedCE.apply(x,      w, target, n_ignore, ignore, 0.65)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y,      w, ty,     n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+    hloss = FusedCE.apply(norm(x_half), w, target, n_ignore, ignore, 0.10)  # NTP: Early exit
+    xloss = FusedCE.apply(norm(x),      w, target, n_ignore, ignore, 0.65)  # NTP: Next token prediction
+    yloss = FusedCE.apply(norm(y),      w, ty,     n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
     return xloss + yloss + hloss
 
 
