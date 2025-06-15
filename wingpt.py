@@ -221,28 +221,6 @@ class WinGPT(nn.Module):
         return x, norm(outputs[self.n_layers//2]), x0
 
 
-class FusedHead(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, fc1, fc2, weight, _input, target, n_ignores, ignore, ratio):
-        def compute_loss(fc1, fc2, weight, _input, target, n_ignores, ignore, ratio):
-            x =  _input @ fc1.t()
-            x = F.relu(x).square()
-            x = x @ fc2.t()
-            return FusedCE.apply(norm(x), weight, target, n_ignores, ignore, ratio)[0]
-        compute_loss = torch.compile(compute_loss)
-
-        (grad_fc1, grad_fc2, grad_weight, grad_input), loss = \
-            torch.func.grad_and_value(compute_loss, argnums=(0,1,2,3))(fc1, fc2, weight, _input, target, n_ignores, ignore, ratio)
-
-        ctx.save_for_backward(grad_fc1, grad_fc2, grad_weight, grad_input)
-        return loss
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        (grad_fc1, grad_fc2, grad_weight, grad_input) = ctx.saved_tensors
-        return (grad_fc1, grad_fc2, grad_weight, grad_input, None, None, None, None)
-
-
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)      # async offload old token weight ...
@@ -253,14 +231,14 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xy0 = torch.cat([x[:-1], x0[1:]], dim=1)
     y   = norm(model.head2(xy0))
 
+    x_half = norm(model.head1(x_half))
     tx, ty = target, target[1:]
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    xloss = FusedCE.apply(x, w, tx, n_ignore, ignore, 0.65)[0]  # NTP: Next token prediction
-    yloss = FusedCE.apply(y, w, ty, n_ignore, ignore, 0.25)[0]  # MTP: Next of next token prediction
-    fc1, fc2 = model.head1.fc1_proj.weight, model.head1.fc2_proj.weight
-    hloss = FusedHead.apply(fc1, fc2, w, x_half, tx, n_ignore, ignore, 0.10)  # Early exit
+    hloss = FusedCE.apply(x_half, w, tx, n_ignore, ignore, 0.10)  # NTP: Early exit
+    xloss = FusedCE.apply(x,      w, tx, n_ignore, ignore, 0.65)  # NTP: Next token prediction
+    yloss = FusedCE.apply(y,      w, ty, n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
     return xloss + yloss + hloss
 
 

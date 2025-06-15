@@ -169,45 +169,6 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
             )
     return names, params
 
-#############################
-##  Chunked Cross Entropy  ##
-#############################
-
-class ChunkedCE(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
-        CHUNK_SIZE = min(1024*4, _input.shape[0])
-        def compute_loss(input_chunk, weight, target):
-            logits = input_chunk @ weight.t()
-            return F.cross_entropy(logits.float(), target)
-
-        grad_weight = torch.zeros_like(weight)
-        grad_inputs = []
-        loss_acc = torch.zeros((), device=_input.device)
-
-        def accumulate_chunk(input_chunk, target_chunk):
-            (chunk_grad_input, chunk_grad_weight), chunk_loss = \
-                torch.func.grad_and_value(compute_loss, argnums=(0,1))(input_chunk, weight, target_chunk)
-            grad_weight.add_(chunk_grad_weight)
-            loss_acc.add_(chunk_loss)
-            return chunk_grad_input
-        accumulate_chunk = torch.compile(accumulate_chunk)
-
-        chunks = _input.shape[0] // CHUNK_SIZE
-        input_chunks = torch.chunk(_input, chunks=chunks, dim=0)
-        target_chunks = torch.chunk(target, chunks=chunks, dim=0)
-        for input_chunk, target_chunk in zip(input_chunks, target_chunks):
-            grad_inputs.append(accumulate_chunk(input_chunk, target_chunk))
-        
-        reduction = ratio / chunks
-        ctx.save_for_backward(torch.cat(grad_inputs, dim=0) * reduction, grad_weight * reduction)
-        return loss_acc * reduction
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        (grad_input, grad_weight) = ctx.saved_tensors
-        return (grad_input, grad_weight, None, None)
-
 
 ###########################
 ##  Fused Cross Entropy  ##
@@ -251,7 +212,7 @@ def per_label_cross_entropy(
 class FusedCE(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
-    # @torch.amp.custom_fwd(device_type="cuda")
+    @torch.amp.custom_fwd(device_type="cuda")
     def forward(_input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
         grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
@@ -261,40 +222,34 @@ class FusedCE(torch.autograd.Function):
         n_labels, vocab = _input.shape[0], weight.shape[0]
         step = min(1024*4, n_labels // 2) # để luôn test được chunked CE
 
-        with torch.autocast(device_type="cuda"):
-            for s in range( 0, n_labels, step ):
-                e = min(s + step, n_labels)
-                logits = ( _input[s:e] @ weight.t() ).contiguous()
-                per_label_cross_entropy[( logits.shape[0], )](
-                    logits_ptr  = logits,
-                    target_ptr  = target[s:e],
-                    loss_ptr    = losses[s:e],
-                    stride      = logits.stride(-2),
-                    ignore      = ignore,
-                    vocab       = vocab,
-                    BLOCK       = triton.next_power_of_2(vocab), 
-                    num_warps   = 16 if vocab <= 1024*8 else 32,
-                    reduction   = 1.0 / step,
-                )
-                grad_input[s:e] = logits @ weight
-                if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
+        for s in range( 0, n_labels, step ):
+            e = min(s + step, n_labels)
+            logits = ( _input[s:e] @ weight.t() ).contiguous()
+            per_label_cross_entropy[( logits.shape[0], )](
+                logits_ptr  = logits,
+                target_ptr  = target[s:e],
+                loss_ptr    = losses[s:e],
+                stride      = logits.stride(-2),
+                ignore      = ignore,
+                vocab       = vocab,
+                BLOCK       = triton.next_power_of_2(vocab), 
+                num_warps   = 16 if vocab <= 1024*8 else 32,
+                reduction   = 1.0 / step,
+            )
+            grad_input[s:e] = logits @ weight
+            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
         reduction = ratio * step / (n_labels - n_ignores)
-        grad_input  *= reduction
-        grad_weight *= reduction
-        loss = losses.sum() * reduction
+        ctx.save_for_backward(
+            (grad_input  * reduction).detach(), 
+            (grad_weight * reduction).detach() if weight.requires_grad else None
+        )
+        return torch.sum(losses) * reduction
 
-        # trả về loss + hai tensor đã detach → không tham gia đồ thị
-        return loss, grad_input.detach(), grad_weight.detach()
-
-    @staticmethod
-    def setup_context(ctx, inputs, output):
-        _, grad_input, grad_weight = output
-        ctx.save_for_backward(grad_input, grad_weight)
 
     @staticmethod
-    # @torch.amp.custom_bwd(device_type="cuda")
+    @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):
         grad_input, grad_weight = ctx.saved_tensors
         grad_input = grad_input * grad_output
