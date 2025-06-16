@@ -280,3 +280,4 @@ gt = (gt / gnorm) * adaptive_norm
 - https://alphaxiv.org/abs/2501.16975v2?conversation_id=684a2e78d4c8b5ddb23672b5 Over Tokenized Transformer
 - https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf ADATOK
 - https://alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65 EVOT
+- https://www.alphaxiv.org/abs/2410.01188 dùng gradient trên toàn bộ dataset để chấm điểm thay vì logits

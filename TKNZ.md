@@ -1,4 +1,4 @@
-LVOT: Logits-based Vocabulary Optimization for Tokenization
+LVOT: LLM-based Vocabulary Optimization for Tokenization
 -----------------------------------------------------------
 
 ## Over Tokenized Transformer and n-gram Embeddings
@@ -73,7 +73,7 @@ Cuối cùng, các tokens được xếp hạng theo điểm số giảm dần v
 
 => 
 
-# LVOT: Logits-based Vocabulary Optimization for Tokenization
+# LVOT: LLM-based Vocabulary Optimization for Tokenization
 - Where vocabularies evolve with learning (kết hợp Vocab Curriculum và ADATOK)
 - https://www.alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65
 
@@ -99,7 +99,7 @@ Câu hỏi: có cấu trúc dữ liệu hay hàm hashing nào phù hợp cho đ�
 o3-pro: https://chatgpt.com/share/684e6fa5-ef94-8003-988d-13d8fdf2b118
 ![](https://pbs.twimg.com/media/Gte4qHwb0AIIomp?format=png&name=large)
 
-```py Gợi ý thuật toán “Frequency‑Aware Slotting”
+```py Thuật toán “Frequency‑Aware Slotting”
 N = 4*(1024**3)						# N = 4M là tổng số embeddings
 K = 2*(1024**3)  					# K = 2M là số tokens cho tầng 1, ko va chạm
 B = N - K 							# Số embeddings còn lại
@@ -113,8 +113,110 @@ def slot(token_id):  				# dim=2048 					=> 24GB RAM
     else: 							# 
         a = murmur32(token_id)%B 	# băm 1 lần xác xuất va chạm 1/B   => 1/2M
         b = farmhash64(token_id)%B 	# băm 2 lần xác xuất va chạm 1/B^2 => 1/4B
-        return concat(E2[a], E2[b]) # Level 2: 1/B va chạm 1 phần, 1/B^2 va chạm toàn phần (ko xảy ra)
+        return concat(E2[a], E2[b]) # Level 2: 1/B va chạm 1 phần, 1/B^2 va chạm toàn phần
 ```
 * `B = S − K` là kích thước bảng hash.
 * concat E[h1] và E[h2]
 * Tăng K → giảm va chạm
+
+---
+
+## VEGAD: Vocabulary Expansion via GrADients
+- https://www.alphaxiv.org/abs/2410.01188
+|![](https://ar5iv.labs.arxiv.org/html/2410.01188/assets/x2.png)|![](https://ar5iv.labs.arxiv.org/html/2410.01188/assets/x3.png)|
+|-|-|
+**trực giác**: "các nhóm token thể hiện gradient lớn hơn trong các instance lĩnh vực được coi là quan trọng hơn đối với nhiệm vụ và nên được tích hợp vào từ vựng như các thuật ngữ chuyên lĩnh vực"
+
+Tính gradient cho cả hai thành phần quan trọng:
+
+- Embedding layer: G^embed = ∂L_lm/∂α
+- Language modeling head layer: G^lmhead = ∂L_lm/∂β
+
+Tác giả phát hiện rằng "tầng language modeling head cũng quan trọng đặc biệt đối với các nhiệm vụ sinh văn bản", điều mà logits đơn thuần không thể capture được. Trong phần ablation study, khi loại bỏ gradient của LMHead layer, "đối với các bộ dữ liệu yêu cầu sinh văn bản, 'w/o LMHead' bị giảm đáng kể". Điều này chứng minh gradient từ LMHead layer mang thông tin quan trọng mà logits thông thường không có.
+
+
+Ma trận β ∈ R^(L×C) là một trick kỹ thuật rất thông minh mà tác giả sử dụng để tính gradient cho từng token riêng biệt. Trong ký hiệu này, L đại diện cho độ dài của chuỗi (length of sequences) và C là kích thước từ vựng vanilla (size of vanilla vocabulary), β chính là ma trận phụ trợ được thiết kế để tính gradient.
+
+Thông thường, công thức tính logits trong language modeling là ŷ = h × LMHead^T, trong đó h ∈ R^(L×d) là hidden states từ transformer, LMHead ∈ R^(C×d) là ma trận language modeling head, và ŷ ∈ R^(L×C) là logits cho mỗi position và mỗi token trong vocab. Tuy nhiên, để có thể tính gradient riêng cho từng token tại từng vị trí, tác giả đã modify công thức này thành ŷ = β ⊗ (h × LMHead^T).
+
+Điểm quan trọng là β ∈ R^(L×C) được "filled with 1", tức là toàn bộ các giá trị trong ma trận đều bằng 1. Vì vậy, khi thực hiện element-wise multiplication, kết quả `β ⊗ (h × LMHead^T)` vẫn bằng `h × LMHead^T`, không làm thay đổi giá trị logits ban đầu. Tuy nhiên, trick này cho phép họ tính được `G^lmhead = ∂L_lm/∂β`, tức là gradient của loss function theo ma trận β.
+
+Khi tính `∂L_lm/∂β`, tác giả thu được gradient cho từng vị trí và từng token, nghĩa là `G^lmhead[i,j] = ∂L_lm/∂β[i,j]` cho biết token j tại position i ảnh hưởng như thế nào đến loss. Ví dụ, với chuỗi "口服 降压 药" có độ dài L=3 và vocab size C=50000, **ma trận β sẽ có `3 hàng` (mỗi hàng cho một position) và `50000 cột` (mỗi cột cho một token trong vocab), tất cả đều có giá trị 1**.
+
+
+1. Gradient ≠ Độ Khó Đoán
+Xét ví dụ từ bài báo:
+
+- Gradient CAO: 痔疮|Hemorrhoids, 腰椎|Lumbar spine, 甲亢|Hyperthyroidism
+- Gradient THẤP: 院去, 下用, 等情, 下才, 本是, 来后...
+
+Các từ có **gradient cao là thuật ngữ y học có ý nghĩa**, `không nhất thiết "khó đoán"`. Ngược lại, các fragment có gradient thấp như "院去", "下用" có thể khó đoán hơn nhưng không quan trọng cho domain.
+
+2. Mục Tiêu Khác Nhau
+- `Logits`: Phản ánh "token nào khó dự đoán trong context hiện tại"
+- `Gradient`: Phản ánh "token nào quan trọng cho việc tối ưu hóa loss trên batch data"
+
+3. Làm thế nào để tính gradient trên toàn bộ dataset?
+VEGAD Có Cơ Chế Accumulation
+```py
+for (X, Y) ∈ D do  # Lặp qua TOÀN BỘ dataset
+    x, y ← GetInputOutput(X, Y)
+    # Tính gradient cho batch này
+    Calculate G^embed, G^lmhead by Equation 8  
+    # TÍCH LŨY gradient
+    Gw = Gw + ||∑G^embed||2 + ||∑G^lmhead||1
+end for
+```
+- Mỗi step: Gradient chỉ từ batch hiện tại
+- VEGAD strategy: "Gw = Gw +" - tích lũy gradient qua nhiều batches
+- Kết quả cuối: Gradient được aggregate từ toàn bộ training data
+
+=> GRADIENT (SAU ACCUMULATION) PHẢN ÁNH "TOKEN NÀO QUAN TRỌNG CHO VIỆC TỐI ƯU HÓA LOSS TÍCH LŨY QUA QUÁ TRÌNH TRAINING", 
+TRONG KHI LOGITS CHỈ PHẢN ÁNH ĐỘ KHÓ ĐOÁN TẠI TỪNG PREDICTION CỤ THỂ.
+
+4. Tính grad score cho các word candidates
+
+- Khởi tạo: Gwi ← 0 cho tất cả words trong candidate vocabulary
+- Loop qua dataset: for (X, Y) ∈ D do
+- Accumulate: Gw = Gw + ||∑G^embed||2 + ||∑G^lmhead||1
+- Kết quả: Mỗi word có một gradient score tổng hợp
+
+5. Từ Token Gradient → Word Gradient
+```
+Token sequence: [降, 压, 药] 
+→ Word: "降压药" (antihypertensive drugs)
+→ Gradient: Sum of individual token gradients
+```
+- Gw = Gw + ||∑(q=i to j) G^embed_q||2 + ||∑(q=i-1 to j-1) G^lmhead_q||1
+- ||...||2: Áp dụng L2 norm (Euclidean norm)
+- ||...||1: Áp dụng L1 norm (Manhattan norm)
+
+Word "降压药" gồm 3 tokens: [降, 压, 药] tại positions [5,6,7]
+```
+G_embed_sum = G^embed_5 + G^embed_6 + G^embed_7
+G_lmhead_sum = G^lmhead_4 + G^lmhead_5 + G^lmhead_6  # position shift
+G_降压药 += ||G_embed_sum||2 + ||G_lmhead_sum||1
+
+L2 norm: "Magnitude" của vector gradient - đo "strength" tổng thể
+L1 norm: Tổng absolute values - less sensitive to outliers
+```
+
+6. Tại Sao Cần Position Shift?
+```
+Input:  [CLS] 口服  降   压   药   [SEP]
+         0    1    2    3    4     5
+         ↓    ↓    ↓    ↓    ↓
+Target: 口服  降   压   药   [SEP]  
+         0    1    2    3    4
+```
+- Position 0 trong input ([CLS]) → dự đoán "口服" (position 0 trong output)
+- Position 1 trong input (口服) → dự đoán "降" (position 1 trong output)
+- Position 2 trong input (降) → dự đoán "压" (position 2 trong output)
+
+Position shift đảm bảo chúng ta capture cả hai khía cạnh:
+- `Understanding` (embeddings): Gradient khi model "hiểu" token đó trong input
+- `Generation` (lm_head): Gradient khi model "sinh ra" token đó trong output
+
+"We also notice that there are many unexplainable 2-gram words generated by selecting 2-grams. Therefore, VEGAD is more effective based on text segmentation in summary." => n-gram based candidates (vs word candidates) có thể ko có nghĩa.
+
+

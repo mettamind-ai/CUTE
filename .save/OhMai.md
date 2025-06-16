@@ -1,6 +1,160 @@
+# Chia lại kích thước vocab, hdim sao cho luôn là luỹ thừa của 2 (tối ưu cho GPU)
+## 260m, 96k seq, 8k vocab, 32kt/s
+```
+Using OhMaiEmbedding and Linear
+Layer 0 => RoPE, win 1024
+Layer 1 => RoPE, win 1024
+Layer 2 => RoPE, win 1024
+Layer 3 => RoPE, win 1024
+Layer 4 => Nope, win 4096
+Layer 5 => RoPE, win 1024
+Layer 6 => RoPE, win 1024
+Layer 7 => RoPE, win 1024
+Layer 8 => RoPE, win 1024
+Layer 9 => Nope, win 4096
+Layer 10 => RoPE, win 1024
+Layer 11 => RoPE, win 1024
+Layer 12 => RoPE, win 1024
+Layer 13 => RoPE, win 1024
+Layer 14 => Nope, win 4096
+Layer 15 => RoPE, win 1024
+WinGPT.skip_from {14: 2, 12: 4, 10: 6}
+
+PHÂN CHIA PARAMS VÀO DTYPES:
+* 84 INT8 Mixeds 92.1% 243,269,632
+* 3 BF16 Weights 7.9% 20,971,600
+INT8: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj', 'head1_mlp.fc1_proj', 'head1_mlp.fc2_proj', 'head2_mlp.fc1_proj', 'head2_mlp.fc2_proj', 'mlp0.fc1_proj', 'mlp0.fc2_proj']
+
+CHUẨN BỊ HUẤN LUYỆN:
+* GPU(s) 1
+* 96k_tok_seq / step
+
+
+wandb: Currently logged in as: tiendung to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /tmp/wandb/run-20250615_205508-iajpp3np
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run azure-wood-165
+wandb: ⭐️ View project at https://wandb.ai/tiendung/1
+wandb: 🚀 View run at https://wandb.ai/tiendung/1/runs/iajpp3np
+  0%|▏                                                                         | 1/500 [00:46<6:29:43, 46.86s/it, loss=7.47, lr=0.02]>>> First Step Took 409 Seconds <<<
+100%|██████████████████████████████████████████████████████████████████████████| 500/500 [13:01<00:00,  1.47s/it, loss=1.55, lr=0.02]wandb:
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                grad_norm █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                     loss ██▇▆▄▄▄▃▂▃▃▃▂▂▃▃▂▂▁▂▂▂▂▂▃▁▂▃▁▂▁▁▁▁▂▂▁▁▁▁
+wandb:     max_memory_allocated ▁███████████████████████████████████████
+wandb:                  muon_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: num_tokens_seen_millions ▁▁▁▁▁▂▂▂▂▂▃▃▃▃▃▄▄▄▄▄▄▅▅▅▅▅▅▅▅▆▆▆▆▇▇▇▇▇██
+wandb:        tokens_per_second █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 0.003
+wandb:                grad_norm 0.15527
+wandb:                     loss 1.55418
+wandb:     max_memory_allocated 20178699776
+wandb:                  muon_lr 0.02
+wandb: num_tokens_seen_millions 48660480
+wandb:        tokens_per_second 66869.37282
+```
+## 560m, 64k seq, 8k vocab, 32kt/s
+```
+Using OhMaiEmbedding and Linear
+Layer 0 => RoPE, win 1024
+Layer 1 => RoPE, win 1024
+Layer 2 => RoPE, win 1024
+Layer 3 => RoPE, win 1024
+Layer 4 => Nope, win 4096
+Layer 5 => RoPE, win 1024
+Layer 6 => RoPE, win 1024
+Layer 7 => RoPE, win 1024
+Layer 8 => RoPE, win 1024
+Layer 9 => Nope, win 4096
+WinGPT.skip_from {8: 2}
+
+PHÂN CHIA PARAMS VÀO DTYPES:
+* 54 INT8 Mixeds 94.7% 541,065,216
+* 3 BF16 Weights 5.3% 30,408,754
+INT8: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj', 'head1_mlp.fc1_proj', 'head1_mlp.fc2_proj', 'head2_mlp.fc1_proj', 'head2_mlp.fc2_proj', 'mlp0.fc1_proj', 'mlp0.fc2_proj']
+
+CHUẨN BỊ HUẤN LUYỆN:
+* GPU(s) 1
+* 64k_tok_seq / step
+
+
+wandb: Currently logged in as: tiendung to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /tmp/wandb/run-20250615_203217-l55imbjs
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run quiet-totem-163
+wandb: ⭐️ View project at https://wandb.ai/tiendung/1
+wandb: 🚀 View run at https://wandb.ai/tiendung/1/runs/l55imbjs
+  0%|▏                                                                         | 1/500 [00:29<4:02:22, 29.14s/it, loss=6.56, lr=0.02]>>> First Step Took 267 Seconds <<<
+100%|██████████████████████████████████████████████████████████████████████████| 500/500 [13:20<00:00,  1.55s/it, loss=1.23, lr=0.02]wandb:
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                grad_norm █▃▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                     loss █▅▄▄▃▂▂▂▂▂▂▂▂▂▁▁▁▁▂▂▁▁▁▂▁▁▁▁▁▂▁▁▁▁▂▁▂▁▁▁
+wandb:     max_memory_allocated ▁███████████████████████████████████████
+wandb:                  muon_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: num_tokens_seen_millions ▁▁▂▂▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▅▅▅▅▅▆▆▆▆▆▆▇▇▇▇▇█████
+wandb:        tokens_per_second █▅▄▃▄▄▃▄▄▄▃▂▃▂▃▄▄▂▃▄▃▂▂▃▃▂▃▃▂▃▃▁▄▄▃▃▃▄▃▄
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 0.003
+wandb:                grad_norm 0.16895
+wandb:                     loss 1.23257
+wandb:     max_memory_allocated 19549347328
+wandb:                  muon_lr 0.02
+wandb: num_tokens_seen_millions 32440320
+```
+## 840m, 64k seq, 8k vocab, 29kt/s
+```
+PHÂN CHIA PARAMS VÀO DTYPES:
+* 84 INT8 Mixeds 96.0% 805,306,368
+* 3 BF16 Weights 4.0% 33,554,512
+INT8: ['*attn.kv_proj', '*attn.o_proj', '*attn.q_proj', '*mlp.fc1_proj', '*mlp.fc2_proj', 'head1_mlp.fc1_proj', 'head1_mlp.fc2_proj', 'head2_mlp.fc1_proj', 'head2_mlp.fc2_proj', 'mlp0.fc1_proj', 'mlp0.fc2_proj']
+
+CHUẨN BỊ HUẤN LUYỆN:
+* GPU(s) 1
+* 64k_tok_seq / step
+
+
+wandb: Currently logged in as: tiendung to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /tmp/wandb/run-20250615_200536-hhiqe79w
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run earthy-rain-162
+wandb: ⭐️ View project at https://wandb.ai/tiendung/1
+wandb: 🚀 View run at https://wandb.ai/tiendung/1/runs/hhiqe79w
+  0%|▏                                                                         | 1/500 [00:49<6:54:26, 49.83s/it, loss=6.51, lr=0.02]>>> First Step Took 403 Seconds <<<
+100%|██████████████████████████████████████████████████████████████████████████| 500/500 [19:32<00:00,  2.25s/it, loss=1.46, lr=0.02]wandb:
+wandb:
+wandb: Run history:
+wandb:                  adam_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                grad_norm █▄▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                     loss █▇▅▄▄▃▃▃▂▂▂▂▂▂▂▂▂▂▂▂▁▂▂▂▂▂▁▁▂▁▂▁▂▂▂▂▂▁▁▁
+wandb:     max_memory_allocated ▁▁▁█████████████████████████████████████
+wandb:                  muon_lr ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: num_tokens_seen_millions ▁▁▁▁▁▂▂▂▂▂▂▃▃▃▃▃▃▃▄▄▄▄▅▅▅▅▅▆▆▆▆▇▇▇▇▇▇▇██
+wandb:        tokens_per_second █▇▆▆▄▂▄▃▆▆▇▆▁▃▆▅▄▆▃▄▄▂▃▄▆▄▄▂▃▃▂▁▃▄▅▄▂▅▄▄
+wandb:
+wandb: Run summary:
+wandb:                  adam_lr 0.003
+wandb:                grad_norm 0.19043
+wandb:                     loss 1.45554
+wandb:     max_memory_allocated 22508476416
+wandb:                  muon_lr 0.02
+wandb: num_tokens_seen_millions 32440320
+wandb:        tokens_per_second 29065.90727
+```
+
 # Sự ảnh hưởng của quant
 
 ## Bản gốc
+```
   0%|                                                                                      | 1/1000 [01:01<17:01:01, 61.32s/it, loss=7.39, lr=0.03]>>> First Step Took 389 Seconds <<<
 100%|██████████████████████████████████████████████████████████████████████████████████████| 1000/1000 [29:02<00:00,  1.69s/it, loss=1.34, lr=0.03]wandb:
 wandb:
@@ -27,6 +181,7 @@ wandb: ⭐️ View project at: https://wandb.ai/tiendung/3
 wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
 wandb: Find logs at: /tmp/wandb/run-20250610_184026-uypnvgue/logs
 dungnt@quenn-ubuntu:~/snap/3$ gp; ./pretrain.py --M --ohmai 2048
+```
 
 ## Bản thêm dư thêm 1 phép quant ở mỗi layer
 
@@ -35,7 +190,7 @@ dungnt@quenn-ubuntu:~/snap/3$ gp; ./pretrain.py --M --ohmai 2048
 ![](head-00-crunch.png)
  
 # 32k full vocab vs 3.2k ohmai
-
+```
 PHÂN CHIA PARAMS VÀO DTYPES:
 * 130 INT8 Mixed Weights 88.7% 542,703,616
 * 3 BF16/ FP32 Weights 11.3% 69,222,504
@@ -83,8 +238,9 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 32790.9786
 wandb:
 wandb: 🚀 View run woven-disco-1409 at: https://wandb.ai/tiendung/2/runs/l6dxsiug
+```
 
-
+```
 PHÂN CHIA PARAMS VÀO DTYPES:
 * 130 INT8 Mixed Weights 71.8% 542,703,616
 * 3 BF16/ FP32 Weights 28.2% 212,992,104
@@ -132,6 +288,7 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 33156.33899
 wandb:
 wandb: 🚀 View run ethereal-moon-1407 at: https://wandb.ai/tiendung/2/runs/o9h0bk56
+```
 
 --
 
@@ -160,6 +317,8 @@ KẾT LUẬN:
 
 
 # 3 ve, 1 te
+
+```
 PHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Adam: 5.2% 31,129,756
 * Muon: 94.8% 564,854,784
@@ -187,8 +346,9 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 35395.05433
 wandb:
 wandb: 🚀 View run pleasant-waterfall-1290 at: https://wandb.ai/tiendung/2/runs/p405cfj8
-
+```
 # max ve, 1 te
+```
 PHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Adam: 15.9% 106,496,156
 * Muon: 84.1% 564,854,784
@@ -217,8 +377,9 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 35045.88511
 wandb:
 wandb: 🚀 View run lemon-hill-1291 at: https://wandb.ai/tiendung/2/runs/26k0m18u
-
+```
 # 3 ve, max te
+```
 PHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Adam: 34.5% 297,369,756
 * Muon: 65.5% 564,854,784
@@ -247,9 +408,9 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 32841.43138
 wandb:
 wandb: 🚀 View run smooth-glitter-1292 at: https://wandb.ai/tiendung/2/runs/okzak59z
-
+```
 # all ve, max te
-
+```
 PHÂN CHIA PARAMS VÀO OPTIMIZERS:
 * Adam: 39.8% 372,736,156
 * Muon: 60.2% 564,854,784
@@ -285,9 +446,9 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 32570.88819
 wandb:
 wandb: 🚀 View run trim-glitter-1293 at: https://wandb.ai/tiendung/2/runs/gng9w91a
-
+```
 # all ve, max te + ohmai
-
+```
 PHÂN CHIA PARAMS VÀO DTYPES:
 * 78 INT8 Mixed Weights 68.9% 476,250,112
 * 55 BF16/ FP32 Weights 31.1% 215,122,076
@@ -328,3 +489,4 @@ wandb: num_tokens_seen_millions 32.768
 wandb:        tokens_per_second 30564.18333
 wandb:
 wandb: 🚀 View run lively-armadillo-1296 at: https://wandb.ai/tiendung/2/runs/ulhv1mjl
+```
