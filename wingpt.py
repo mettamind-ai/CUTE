@@ -151,10 +151,11 @@ class Block(nn.Module):
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         def prepare(x):
-            return te_lambdas[self.layer_id][0] * x + \
-                   te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+            x = te_lambdas[self.layer_id][0] * x + \
+                te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+            x = x + self.mlp(norm(x)) if self.mlp is not None else x
+            return x
         x = checkpoint(prepare, x, use_reentrant=False)
-        x = x + self.mlp(norm(x)) if self.mlp is not None else x
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -220,8 +221,6 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            # fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            # x  = checkpoint(fw(blk), x, use_reentrant=False)
             x = blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
