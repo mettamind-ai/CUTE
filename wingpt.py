@@ -109,7 +109,6 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         def attention(qkv):
             q    = qkv[..., :self.qo_inner_dim]
@@ -123,17 +122,17 @@ class CausalSelfAttention(nn.Module):
             k = k.contiguous().view(T, Hkv, D)
             v = v.contiguous().view(T, Hkv, D)
 
-            if self.rope:
-                q, k = rotary(q), rotary(k)
+            q, k, v = norm(q), norm(k), norm(v)
+            if self.rope: q, k = rotary(q), rotary(k)
 
-            return flash_attn_varlen_func( norm(q), norm(k), norm(v),
+            return flash_attn_varlen_func( q, k, v,
                 cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
                 dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
             ).contiguous().reshape(T, H * D)
 
         qkv = self.qkv_proj(x)
-        y = checkpoint(attention, qkv, use_reentrant=False)
-        z = self.o_proj(y)
+        y   = checkpoint(attention, qkv, use_reentrant=False)
+        z   = self.o_proj(y)
         return z
 
 
@@ -150,12 +149,12 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        def prepare(x):
+        def prepare(x, x0, te_lambdas):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-            x = x + self.mlp(norm(x)) if self.mlp is not None else x
             return x
-        x = checkpoint(prepare, x, use_reentrant=False)
+        x = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
+        x = x + self.mlp(norm(x)) if self.mlp is not None else x
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
