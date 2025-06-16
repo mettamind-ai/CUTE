@@ -40,7 +40,6 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
             else: self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim), scale=0.3)) # gần zeros hơn
 
-    @torch.compile(mode="max-autotune", fullgraph=True, dynamic=False)
     def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
@@ -65,7 +64,6 @@ class Rotary(nn.Module):
         self.cos = nn.Buffer(theta.cos(), persistent=False)
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
-    # @torch.compile()
     def forward(self, x_THD: Tensor):
         seq_len = x_THD.size(-3) # T seq_len, head, dim (of head)
         assert self.cos.size(0) >= seq_len, f"{self.cos.size(0)} >= {seq_len}?"
@@ -152,8 +150,10 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        x = te_lambdas[self.layer_id][0] * x + \
-            te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+        def prepare(x):
+            return te_lambdas[self.layer_id][0] * x + \
+                   te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
+        x = checkpoint(prepare, x, use_reentrant=False)
         x = x + self.mlp(norm(x)) if self.mlp is not None else x
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
@@ -202,13 +202,16 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         ## Token embeddings
-        embs = self.embeds(input_seq.long())
-        x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+        def prepare(embs):
+            x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+            ## Value embeddings, bổ trợ cho value trong attention
+            v_embs = embs[..., -self.ve*self.kv_dim : ]
+            v_embs = list(v_embs.chunk(self.ve, dim=-1))
+            v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+            return x0, x0, v_embs
 
-        ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., -self.ve*self.kv_dim : ]
-        v_embs = list(v_embs.chunk(self.ve, dim=-1))
-        v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+        embs = self.embeds(input_seq.long())
+        x, x0, v_embs = checkpoint(prepare, embs, use_reentrant=False)
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
