@@ -89,19 +89,19 @@ class CausalSelfAttention(nn.Module):
         self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
         self.layer_id = layer_id
+        self.seq_len = seq_len
         if odim == None: odim = dim
 
-        qo_inner_dim = num_heads * head_dim
-        kv_inner_dim = num_kv_heads * head_dim
+        self.qo_inner_dim = num_heads * head_dim
+        self.kv_inner_dim = num_kv_heads * head_dim
 
-        self.kv_proj = nn.Linear(dim, 2*kv_inner_dim, bias=False)
-        self. q_proj = nn.Linear(dim,   qo_inner_dim, bias=False)
-        self. o_proj = nn.Linear(  qo_inner_dim, odim, bias=False)
+        n = self.qo_inner_dim + 2*self.kv_inner_dim
+        self.qkv_proj = nn.Linear(dim, n, bias=False)
+        self.  o_proj = nn.Linear(self.qo_inner_dim, odim, bias=False)
 
         with torch.no_grad(): # init weights
-            self.kv_proj.weight.copy_(init_linear(torch.empty(2*kv_inner_dim, dim)))
-            self. q_proj.weight.copy_(init_linear(torch.empty(qo_inner_dim, dim)))
-            self. o_proj.weight.zero_() # zero init
+            self.qkv_proj.weight.copy_(init_linear(torch.empty(n, dim)))
+            self.  o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024*1
@@ -111,26 +111,22 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def qkv(self, x):
-        q    = self.q_proj(x)  # TODO: có thể tiết kiệm 1 phép int8quant cho x ở đây
-        k, v = self.kv_proj(x).chunk(2, dim=-1) # T, C
-        return q, k, v
-
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        q, k, v = self.qkv(x)
-
-        if ve_lambdas is not None and v_emb is not None:
-            v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
-
         H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
-        T, C = k.shape; assert C == Hkv * D
+        T, C = self.seq_len, Hkv * D
 
-        q = q.contiguous().view(T, H,   D)
-        k = k.contiguous().view(T, Hkv, D)
-        v = v.contiguous().view(T, Hkv, D)
+        def get_qkv(x, v_emb, ve_lambdas):
+            qkv  = self.qkv_proj(x)
+            q    = qkv[..., :self.qo_inner_dim]
+            k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
+            if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
+            q = q.contiguous().view(T, H,   D)
+            k = k.contiguous().view(T, Hkv, D)
+            v = v.contiguous().view(T, Hkv, D)
+            return norm(q), norm(k), norm(v) # theo chiều D
 
-        q, k, v = norm(q), norm(k), norm(v) # theo chiều D
+        q, k, v = checkpoint(get_qkv, x, v_emb, ve_lambdas, use_reentrant=False)
         if self.rope: q, k = rotary(q), rotary(k)
 
         def attention(q, k, v):
