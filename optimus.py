@@ -156,7 +156,7 @@ def per_label_cross_entropy(
     grad *= 1 + 2e-5 * lse          # z-loss modification
     grad  = tl.where(offs == tgt, grad - 1, grad)  # Cross-entropy gradient
 
-    tgt_logit = tl.load(row + tgt)  # load trước khi ghi đè grad vào logits
+    tgt_logit = tl.load(row + tgt).to(tl.float32)  # load trước khi ghi đè grad vào logits
     tl.store(row + offs, grad * reduction, mask=offs < vocab)
 
     loss  = lse - tgt_logit         # LCE = Surprise = -log(p_target) = -(x_target - lse)
