@@ -40,6 +40,7 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
             else: self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim), scale=0.3)) # gần zeros hơn
 
+    @torch.compile(mode="max-autotune")
     def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
