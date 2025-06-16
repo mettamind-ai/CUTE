@@ -113,30 +113,28 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        H, Hkv, D = self.num_heads, self.num_kv_heads, self.head_dim
-        T, C = self.seq_len, Hkv * D
-
-        def get_qkv(x, v_emb, ve_lambdas):
-            qkv  = self.qkv_proj(x)
+        def attention(qkv):
             q    = qkv[..., :self.qo_inner_dim]
             k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
             if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
+
+            H, Hkv  = self.num_heads, self.num_kv_heads
+            D, T    =  self.head_dim, self.seq_len
+
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
             v = v.contiguous().view(T, Hkv, D)
-            return norm(q), norm(k), norm(v) # theo chiều D
 
-        q, k, v = checkpoint(get_qkv, x, v_emb, ve_lambdas, use_reentrant=False)
-        if self.rope: q, k = rotary(q), rotary(k)
+            if self.rope:
+                q, k = rotary(q), rotary(k)
 
-        def attention(q, k, v):
-            y =flash_attn_varlen_func( q, k, v,
+            return flash_attn_varlen_func( norm(q), norm(k), norm(v),
                 cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
                 dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-            ).contiguous()
-            y = y.reshape(T, H * D)
-            return y
-        y = checkpoint(attention, q, k, v, use_reentrant=False)
+            ).contiguous().reshape(T, H * D)
+
+        x = self.qkv_proj(x)
+        y = checkpoint(attention, x, use_reentrant=False)
         z = self.o_proj(y)
         return z
 
@@ -203,14 +201,17 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        ## Token embeddings
-        embs   = self.embeds(input_seq.long())
-        x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+        def prepare(input_seq):
+            ## Token embeddings
+            embs = self.embeds(input_seq.long())
+            x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
 
-        ## Value embeddings, bổ trợ cho value trong attention
-        v_embs = embs[..., -self.ve*self.kv_dim : ]
-        v_embs = list(v_embs.chunk(self.ve, dim=-1))
-        v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+            ## Value embeddings, bổ trợ cho value trong attention
+            v_embs = embs[..., -self.ve*self.kv_dim : ]
+            v_embs = list(v_embs.chunk(self.ve, dim=-1))
+            v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+            return x0, x0, v_embs
+        x, x0, v_embs = checkpoint(prepare, input_seq, use_reentrant=False)
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
