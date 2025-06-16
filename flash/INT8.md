@@ -10,3 +10,12 @@ Vì sao có tính chất này:
 - Vì trong công thức softmax: `exp(ai-c)/∑exp(aj-c) = exp(ai)×exp(-c)/[∑exp(aj)×exp(-c)] = exp(ai)/∑exp(aj)`
 - Hệ số `exp(-c)` bị triệt tiêu ở cả tử và mẫu.
 
+![](https://ar5iv.labs.arxiv.org/html/2410.02367/assets/x2.png)
+- Nếu giữ SWA với 4k window thì không có sự khác biệt về tốc độ giữa attn và linear
+- Nếu dùng flash-attn @ 4k thậm chí tăng tốc do tối ưu với phần cứng
+
+
+|![](https://pbs.twimg.com/media/GtjZnudbMAABsCF?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjanVZbUAAwep9?format=jpg&name=medium)|
+|-|-|
+|![](https://pbs.twimg.com/media/GtjbjYLaMAAwdaF?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjckTObEAADPln?format=png&name=medium)|
+|![]()|![]()|
