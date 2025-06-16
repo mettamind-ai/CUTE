@@ -134,7 +134,7 @@ class Int8MixedLinear(torch.autograd.Function):
 
 @triton.jit
 def per_label_cross_entropy(
-        logits_ptr, target_ptr, loss_ptr, reduction,
+        logits_ptr, target_ptr, loss_ptr, reduction: tl.constexpr,
         stride:  tl.constexpr, vocab: tl.constexpr,
         ignore:  tl.constexpr, BLOCK: tl.constexpr,
     ):
@@ -146,18 +146,18 @@ def per_label_cross_entropy(
     if tgt == ignore: tl.store(row + offs, 0.0); return
 
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
+    x         = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
+    tgt_logit = tl.sum(tl.where(offs == tgt, x, 0.0), axis=0) # không phải load lại data
+
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)            # e^(xi-M)
     d    = tl.sum(e_x, axis=0)      # Σ(e^(xj-M))
     lse  = M + tl.log(d)            # log(Σe^logits) => (L)og-(S)um-(E)xp
 
     grad  = e_x / d                 # p(xi) = exp(xi-M) / Σexp(xj-M)
-    zzzz  = 1 + 2e-5 * lse
+    zzzz  = 1 + 2e-5 * lse          # 
     grad *= zzzz                    # z-loss modification
     grad  = tl.where(offs==tgt, grad-1, grad)  # Cross-entropy gradient
-
-    tgt_logit = tl.load(row + tgt)  # load trước khi ghi đè grad vào logits
     tl.store(row + offs, grad * reduction, mask=offs < vocab)
 
     loss  = lse - tgt_logit         # LCE = Surprise = -log(p_target) = -(x_target - lse)
