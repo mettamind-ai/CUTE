@@ -133,8 +133,8 @@ class CausalSelfAttention(nn.Module):
                 dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
             ).contiguous().reshape(T, H * D)
 
-        x = self.qkv_proj(x)
-        y = checkpoint(attention, x, use_reentrant=False)
+        qkv = self.qkv_proj(x)
+        y = checkpoint(attention, qkv, use_reentrant=False)
         z = self.o_proj(y)
         return z
 
@@ -201,17 +201,14 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        def prepare(input_seq):
-            ## Token embeddings
-            embs = self.embeds(input_seq.long())
-            x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+        ## Token embeddings
+        embs = self.embeds(input_seq.long())
+        x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
 
-            ## Value embeddings, bổ trợ cho value trong attention
-            v_embs = embs[..., -self.ve*self.kv_dim : ]
-            v_embs = list(v_embs.chunk(self.ve, dim=-1))
-            v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
-            return x0, x0, v_embs
-        x, x0, v_embs = checkpoint(prepare, input_seq, use_reentrant=False)
+        ## Value embeddings, bổ trợ cho value trong attention
+        v_embs = embs[..., -self.ve*self.kv_dim : ]
+        v_embs = list(v_embs.chunk(self.ve, dim=-1))
+        v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
