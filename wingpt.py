@@ -132,12 +132,14 @@ class CausalSelfAttention(nn.Module):
         q, k, v = norm(q), norm(k), norm(v) # theo chiều D
         if self.rope: q, k = rotary(q), rotary(k)
 
-        y = flash_attn_varlen_func( q, k, v,
-            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-        ).contiguous()
-
-        y = y.reshape(T, H * D)
+        def attention(q, k, v):
+            y =flash_attn_varlen_func( q, k, v,
+                cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
+                dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+            ).contiguous()
+            y = y.reshape(T, H * D)
+            return y
+        y = checkpoint(attention, q, k, v, use_reentrant=False)
         z = self.o_proj(y)
         return z
 
@@ -220,8 +222,9 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
-            x  = checkpoint(fw(blk), x, use_reentrant=False)
+            # fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            # x  = checkpoint(fw(blk), x, use_reentrant=False)
+            x = blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
