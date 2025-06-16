@@ -16,8 +16,12 @@ Vì sao có tính chất này:
 - Nếu giữ SWA với 4k window thì không có sự khác biệt về tốc độ giữa attn và linear
 - Nếu dùng flash-attn @ 4k thậm chí tăng tốc do tối ưu với phần cứng
 
-
 |![](https://pbs.twimg.com/media/GtjZnudbMAABsCF?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjanVZbUAAwep9?format=jpg&name=medium)|
 |-|-|
 |![](https://pbs.twimg.com/media/GtjbjYLaMAAwdaF?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjckTObEAADPln?format=png&name=medium)|
+|![](https://pbs.twimg.com/media/Gtjjm9naoAEyzNI?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjlGsFakAAsJ9Y?format=jpg&name=medium)|
+|![](https://pbs.twimg.com/media/GtjlGsFakAAsJ9Y?format=jpg&name=medium)|![](https://pbs.twimg.com/media/GtjmMyZbQAAXiHz?format=png&name=medium)|
 |![]()|![]()|
+
+**Lượng tử hóa thích ứng**: SageAttention triển khai bốn phiên bản kernel khác nhau với sự đánh đổi tốc độ-độ chính xác khác nhau và "propose a method to `select the fastest attention implementation for each layer while preserving accuracy`". Hệ thống sẽ chọn kernel phù hợp nhất cho từng lớp **dựa trên độ tương đồng cosine**.
+
