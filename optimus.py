@@ -146,7 +146,7 @@ def per_label_cross_entropy(
     if tgt == ignore: tl.store(row + offs, 0.0); return
 
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf"))
+    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)            # e^(xi-M)
     d    = tl.sum(e_x, axis=0)      # Σ(e^(xj-M))
@@ -177,15 +177,9 @@ class FusedCE(torch.autograd.Function):
         n_labels, vocab = _input.shape[0], weight.shape[0]
         step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
 
-        w,  row_scale_w  = quantize_int8(weight,     dim=0, sr=True)
-        wt, row_scale_wt = quantize_int8(weight.t(), dim=0, sr=True)
-
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
-            # logits = ( _input[s:e] @ weight.t() ).contiguous()
-            i, col_scale_i  = quantize_int8(_input[s:e], dim=1, sr=False)
-            logits = scaled_mm(i, wt, col_scale_i, row_scale_wt, dtype=torch.float32)
-
+            logits = ( _input[s:e] @ weight.t() ).contiguous()
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr  = logits,
                 target_ptr  = target[s:e],
@@ -197,15 +191,9 @@ class FusedCE(torch.autograd.Function):
                 num_warps   = 16 if vocab <= 1024*8 else 32,
                 reduction   = 1.0 / step,
             )
-            # grad_input[s:e] = logits @ weight
-            l, col_scale_l  = quantize_int8(logits, dim=1, sr=False)
-            grad_input[s:e] = scaled_mm(l, w, col_scale_l, row_scale_w, dtype=grad_input.dtype)
-
+            grad_input[s:e] = logits @ weight
             if weight.requires_grad:
-                # grad_weight += logits.t() @ _input[s:e]
-                A, As = quantize_int8(logits.t(), dim=1, sr=False)  # không cần round vì grad ko truyền tiếp
-                B, Bs = quantize_int8(_input[s:e], dim=0, sr=False) # ... nó được update thẳng vào weight
-                grad_weight += scaled_mm(A, B, As, Bs, dtype=grad_weight.dtype)
+                grad_weight = torch.addmm(grad_weight, logits.t(), _input[s:e])
 
         # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
         reduction = ratio * step / (n_labels - n_ignores)
