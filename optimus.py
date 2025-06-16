@@ -11,90 +11,6 @@ import torch.nn.functional as F, torch.utils._pytree as pytree
 from typing import NamedTuple
 from torch import Tensor, nn
 
-###########################
-##  Fused Cross Entropy  ##
-###########################
-
-@triton.jit
-def per_label_cross_entropy(
-        logits_ptr, target_ptr, loss_ptr, reduction,
-        stride:  tl.constexpr, vocab: tl.constexpr,
-        ignore:  tl.constexpr, BLOCK: tl.constexpr,
-    ):
-    pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
-    row  = logits_ptr + pid * stride
-    offs = tl.arange(0, BLOCK)
-
-    tgt = tl.load(target_ptr + pid)
-    if tgt == ignore: tl.store(row + offs, 0.0); return
-
-    # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
-    M    = tl.max(x, axis=0)
-    e_x  = tl.exp(x - M)        # e^(xi-M)
-    d    = tl.sum(e_x, axis=0)  # Σ(e^(xj-M))
-    lse  = M + tl.log(d)        # log(Σe^logits) => (L)og-(S)um-(E)xp
-
-    grad  = e_x / d             # p(xi) = exp(xi-M) / Σexp(xj-M)
-    grad *= 1 + 2e-5 * lse      # z-loss modification
-    grad  = tl.where(offs == tgt, grad - 1, grad)   # Cross-entropy gradient
-
-    tgt_logit = tl.load(row + tgt).to(tl.float32)   # load trước khi ghi đè grad vào logits
-    tl.store(row + offs, grad * reduction, mask=offs < vocab)
-
-    loss  = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
-    loss += 1e-5 * lse * lse    # cộng thêm z_loss penalty giúp ổn định training
-    tl.store(loss_ptr + pid, loss * reduction)                  
-
-
-class FusedCE(torch.autograd.Function):
-    @staticmethod
-    @torch.no_grad()
-    @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
-
-        grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
-        grad_input  = torch.empty_like(_input, device=_input.device)
-        losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
-
-        n_labels, vocab = _input.shape[0], weight.shape[0]
-        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
-
-        for s in range( 0, n_labels, step ):
-            e = min(s + step, n_labels)
-            logits = ( _input[s:e] @ weight.t() ).contiguous()
-            per_label_cross_entropy[( logits.shape[0], )](
-                logits_ptr  = logits,
-                target_ptr  = target[s:e],
-                loss_ptr    = losses[s:e],
-                stride      = logits.stride(-2),
-                ignore      = ignore,
-                vocab       = vocab,
-                BLOCK       = triton.next_power_of_2(vocab), 
-                num_warps   = 16 if vocab <= 1024*8 else 32,
-                reduction   = 1.0 / step,
-            )
-            grad_input[s:e] = logits @ weight
-            if weight.requires_grad: grad_weight += logits.t() @ _input[s:e]
-
-        # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
-        reduction = ratio * step / (n_labels - n_ignores)
-        ctx.save_for_backward(
-            (grad_input  * reduction).detach(), 
-            (grad_weight * reduction).detach() if weight.requires_grad else None
-        )
-        return torch.sum(losses) * reduction
-
-
-    @staticmethod
-    @torch.amp.custom_bwd(device_type="cuda")
-    def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):
-        grad_input, grad_weight = ctx.saved_tensors
-        grad_input = grad_input * grad_output
-        if grad_weight is not None: grad_weight = grad_weight * grad_output
-        return grad_input, grad_weight, None, None, None, None
-
-
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
@@ -212,46 +128,101 @@ class Int8MixedLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-''' Chuyển tiếp F.linear func call tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
-dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch. '''
-aten = torch.ops.aten
-class Int8MixedLWeight(Tensor):
+###########################
+##  Fused Cross Entropy  ##
+###########################
+
+@triton.jit
+def per_label_cross_entropy(
+        logits_ptr, target_ptr, loss_ptr, reduction,
+        stride:  tl.constexpr, vocab: tl.constexpr,
+        ignore:  tl.constexpr, BLOCK: tl.constexpr,
+    ):
+    pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
+    row  = logits_ptr + pid * stride
+    offs = tl.arange(0, BLOCK)
+
+    tgt = tl.load(target_ptr + pid)
+    if tgt == ignore: tl.store(row + offs, 0.0); return
+
+    # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
+    x    = tl.load(row + offs, mask=offs < vocab, other=-float("inf"))
+    M    = tl.max(x, axis=0)
+    e_x  = tl.exp(x - M)            # e^(xi-M)
+    d    = tl.sum(e_x, axis=0)      # Σ(e^(xj-M))
+    lse  = M + tl.log(d)            # log(Σe^logits) => (L)og-(S)um-(E)xp
+
+    grad  = e_x / d                 # p(xi) = exp(xi-M) / Σexp(xj-M)
+    grad *= 1 + 2e-5 * lse          # z-loss modification
+    grad  = tl.where(offs == tgt, grad - 1, grad)  # Cross-entropy gradient
+
+    tgt_logit = tl.load(row + tgt)  # load trước khi ghi đè grad vào logits
+    tl.store(row + offs, grad * reduction, mask=offs < vocab)
+
+    loss  = lse - tgt_logit         # LCE = Surprise = -log(p_target) = -(x_target - lse)
+    loss += 1e-5 * lse * lse        # cộng thêm z_loss penalty giúp ổn định training
+    tl.store(loss_ptr + pid, loss * reduction)                  
+
+
+class FusedCE(torch.autograd.Function):
     @staticmethod
-    @torch._dynamo.disable
-    def __new__(cls, data: Tensor): return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
-    @torch._dynamo.disable
-    def __init__(self, data: Tensor): self._data = data
-    def __tensor_flatten__(self): return ["_data"], []
-    def __repr__(self): return f"{self.__class__.__name__}(data={self._data})"
-    @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = kwargs or dict()                           # hook vào torch_function để ...
-        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)              # 1) xử lý riêng F.linear
-        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)      # 2) các hàm khác giữ nguyên
-    @classmethod # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
-    def __torch_dispatch__(cls, func, types, args, kwargs): # đảm bảo các operations khác (transpose, clone, view...) vẫn hoạt động
-        def unwrap(x: cls): return x._data                  # Weight vẫn có thể được sử dụng như tensor bình thường
-        out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
-        others = { aten.t.default, aten.detach.default, aten.empty_like.default, aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default,}
-        if func is aten.copy_.default: return args[0]       # original object
-        elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
-        else: return out                                    # new unwrapped object
+    @torch.no_grad()
+    @torch.amp.custom_fwd(device_type="cuda")
+    def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
+        grad_weight = torch.zeros_like(weight, device=_input.device) if weight.requires_grad else None
+        grad_input  = torch.empty_like(_input, device=_input.device)
+        losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
-def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
-    ignore = re.compile(rf'{ignore}')
-    names, params = [], 0
-    for n, m in module.named_modules():
-        if isinstance(m, nn.Linear) and not ignore.search(n): 
-            names.append(n)            
-            params  += m.weight.numel()
-            m.weight = nn.Parameter(                    # Tạo đối tượng param mới và làm 2 việc: 
-                Int8MixedLWeight(m.weight.detach()),    # 1) đón Tensor gốc sau khi tháo rời khỏi graph
-                requires_grad=m.weight.requires_grad,   # 2) gắn lại wrapper vào graph với yêu cầu grad như cũ 
+        n_labels, vocab = _input.shape[0], weight.shape[0]
+        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
+
+        w,  row_scale_w  = quantize_int8(weight,     dim=0, sr=True)
+        wt, row_scale_wt = quantize_int8(weight.t(), dim=0, sr=True)
+
+        for s in range( 0, n_labels, step ):
+            e = min(s + step, n_labels)
+            # logits = ( _input[s:e] @ weight.t() ).contiguous()
+            i, col_scale_i  = quantize_int8(_input[s:e], dim=1, sr=False)
+            logits = scaled_mm(i, wt, col_scale_i, row_scale_wt, dtype=torch.float32)
+
+            per_label_cross_entropy[( logits.shape[0], )](
+                logits_ptr  = logits,
+                target_ptr  = target[s:e],
+                loss_ptr    = losses[s:e],
+                stride      = logits.stride(-2),
+                ignore      = ignore,
+                vocab       = vocab,
+                BLOCK       = triton.next_power_of_2(vocab), 
+                num_warps   = 16 if vocab <= 1024*8 else 32,
+                reduction   = 1.0 / step,
             )
-    return names, params
+            # grad_input[s:e] = logits @ weight
+            l, col_scale_l  = quantize_int8(logits, dim=1, sr=False)
+            grad_input[s:e] = scaled_mm(l, w, col_scale_l, row_scale_w, dtype=grad_input.dtype)
+
+            if weight.requires_grad:
+                # grad_weight += logits.t() @ _input[s:e]
+                A, As = quantize_int8(logits.t(), dim=1, sr=False)  # không cần round vì grad ko truyền tiếp
+                B, Bs = quantize_int8(_input[s:e], dim=0, sr=False) # ... nó được update thẳng vào weight
+                grad_weight += scaled_mm(A, B, As, Bs, dtype=grad_weight.dtype)
+
+        # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
+        reduction = ratio * step / (n_labels - n_ignores)
+        ctx.save_for_backward(
+            (grad_input  * reduction).detach(), 
+            (grad_weight * reduction).detach() if weight.requires_grad else None
+        )
+        return torch.sum(losses) * reduction
+
+
+    @staticmethod
+    @torch.amp.custom_bwd(device_type="cuda")
+    def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):
+        grad_input, grad_weight = ctx.saved_tensors
+        grad_input = grad_input * grad_output
+        if grad_weight is not None: grad_weight = grad_weight * grad_output
+        return grad_input, grad_weight, None, None, None, None
 
 
 #################################################################
@@ -297,3 +268,49 @@ class Muon1GPU(torch.optim.Optimizer):
                 rows, cols = p.size(-2), p.size(-1)         # 2) p -= go * lr * sqrt(max(1, rows / cols))
                 x = max(1, rows / cols)**0.5 
                 p.add_(g, alpha=-group['lr']*x)
+
+
+########################
+##  Int8 Mixed Utils  ##
+########################
+
+''' Chuyển tiếp F.linear func call tới kernel tuỳ chỉnh (Int8MixedLinear.apply) và cho phép torch.compile
+dựng biểu đồ (graph) trơn tru, không làm gián đoạn quá trình trace-&-compile của PyTorch. '''
+aten = torch.ops.aten
+class Int8MixedLWeight(Tensor):
+    @staticmethod
+    @torch._dynamo.disable
+    def __new__(cls, data: Tensor): return Tensor._make_wrapper_subclass(cls, data.shape, device=data.device,)
+    @torch._dynamo.disable
+    def __init__(self, data: Tensor): self._data = data
+    def __tensor_flatten__(self): return ["_data"], []
+    def __repr__(self): return f"{self.__class__.__name__}(data={self._data})"
+    @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = kwargs or dict()                           # hook vào torch_function để ...
+        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)              # 1) xử lý riêng F.linear
+        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)      # 2) các hàm khác giữ nguyên
+    @classmethod # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
+    def __torch_dispatch__(cls, func, types, args, kwargs): # đảm bảo các operations khác (transpose, clone, view...) vẫn hoạt động
+        def unwrap(x: cls): return x._data                  # Weight vẫn có thể được sử dụng như tensor bình thường
+        out = func(*pytree.tree_map_only(cls, unwrap, args), **pytree.tree_map_only(cls, unwrap, kwargs),)
+        others = { aten.t.default, aten.detach.default, aten.empty_like.default, aten.new_zeros.default, aten.slice.Tensor, aten.view.default, aten.as_strided.default, aten._to_copy.default, aten._pin_memory.default, aten.split.Tensor, aten.clone.default,}
+        if func is aten.copy_.default: return args[0]       # original object
+        elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
+        else: return out                                    # new unwrapped object
+
+
+def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
+    ignore = re.compile(rf'{ignore}')
+    names, params = [], 0
+    for n, m in module.named_modules():
+        if isinstance(m, nn.Linear) and not ignore.search(n): 
+            names.append(n)            
+            params  += m.weight.numel()
+            m.weight = nn.Parameter(                    # Tạo đối tượng param mới và làm 2 việc: 
+                Int8MixedLWeight(m.weight.detach()),    # 1) đón Tensor gốc sau khi tháo rời khỏi graph
+                requires_grad=m.weight.requires_grad,   # 2) gắn lại wrapper vào graph với yêu cầu grad như cũ 
+            )
+    return names, params
