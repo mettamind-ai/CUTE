@@ -222,3 +222,9 @@ YÊU CẦU CỤ THỂ
 2. Xem xét ví dụ về cách kết hợp idea từ 2 hoặc nhiều papers mà người dùng đưa ra.
 
 3. Dựa trên nội dung tìm hiểu được, hãy kết hợp nhiều ý tưởng, phương hướng, cách làm, thuật toán từ các papers tìm hiểu được để đưa ra những ý tưởng và phương pháp mới khiến cho việc xây dụng vocab áp dụng trong tokenization của LLM trở nên hiệu quả hơn trong cả pretraining và inference.
+
+---
+
+|![](https://pbs.twimg.com/media/GtilNRna4AAuW8z?format=jpg)|![](https://pbs.twimg.com/media/GtimanPboAAToM8?format=jpg)|
+|-|-|
+

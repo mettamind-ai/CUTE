@@ -60,19 +60,16 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
   - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
-- SPARSE
-  - NSA, block/sparse attn nói chung (moba, mosa ...)
-    - https://github.com/microsoft/SeerAttention
-  - Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
-    - giảm dataset phải chuẩn bị cho nó học?
-    - học cách phân bổ dữ liệu nhanh hơn?
-    - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
-    - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
-      hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
-    - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
+- LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
+  - giảm dataset phải chuẩn bị cho nó học?
+  - học cách phân bổ dữ liệu nhanh hơn?
+  - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
+  - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
+    hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
+  - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
 
 - LEARNING OBJECTIVES
-  - [x] MTP, rất hiệu quả với 1 future head
+  - [x] MTP rất hiệu quả với 1 future head
   - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
     - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
       Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.

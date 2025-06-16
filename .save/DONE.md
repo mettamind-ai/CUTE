@@ -170,3 +170,15 @@
 
 - [x] Full / LoRA một hoặc vài `attn -> mlp ...` cuối cho MTP
 - [x] ~~Adaptive Softmax~~ https://docs.pytorch.org/docs/stable/_modules/torch/nn/modules/adaptive.html (xấp xỉ, old tech)
+
+20250616
+--------
+
+- SPARSE
+  - NSA, block/sparse attn nói chung (moba, mosa ...)
+  - https://github.com/microsoft/SeerAttention
+    - SeerAttention-R không hiệu quả với chuỗi ngắn 1k tokens. Framework này được tối ưu cho các tác vụ suy luận dài như AIME (trung bình 11k-18k tokens) và chỉ phát huy tác dụng khi sequence length đủ lớn để overhead của sparse attention được bù đắp bởi lợi ích tính toán.
+    - NSA vs Seer: Cả hai phương pháp đều hoạt động ở mức độ block-level để tận dụng hiệu quả tính toán trên GPU hiện đại. Như NSA đề cập: "Blockwise selection is crucial to achieve efficient computation on modern GPUs" và SeerAttention cũng nhấn mạnh "we focus on learning block sparsity, which can seamlessly integrate with the tiling computation scheme of FlashAttention."
+    - Cả hai đều sử dụng cơ chế scoring để chọn blocks quan trọng. SeerAttention tạo gating scores thông qua AttnGate, trong khi NSA tính importance scores cho từng block: "We retain tokens within the top-n sparse blocks ranked by block importance scores."
+    - Cả hai đều có thể sử dụng TopK selection để tạo binary mask cuối cùng. SeerAttention mô tả: "users can adjust the TopK ratio or threshold at test time to achieve various trade-offs," tương tự NSA với "Top-n Block Selection."
+    - Phương pháp training khác biệt. SeerAttention sử dụng self-distillation với "2DMaxPooled attention map from full attention as ground truth," trong khi NSA được pretrain end-to-end như một architecture hoàn chỉnh: "We enable end-to-end training, reducing pretraining computation without sacrificing model performance."

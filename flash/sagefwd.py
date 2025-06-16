@@ -1,5 +1,5 @@
 """ SageAttention: Accurate 8-bit Inference Attention 
-https://arxiv.org/html/2410.02367v6
+https://ar5iv.org/html/2410.02367v8
 """
 import torch, triton, math
 import triton.language as tl
