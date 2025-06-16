@@ -61,8 +61,9 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
 - SPARSE
-  - NSA, infllmv2 (selective attn), block/sparse attn nói chung (moba, mosa ...)
-  - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
+  - NSA, block/sparse attn nói chung (moba, mosa ...)
+    - https://github.com/microsoft/SeerAttention
+  - Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
     - giảm dataset phải chuẩn bị cho nó học?
     - học cách phân bổ dữ liệu nhanh hơn?
     - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
