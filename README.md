@@ -58,7 +58,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://github.com/pytorch-labs/gpt-fast
   - top-nơ https://www.alphaxiv.org/abs/2411.07641
   - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
-  - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
 - LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
   - giảm dataset phải chuẩn bị cho nó học?
@@ -67,14 +66,15 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
     hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
   - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
+    - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
 - LEARNING OBJECTIVES
   - [x] MTP rất hiệu quả với 1 future head
   - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
     - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
       Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.
-    - => INT8 Linear + INT8 Attn 
-  - [ ] Hạn chế tác hại của Causual Attn => GLM?
+    - => INT8 Linear + INT8 SageFwd + Early Exit to maximum speedup! 
+  - [ ] Hạn chế tác hại của Causual Attn => GLM and other learning objectives?
 
 - LINH TOK (flexible tokenization & token usage)
   - Token được TỰ DO LỰA CHỌN:
@@ -82,18 +82,14 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
     - cách nó chọn số computing / hidden dim để biểu diễn chính nó (MoE)
       https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mixture-of-experts
 
-  - [ ] Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head) để giữ head bé
-    - trong lúc tknz có tỉ lệ nhỏ 1-2% tự động phân mảnh token hoặc gộp 2 token liền nhau (dùng model để chọn luôn)
+  - Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head) để giữ head bé
+    - trong lúc tknz có tỉ lệ nhỏ 1-2% tự động phân mảnh token hoặc gộp 2 token liền nhau (dùng model để chọn)
       nhằm huấn luyện model thích ứng với nhiều cách tknz khác nhau và build embeddings của n-grams (n > 2)
 
-  - [ ] tìm cách tận dụng loss per token từ step trước để quyết định phân tách / gộp chính xác hơn.
+  - Tận dụng loss/logits/gradient per token từ step trước để quyết định phân tách / gộp chính xác hơn.
     **Cách nhóm tokens thế nào sẽ do model tính điểm 1 lần trên based tokens trước rồi mới quyết**
 
-  - [ ] Bắt đầu bằng bất kỳ khởi tạo vocab nào và nó tự tiến hoá theo nhu cầu của model trong lúc training
-    - model tự drop những tokens kém được khởi tạo thô từ trước (ADAT)
-      - Huấn luyện LLM, tính loss từng token = hàm kết hợp tần suất & cross-entropy.
-      - Hạ tần suất xuất hiện của những token đóng góp thấp, lặp lại → tạo tokenizer “thích ứng” với mô hình.
-    - model tự promote những combined tokens theo tiêu chí của nó (Vocabulary Curriculum)
+  - Bắt đầu bằng bất kỳ khởi tạo vocab nào và sắp xếp lại thứ tự quan trọng của các tokens trong vocab dựa vào grad score / logits score / loss score ..., từ đó bình chọn lại, sẽ có những unit tokens luôn được giữ nhưng chỉ là số lượng nhỏ (2k/total 8k chẳng hạn)
 
   - **Nếu liên tục promote những tokens mới thì model tự nhiên sẽ tạo ra SUPER TOKENS của riêng nó.**
 
