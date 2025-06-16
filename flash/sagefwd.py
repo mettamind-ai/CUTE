@@ -118,7 +118,6 @@ def _attn_fwd(
 
 
 def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqlens_scale, output_dtype=torch.float16):
-
     BLOCK_M = 128
     BLOCK_N = 64
     stage = 3
@@ -153,9 +152,8 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
 def quant_per_block_int8_kernel(
     Input, Output, Scale,
     cu_seqlens_input, cu_seqlens_scale,
-    stride_ih, stride_in,
-    stride_oh, stride_on,
-    sm_scale, H: tl.constexpr,
+    stride_ih, stride_in, stride_oh, stride_on,
+    sm_scale: tl.constexpr, H: tl.constexpr,
     C: tl.constexpr, BLK: tl.constexpr
 ):
     off_blk = tl.program_id(0)
@@ -177,14 +175,12 @@ def quant_per_block_int8_kernel(
     scale_ptrs  = Scale  + cu_seqlens_scale_start*H + off_h + off_blk*H
 
     x = tl.load(input_ptrs, mask=offs_n[:, None] < L)
-    x = x.to(tl.float32)
-    x *= sm_scale
-    scale = tl.max(tl.abs(x)) / 127.
-    x_int8 = x / scale
-    x_int8 += 0.5 * tl.where(x_int8 >= 0, 1, -1)
-    x_int8 = x_int8.to(tl.int8)
-    tl.store(output_ptrs, x_int8, mask=offs_n[:, None] < L)
-    tl.store(scale_ptrs, scale)
+    x = x.to(tl.float32) * sm_scale # softmax scale
+    tensor_scale = tl.max(tl.abs(x)) / 127.0
+    x /= tensor_scale
+    x += 0.5*tl.where(x>=0, 1, -1)  # round-to-nearest
+    tl.store(output_ptrs, x.to(tl.int8), mask=offs_n[:, None] < L)
+    tl.store(scale_ptrs, tensor_scale)
 
 
 def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None):
@@ -198,7 +194,7 @@ def per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, BLK_QK=64, sm_scale=None
     k_int8: [total_seqlens, num_kv_heads, head_dim] - dtype=int8  
     q_scale: [total_blocks, num_qo_heads] - dtype=float32
     k_scale: [total_blocks, num_kv_heads] - dtype=float32
-    cu_seqlens_scale: [batch_size + 1] - cumulative block counts
+    cu_seqlens_scale: [batch_size + 1] - cumulative block counts for seqs in varlen
 
     Với:
     total_seqlens = cu_seqlens[-1]
@@ -263,14 +259,11 @@ def sageattn_varlen(q, k, v, cu_seqlens, max_seqlen, sm_scale:float=None) -> tor
     assert q.stride(-1) == 1 and k.stride(-1) == 1 and v.stride(-1) == 1, "Last dim of qkv must be contiguous."
     assert cu_seqlens.is_contiguous(), "cu_seqlens must be contiguous."
 
-    if dtype == torch.bfloat16: v = v.to(torch.float16) # tại sao phải convert sang float16?
-    k = k - k.mean(dim=0, keepdim=True) # Always smooth_k
+    if dtype == torch.bfloat16: v = v.to(torch.float16) # tại sao phải convert v bf16 to fl16? <= vì acc là fp16
+    k = k - k.mean(dim=0, keepdim=True)                 # Always smooth_k (zero centering)
     if sm_scale is None: sm_scale = 1.0 / (head_dim_og ** 0.5)
 
-    q_int8, q_scale, k_int8, k_scale, cu_seqlens_scale = \
-        per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, sm_scale=sm_scale)
-
-    o = attn_true_varlen(q_int8, k_int8, v, cu_seqlens, max_seqlen, q_scale, \
-            k_scale, cu_seqlens_scale, output_dtype=dtype)
+    q_int8, q_scale, k_int8, k_scale, cu_seqlens_scale = per_block_int8_varlen(q, k, cu_seqlens, max_seqlen, sm_scale=sm_scale)
+    o = attn_true_varlen(q_int8, k_int8, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqlens_scale, output_dtype=dtype)
     return o
 
