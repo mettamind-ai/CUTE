@@ -43,7 +43,7 @@ def per_label_cross_entropy(
     tl.store(row + offs, grad * reduction, mask=offs < vocab)
 
     loss  = lse - tgt_logit     # LCE = Surprise = -log(p_target) = -(x_target - lse)
-    loss += 1e-5*lse*lse        # cộng thêm z_loss penalty giúp ổn định training
+    loss += 1e-5 * lse * lse    # cộng thêm z_loss penalty giúp ổn định training
     tl.store(loss_ptr + pid, loss * reduction)                  
 
 

@@ -60,7 +60,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
   - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
-- SPARSE / LOGITS is SPARSE
+- SPARSE
   - NSA, infllmv2 (selective attn), block/sparse attn nói chung (moba, mosa ...)
   - [ ] Với 1 model mạnh nói chung nhưng yếu domain, có thể **kết hợp logits distill + pre-train** để:
     - giảm dataset phải chuẩn bị cho nó học?
@@ -70,7 +70,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
       hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
     - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
 
-- LINH LEARNING OBJECTIVES
+- LEARNING OBJECTIVES
   - [x] MTP, rất hiệu quả với 1 future head
   - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
     - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
@@ -102,3 +102,4 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 ---
 
 - [ ] Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py
+- [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
