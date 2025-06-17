@@ -102,10 +102,9 @@ def slot(token_id):  				# dim=2048 					=> 24GB RAM
 - https://www.alphaxiv.org/abs/2410.01188
 |![](https://ar5iv.labs.arxiv.org/html/2410.01188/assets/x2.png)|![](https://ar5iv.labs.arxiv.org/html/2410.01188/assets/x3.png)|
 |-|-|
-**trực giác**: "các nhóm token thể hiện gradient lớn hơn trong các instance lĩnh vực được coi là quan trọng hơn đối với nhiệm vụ và nên được tích hợp vào từ vựng như các thuật ngữ chuyên lĩnh vực"
+**trực giác**: "các nhóm token thể hiện gradient lớn hơn trong các instance lĩnh vực được coi là quan trọng hơn đối với nhiệm vụ và nên được tích hợp vào từ vựng như các thuật ngữ chuyên lĩnh vực". **NOTE**: với VEGAD các candidate words đã được đề xuất từ trước, VEGAD chỉ việc chọn "mọi chuyện trở nên đơn giản" là chọn cái nào có sự ảnh hưởng cao nhất, mà ảnh hưởng ở đây đo bằng grad_score. **Với Paper3 VocabCurr thì họ phải tự đề xuất các candidates dựa trên token logits / loss.**
 
 Tính gradient cho cả hai thành phần quan trọng:
-
 - Embedding layer: G^embed = ∂L_lm/∂α
 - Language modeling head layer: G^lmhead = ∂L_lm/∂β
 
@@ -196,8 +195,11 @@ Position shift đảm bảo chúng ta capture cả hai khía cạnh:
 ## IMPORTANT
 Paper5 cũng chỉ ra rằng “VEGAD+2-gram” outperforms VEGAD, lý lo là vì 2-gram tối ưu hơn cho việc giảm gradient của toàn bộ training dataset. => Tiếp tục mở rộng ra 3-gram, ... n-gram sẽ giúp tối ưu cho việc giảm gradient hơn nữa. Đây là một hướng đi mà paper5 chưa phám khá.
 
+|![](https://pbs.twimg.com/media/GtilNRna4AAuW8z?format=jpg)|![](https://pbs.twimg.com/media/GtimanPboAAToM8?format=jpg)|
+|-|-|
 
-VÍ DỤ VỀ KẾT HỢP Ý TƯỞNG N-GRAM EMBEDDINGS TRONG PAPER1 với GRADIENT BASED SCORE TRONG PAPER5
+
+VÍ DỤ VỀ KẾT HỢP Ý TƯỞNG N-GRAM EMBEDDINGS TRONG Paper1 với GRADIENT BASED SCORE TRONG Paper5
 ---------------------------------------------------------------------------------------------
 
 Hiện tại VEGAD có một vấn đề lớn. Nó hoạt động theo kiểu "làm sau", nghĩa là trước tiên huấn luyện mô hình với từ đơn, sau đó mới chọn ra những cụm từ tốt và khởi tạo lại embedding cho chúng. Cách này tạo ra vấn đề "khởi đầu lạnh" - những cụm từ mới không có nền tảng gì để bắt đầu học.
@@ -225,6 +227,50 @@ YÊU CẦU CỤ THỂ
 
 ---
 
-|![](https://pbs.twimg.com/media/GtilNRna4AAuW8z?format=jpg)|![](https://pbs.twimg.com/media/GtimanPboAAToM8?format=jpg)|
-|-|-|
+# LVOT: Phương Pháp Tối Ưu Hóa Từ Vựng Dựa Trên LLM
 
+Sau khi phân tích kỹ lưỡng 5 bài báo nghiên cứu về tokenization, tôi nhận thấy mỗi phương pháp đều có những điểm mạnh riêng nhưng cũng tồn tại những hạn chế nhất định. LVOT (LLM-based Vocabulary Optimization for Tokenization) là framework tổng hợp nhằm kết hợp những ưu điểm và khắc phục những nhược điểm của các phương pháp hiện có.
+
+## 1. Tokenization Phân Cấp Thích Ứng (HAT)
+
+Ý tưởng đầu tiên xuất phát từ việc kết hợp ba phương pháp: Over-Tokenized, STOCHASTOK và VEGAD. Thay vì cố định sử dụng một cấp độ token duy nhất, hệ thống sẽ linh hoạt chuyển đổi giữa các cấp độ khác nhau.
+
+Trong quá trình huấn luyện, với mỗi đoạn văn bản, hệ thống sẽ ngẫu nhiên chọn sử dụng token đơn, cụm 2 từ, 3 từ hoặc thậm chí 4 từ. Điều này giúp mô hình học được cách biểu diễn ở nhiều độ phân giải khác nhau. Điểm đặc biệt là các trọng số kết hợp giữa các cấp độ được học tự động thông qua gradient, không cần thiết lập thủ công.
+
+Khi inference, hệ thống sẽ tự động chọn cấp độ token phù hợp nhất dựa trên ngữ cảnh. Ví dụ, với thuật ngữ y khoa "viêm phổi cấp tính", hệ thống có thể nhận ra đây là một khái niệm hoàn chỉnh và sử dụng token 4-gram thay vì tách thành các từ đơn lẻ.
+
+## 2. Tiến Hóa Từ Vựng Dựa Trên Gradient (GGVE)
+
+Phương pháp thứ hai kết hợp ba ý tưởng từ VEGAD, ADATOK và VocabCurr để tạo ra một hệ thống từ vựng có khả năng tiến hóa liên tục trong quá trình huấn luyện.
+
+Hệ thống bắt đầu với một từ vựng lớn, sau đó dần dần điều chỉnh dựa trên ba yếu tố chính. Thứ nhất là gradient - những token nào có gradient lớn sẽ được coi là quan trọng và được ưu tiên giữ lại. Thứ hai là entropy - hệ thống sẽ theo dõi độ khó dự đoán của các token để quyết định khi nào cần mở rộng hoặc thu gọn từ vựng. Thứ ba là hiệu suất thực tế của mô hình khi sử dụng các token khác nhau.
+
+Điểm đột phá là thay vì cố định từ vựng sau khi xây dựng, hệ thống cho phép từ vựng thay đổi động trong suốt quá trình huấn luyện. Những token mới hữu ích có thể được thêm vào, trong khi những token ít được sử dụng sẽ bị loại bỏ.
+
+## 3. Từ Vựng Vô Hạn Tiết Kiệm Bộ Nhớ (MEIV)
+
+Vấn đề lưu trữ embedding cho hàng triệu token là một thách thức lớn. MEIV giải quyết vấn đề này bằng cách phân chia không gian lưu trữ thành ba cấp độ.
+
+Cấp độ đầu tiên dành cho những token quan trọng nhất - chúng có embedding riêng với kích thước đầy đủ. Cấp độ thứ hai cho những token phổ biến vừa phải - mỗi token được biểu diễn bằng cách kết hợp hai embedding kích thước một nửa. Cấp độ thứ ba cho những token hiếm - sử dụng bốn embedding kích thước một phần tư.
+
+Điều thú vị là hệ thống có một mạng neural nhỏ đóng vai trò "bộ định tuyến", tự động quyết định mỗi token thuộc cấp độ nào dựa trên đặc điểm của nó. Cách tiếp cận này cho phép xử lý số lượng token gần như vô hạn mà chỉ cần bộ nhớ hữu hạn.
+
+## 4. Mạng Tokenization Đa Độ Phân Giải (MRTN)
+
+MRTN là sự kết hợp toàn diện của ba phương pháp trên, tạo thành một hệ thống hoàn chỉnh. Khi xử lý văn bản, hệ thống không chỉ đơn giản tách thành token mà còn xem xét ngữ cảnh để quyết định độ phân giải phù hợp.
+
+Ví dụ, khi gặp cụm từ "machine learning", trong ngữ cảnh kỹ thuật, hệ thống có thể giữ nguyên như một token. Nhưng trong ngữ cảnh giải thích cho người mới, nó có thể tách thành "machine" và "learning" để dễ hiểu hơn.
+
+Hệ thống cũng có khả năng meta-learning - học cách học. Nó không chỉ học cách tokenize tốt hơn mà còn học cách điều chỉnh chiến lược tokenization cho phù hợp với từng loại dữ liệu.
+
+## 5. Tokenization Thích Ứng Theo Lĩnh Vực (DAT)
+
+Phương pháp cuối cùng tập trung vào việc tạo ra các "chuyên gia" tokenization cho từng lĩnh vực cụ thể. Khi hệ thống nhận ra đang xử lý văn bản y khoa, nó sẽ kích hoạt module chuyên biệt đã được huấn luyện trên dữ liệu y khoa.
+
+Mỗi chuyên gia lĩnh vực không chỉ có từ vựng riêng mà còn có cách hiểu và xử lý văn bản khác nhau. Chuyên gia y khoa sẽ nhận biết "viêm phổi" là một khái niệm, trong khi chuyên gia văn học có thể xem đó là hai từ riêng biệt.
+
+## Ưu Điểm Tổng Thể của LVOT
+
+LVOT mang lại nhiều cải tiến quan trọng. Thứ nhất, nó linh hoạt hơn các phương pháp hiện tại - có thể thích ứng với nhiều loại văn bản và ngữ cảnh khác nhau. Thứ hai, nó hiệu quả về mặt bộ nhớ - có thể xử lý từ vựng cực lớn mà không cần lưu trữ tất cả. Thứ ba, nó học liên tục - không ngừng cải thiện trong quá trình sử dụng.
+
+Quan trọng nhất, LVOT tạo ra một framework thống nhất, cho phép kết hợp những ý tưởng tốt nhất từ các nghiên cứu hiện có trong khi khắc phục những hạn chế của từng phương pháp riêng lẻ. Đây là bước tiến quan trọng hướng tới việc xây dựng hệ thống tokenization thông minh và hiệu quả hơn cho các mô hình ngôn ngữ lớn.
