@@ -105,3 +105,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] impl longce hiệu quả "only less than 10% tokens are highly influenced by long context"
   => có thể pre-filter hoặc sample intelligently.
 
+- [ ] diffusion LLM từ Bert https://huggingface.co/HPLT/hplt_bert_base_2_0_vie-Latn/blob/main/config.json
+  - https://huggingface.co/HPLT/translate-vi-en-v2.0-hplt
+  - https://huggingface.co/HPLT/translate-en-vi-v2.0-hplt
