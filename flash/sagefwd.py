@@ -56,11 +56,12 @@ def _attn_fwd_inner(
 
 
 
-# Define autotuning configurations
-_cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s, num_warps=w) for m, n, s, w in \
+_grid = lambda meta: (triton.cdiv(meta["max_seqlen"], meta["BLOCK_M"]), meta["H"], meta["num_seqs"])
+_cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s, num_warps=w) for m, n, s, w in \
   [ (128,  64, 4, 4), (128, 64, 4, 8), (128, 128, 4, 4), (128, 128, 4, 8), ( 64,  64, 4, 4),
-    ( 64, 128, 4, 4), (256, 64, 3, 8), (256, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8), ]]
-@triton.autotune(configs=_cfgs, key=['max_seqlen', 'HEAD_DIM', 'H', 'num_kv_groups'],)
+    ( 64, 128, 4, 4), (256, 64, 3, 8), (256, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8),]
+]
+@triton.autotune(configs=_cfgs, key=['max_seqlen', 'BLOCK_M', 'H', 'num_seqs'],)
 @triton.jit
 def _attn_fwd(
     Q, K, V, cu_seqlens,
@@ -71,7 +72,7 @@ def _attn_fwd(
     H: tl.constexpr, num_kv_groups: tl.constexpr,
     HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr,  
     BLOCK_N: tl.constexpr, STAGE: tl.constexpr,
-    max_seqlen,
+    max_seqlen, num_seqs
 ):
     start_m = tl.program_id(0)
     off_z   = tl.program_id(2).to(tl.int64)
@@ -134,7 +135,6 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
     num_kv_groups = h_qo // h_kv
     num_warps = ( 4 if head_dim == 64 else 8 )
 
-    _grid = (triton.cdiv(max_seqlen, BLOCK_M), h_qo, b)
     _attn_fwd[_grid](
         q, k, v, cu_seqlens,
         q_scale, k_scale, cu_seqlens_scale,
@@ -144,9 +144,10 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         v.stride(1), v.stride(0), 
         o.stride(1), o.stride(0),
         h_qo, num_kv_groups,
-        HEAD_DIM=HEAD_DIM_K,  
-        STAGE=3,
-        max_seqlen=max_seqlen,
+        HEAD_DIM    = HEAD_DIM_K,  
+        STAGE       = 3,
+        max_seqlen  = max_seqlen,
+        num_seqs    = b
     )
     return o
 
