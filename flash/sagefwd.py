@@ -131,6 +131,7 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
 
     HEAD_DIM_K = head_dim
     num_kv_groups = h_qo // h_kv
+    num_warps = ( 4 if head_dim == 64 else 8 )
 
     _attn_fwd[_grid](
         q, k, v, cu_seqlens,
@@ -145,7 +146,7 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         STAGE       = 3,
         max_seqlen  = max_seqlen,
         num_seqs    = cu_seqlens.shape[0] - 1,
-        num_warps   = ( 4 if head_dim == 64 else 8 ),
+        num_warps   = num_warps,
     )
     return o
 
