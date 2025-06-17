@@ -57,7 +57,7 @@ def _attn_fwd_inner(
 
 
 _grid = lambda meta: (triton.cdiv(meta["max_seqlen"], meta["BLOCK_M"]), meta["H"], meta["num_seqs"])
-_cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s) for m, n, s, w in \
+_cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s) for m, n, s in \
   [ (128,  64, 3), (128, 64, 3), ( 64, 128, 4), (128,  64, 4), ( 64,  64, 3),
     (128, 128, 4), (256, 64, 4), ( 64, 256, 4), (256, 128, 4), (128, 256, 4),]
 ]
@@ -126,14 +126,11 @@ def _attn_fwd(
 
 def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqlens_scale, output_dtype=torch.float16):
     o = torch.empty(q.shape, dtype=output_dtype, device=q.device)
-    b = cu_seqlens.shape[0] - 1
-
     _, h_qo, head_dim = q.shape
     _, h_kv, _ = k.shape
 
     HEAD_DIM_K = head_dim
     num_kv_groups = h_qo // h_kv
-    num_warps = ( 4 if head_dim == 64 else 8 )
 
     _attn_fwd[_grid](
         q, k, v, cu_seqlens,
@@ -147,8 +144,8 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         HEAD_DIM    = HEAD_DIM_K,  
         STAGE       = 3,
         max_seqlen  = max_seqlen,
-        num_seqs    = b,
-        num_warps   = num_warps,
+        num_seqs    = cu_seqlens.shape[0] - 1,
+        num_warps   = ( 4 if head_dim == 64 else 8 ),
     )
     return o
 
