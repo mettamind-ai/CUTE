@@ -72,7 +72,7 @@ def _attn_fwd(
     H: tl.constexpr, num_kv_groups: tl.constexpr,
     HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr,  
     BLOCK_N: tl.constexpr, STAGE: tl.constexpr,
-    max_seqlen, num_seqs
+    max_seqlen, num_seqs, num_warps: tl.constexpr
 ):
     start_m = tl.program_id(0)
     off_z   = tl.program_id(2).to(tl.int64)
