@@ -102,4 +102,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
   Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
 - [ ] impl weighted LCE hiệu quả
-- [ ] impl longce hiệu quả
+- [ ] impl longce hiệu quả "only less than 10% tokens are highly influenced by long context"
+  => có thể pre-filter hoặc sample intelligently.
+
