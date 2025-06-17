@@ -57,17 +57,11 @@ def _attn_fwd_inner(
 
 
 # Define autotuning configurations
-_attn_configs = [
-    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_stages=4, num_warps=4),
-    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_stages=4, num_warps=8),
-    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_stages=4, num_warps=4),
-    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_stages=4, num_warps=8),
-    triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_stages=4, num_warps=4),
-    triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128}, num_stages=4, num_warps=4),
-    triton.Config({'BLOCK_M': 256, 'BLOCK_N': 64}, num_stages=3, num_warps=8),
-    triton.Config({'BLOCK_M': 256, 'BLOCK_N': 128}, num_stages=3, num_warps=8),
+_cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s, num_warps=w) for m, n, s, w in \
+    (128,  64, 4, 4), (128, 64, 4, 8), (128, 128, 4, 4), (128, 128, 4, 8), ( 64,  64, 4, 4),
+    ( 64, 128, 4, 4), (256, 64, 3, 8), (256, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8),
 ]
-@triton.autotune(configs=_attn_configs, key=['max_seqlen', 'HEAD_DIM', 'H', 'num_kv_groups'],)
+@triton.autotune(configs=_cfgs, key=['max_seqlen', 'HEAD_DIM', 'H', 'num_kv_groups'],)
 @triton.jit
 def _attn_fwd(
     Q, K, V, cu_seqlens,
@@ -131,10 +125,6 @@ def _attn_fwd(
 
 
 def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqlens_scale, output_dtype=torch.float16):
-    BLOCK_M = 128
-    BLOCK_N = 64
-    stage = 3
-
     o = torch.empty(q.shape, dtype=output_dtype, device=q.device)
     b = cu_seqlens.shape[0] - 1
 
@@ -156,10 +146,8 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         o.stride(1), o.stride(0),
         h_qo, num_kv_groups,
         HEAD_DIM=HEAD_DIM_K,  
-        STAGE=stage,
+        STAGE=3,
         max_seqlen=max_seqlen,
-        # BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
-        # num_warps=num_warps, num_stages=4
     )
     return o
 
