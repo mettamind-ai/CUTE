@@ -67,7 +67,7 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
     qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM)   # seq_len, H, D
     kk = k.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
     vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
-    assert H // Hkv == 16 # for infllmv2_varlen
+    # assert H // Hkv == 16 # for infllmv2_varlen
 
     def attn_fn(provider, q, k, v):
         if provider == "parallel_nsa":
