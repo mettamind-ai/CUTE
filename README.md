@@ -75,6 +75,8 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
       Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.
     - => INT8 Linear + INT8 SageFwd + Early Exit to maximum speedup! 
   - [ ] Hạn chế tác hại của Causual Attn => GLM and other learning objectives?
+  - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
+    Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
 
 - LINH TOK (flexible tokenization & token usage)
   - Token được TỰ DO LỰA CHỌN:
@@ -97,3 +99,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 - [ ] Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py
 - [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
+- [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
+  Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+- [ ] impl weighted LCE hiệu quả
+- [ ] impl longce hiệu quả

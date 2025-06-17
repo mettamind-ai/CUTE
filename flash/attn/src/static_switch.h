@@ -57,9 +57,9 @@
 #endif
 
 #ifdef FLASHATTENTION_DISABLE_SOFTCAP
-  #define SOFTCAP_SWITCH(COND, CONST_NAME, ...)   \
+  #define SOFTCAP_SWITCH(COND, CONST_NAME, ...) \
   [&] {                                         \
-    constexpr static bool CONST_NAME = false;    \
+    constexpr static bool CONST_NAME = false;   \
     return __VA_ARGS__();                       \
   }()
 #else
@@ -69,21 +69,25 @@
 #ifdef FLASHATTENTION_DISABLE_LOCAL
   #define LOCAL_SWITCH(COND, CONST_NAME, ...)   \
   [&] {                                         \
-    constexpr static bool CONST_NAME = false;    \
+    constexpr static bool CONST_NAME = false;   \
     return __VA_ARGS__();                       \
   }()
 #else
   #define LOCAL_SWITCH BOOL_SWITCH
 #endif
 
-#define FP16_SWITCH(COND, ...)               \
-  [&] {                                      \
-    using elem_type = cutlass::bfloat16_t;   \
-    return __VA_ARGS__();                    \
+#define FP16_SWITCH(COND, ...)                  \
+  [&] {                                         \
+    using elem_type = cutlass::bfloat16_t;      \
+    return __VA_ARGS__();                       \
   }()
 
-#define HEADDIM_SWITCH(HEADDIM, ...)   \
-  [&] {                                    \
-    constexpr static int kHeadDim = 128;   \
-    return __VA_ARGS__();                  \
+#define HEADDIM_SWITCH(HEADDIM, ...)            \
+  [&] {                                         \
+    if (HEADDIM <= 64) {                        \
+      constexpr static int kHeadDim = 64;       \
+      return __VA_ARGS__();                     \
+    }                                           \
+    constexpr static int kHeadDim = 128;        \
+    return __VA_ARGS__();                       \
   }()
