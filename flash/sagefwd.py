@@ -7,11 +7,10 @@ import triton.language as tl
 @triton.jit
 def _attn_fwd_inner(
     acc, l_i, m_i, q, q_scale, kv_len,
-    K_ptrs, K_scale_ptr, V_ptrs, stride_kn, stride_vn, 
-    start_m, H: tl.constexpr,
+    K_ptrs, K_scale_ptr, V_ptrs, stride_kn, stride_vn, start_m, H: tl.constexpr,
     BLOCK_M: tl.constexpr, HEAD_DIM: tl.constexpr, BLOCK_N: tl.constexpr,  
-    STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr,  
-):
+    STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr,):
+
     if STAGE == 1:
         lo, hi = 0, start_m * BLOCK_M
 
@@ -56,16 +55,30 @@ def _attn_fwd_inner(
     return acc, l_i, m_i
 
 
+
+# Define autotuning configurations
+_attn_configs = [
+    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_stages=4, num_warps=4),
+    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_stages=4, num_warps=8),
+    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_stages=4, num_warps=4),
+    triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_stages=4, num_warps=8),
+    triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_stages=4, num_warps=4),
+    triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128}, num_stages=4, num_warps=4),
+    triton.Config({'BLOCK_M': 256, 'BLOCK_N': 64}, num_stages=3, num_warps=8),
+    triton.Config({'BLOCK_M': 256, 'BLOCK_N': 128}, num_stages=3, num_warps=8),
+]
+@triton.autotune(configs=_attn_configs, key=['max_seqlen', 'HEAD_DIM', 'H', 'num_kv_groups'],)
 @triton.jit
 def _attn_fwd(
     Q, K, V, cu_seqlens,
     Q_scale, K_scale, cu_seqlens_scale,
-    Out,  
+    Out, 
     stride_qh, stride_qn, stride_kh, stride_kn,  
     stride_vh, stride_vn, stride_oh, stride_on,  
     H: tl.constexpr, num_kv_groups: tl.constexpr,
     HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr,  
-    BLOCK_N: tl.constexpr, STAGE: tl.constexpr
+    BLOCK_N: tl.constexpr, STAGE: tl.constexpr,
+    max_seqlen,
 ):
     start_m = tl.program_id(0)
     off_z   = tl.program_id(2).to(tl.int64)
@@ -132,8 +145,8 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
     num_kv_groups = h_qo // h_kv
     num_warps = ( 4 if head_dim == 64 else 8 )
 
-    grid = (triton.cdiv(max_seqlen, BLOCK_M), h_qo, b)
-    _attn_fwd[grid](
+    _grid = (triton.cdiv(max_seqlen, BLOCK_M), h_qo, b)
+    _attn_fwd[_grid](
         q, k, v, cu_seqlens,
         q_scale, k_scale, cu_seqlens_scale,
         o,  
@@ -142,8 +155,11 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         v.stride(1), v.stride(0), 
         o.stride(1), o.stride(0),
         h_qo, num_kv_groups,
-        BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, HEAD_DIM=HEAD_DIM_K,  
-        STAGE=stage, num_warps=num_warps, num_stages=4
+        HEAD_DIM=HEAD_DIM_K,  
+        STAGE=stage,
+        max_seqlen=max_seqlen,
+        # BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
+        # num_warps=num_warps, num_stages=4
     )
     return o
 
