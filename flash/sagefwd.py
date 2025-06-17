@@ -57,9 +57,9 @@ def _attn_fwd_inner(
 
 
 _grid = lambda meta: (triton.cdiv(meta["max_seqlen"], meta["BLOCK_M"]), meta["H"], meta["num_seqs"])
-_cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s) for m, n, s in \
-  [ (128,  64, 3), (128, 64, 3), ( 64, 128, 4), (128,  64, 4), ( 64,  64, 3),
-    (128, 128, 4), (256, 64, 4), ( 64, 256, 4), (256, 128, 4), (128, 256, 4),]
+_cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s, num_warps=w) for m, n, s, w in \
+  [ (128,  64, 3, 8), (128, 64, 3, 8), ( 64, 128, 4, 8), (128,  64, 4, 8), ( 64,  64, 3, 8),
+    (128, 128, 4, 8), (256, 64, 4, 8), ( 64, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8),]
 ]
 @triton.autotune(configs=_cfgs, key=['max_seqlen', 'H', 'num_seqs'],)
 @triton.jit
@@ -131,7 +131,6 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
 
     HEAD_DIM_K = head_dim
     num_kv_groups = h_qo // h_kv
-    num_warps = ( 4 if head_dim == 64 else 8 )
 
     _attn_fwd[_grid](
         q, k, v, cu_seqlens,
@@ -146,7 +145,7 @@ def attn_true_varlen(q, k, v, cu_seqlens, max_seqlen, q_scale, k_scale, cu_seqle
         STAGE       = 3,
         max_seqlen  = max_seqlen,
         num_seqs    = cu_seqlens.shape[0] - 1,
-        num_warps   = num_warps,
+        # num_warps = ( 4 if head_dim == 64 else 8 )
     )
     return o
 
