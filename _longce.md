@@ -189,3 +189,44 @@ Rất thú vị là có thể kết hợp phân tích attention với tính toá
 Như vậy ngoài LSD (long-short difference score) ta còn có grad_score để tính điểm cho từng token.
 Bạn nghĩa grad_score này có ý nghĩa gì và có thể kết hợp được với LSD hay LongCE không?
 --------------------------------------------------
+
+
+| Gradient \ LSD    | **High LSD** | **Low LSD** |
+|-------------------|--------------|-------------|
+| **High Gradient** | **Super key tokens**<br/>*Token quan trọng cho task VÀ phụ thuộc long context* | **Local key tokens**<br/>*Token quan trọng nhưng có thể predict từ short context*|
+| **Low Gradient**  | **Context-sensitive non-critical**<br/>*Token ít ảnh hưởng loss nhưng cần long context* | **Ignore**<br/>*Token không quan trọng*   |
+
+Ví dụ về Context-sensitive non-critical; Trong task QA về document dài:
+- Question: "What year was the company founded?"
+- Answer: "1995"
+
+Trong long document có thể có token "xxx" ("furthermore" chẳng hạn) ở đoạn giữa:
+- `High LSD`: Token này cần long context để predict (vì context xung quanh nó phức tạp)
+- `Low Gradient`: Nhưng việc predict đúng/sai "xxx" không ảnh hưởng đến việc trả lời đúng "1995"
+
+Ví dụ thực tế từ paper:
+```
+"Sarah has a dog named Buddy.
+[...]
+Sarah feels happy to play with Buddy."
+```
+- "Buddy" có LSD = 2.08 (High) → cần long context để biết tên con chó
+- "feels" có LSD = 0.00 (Low) → có thể đoán từ short context
+
+---
+
+Gradient score đo "`task relevance`" tổng quát của token đối với objective function. Cụ thể, G^embed đo mức độ sensitive của loss khi thay đổi embedding representation của token, phản ánh khả năng hiểu token, trong khi G^lmhead đo mức độ sensitive của loss khi thay đổi output weights cho token, phản ánh khả năng sinh token. Trực giác đằng sau là token có gradient lớn nghĩa là nếu ta thay đổi representation hoặc prediction weights của nó một chút, loss sẽ thay đổi nhiều, cho thấy token này critical cho task performance.
+
+Khi so sánh gradient score với LSD score, ta thấy chúng đo lường những khía cạnh khác nhau. Gradient score đo general task importance trong khi LSD score đo long-context dependency. Về mặt tính toán, gradient score chỉ cần một backward pass và tận dụng gradients có sẵn nên cost thấp, trong khi LSD score cần nhiều forward passes nên cost cao hơn. Điều quan trọng là gradient score và LSD score không equivalent mà capture các orthogonal dimensions.
+
+Có bốn trường hợp kết hợp có thể xảy ra (bảng trên). Token có high gradient và high LSD là super key tokens, quan trọng cho task và phụ thuộc long context. Token có high gradient nhưng low LSD là local key tokens, quan trọng nhưng có thể predict từ short context. Token có low gradient nhưng high LSD là Context-sensitive non-critical, ít ảnh hưởng loss nhưng cần long context. Token có cả low gradient và low LSD thì không quan trọng và có thể ignore.
+
+Khả năng kết hợp với LongCE rất tiềm năng. Ta có thể tạo hybrid key token selection bằng cách combine các scores với trọng số learnable để balance giữa task importance và context dependency, đồng thời áp dụng multi-dimensional filtering chỉ chọn tokens high trên cả hai dimensions. Về computational efficiency, có thể sử dụng two-stage filtering approach, pre-filter using gradient scores với cost thấp, sau đó compute LSD chỉ cho high-gradient tokens. Điều này có thể dramatically reduce computational overhead từ O((n-K)K²) xuống O((αn-K)K²) với α << 1.
+
+Enhanced LongCE loss có thể được thiết kế với I_hybrid function kết hợp cả gradient score và LSD score. Function này có thể là multiplicative khi cần cả hai scores cao, additive cho flexible weighting, hoặc gated khi gradient làm gate cho LSD computation nếu vượt qua threshold.
+
+Việc kết hợp gradient-LSD mang lại nhiều advantages. Gradient scores có thể identify semantic importance mà LSD miss, ví dụ trong câu "The capital of France is Paris", token "Paris" có high gradient vì critical cho correctness nhưng chỉ medium LSD vì có thể guess được từ "capital of France" ngay cả với short context. Gradient patterns thay đổi theo domain và task, cho phép adaptive key token selection, với legal documents có high gradient cho legal terms, code có high gradient cho function names và keywords, medical texts có high gradient cho disease names và symptoms. Vì gradients được compute anyway trong backpropagation, việc **extract gradient scores almost free**, chỉ cần storage và aggregation.
+
+Implementation strategy thực tế sẽ bao gồm gradient-based pre-filtering để `CHỌN TOP-K% TOKENS THEO GRADIENT SCORES`, then **LSD computation chỉ cho filtered tokens**, hybrid weighting để combine cả hai scores cho final I_hybrid, và adaptive thresholds để điều chỉnh các trọng số theo domain và task. Điều này có potential giảm computational cost của current LongCE while improving accuracy qua better semantic understanding. (có thể giảm 20%-30% cost ít nhất ở đoạn tính final loss vì CE đc tính per token)
+
+Kết luận là gradient score từ VEGAD complement perfectly với LSD approach, offering both computational efficiency và semantic richness mà pure LSD-based methods thiếu. Đây là direction rất promising cho next-generation long-context training methods!

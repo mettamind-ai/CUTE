@@ -97,14 +97,19 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 ---
 
-- [ ] Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py
+- [x] chậm, chưa gain? <= ~~Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py~~
 - [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
   Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
 - [ ] impl weighted LCE hiệu quả
 - [ ] impl longce hiệu quả "only less than 10% tokens are highly influenced by long context"
+- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd.
   => có thể pre-filter hoặc sample intelligently.
 
 - [ ] diffusion LLM từ Bert https://huggingface.co/HPLT/hplt_bert_base_2_0_vie-Latn/blob/main/config.json
   - https://huggingface.co/HPLT/translate-vi-en-v2.0-hplt
   - https://huggingface.co/HPLT/translate-en-vi-v2.0-hplt
+
+- [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl minimax lightening attn
+  ![](https://pbs.twimg.com/media/Gtogh3qbMAAzJpn?format=jpg&name=large)
+

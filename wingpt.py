@@ -44,6 +44,7 @@ class ReLuSquareMLP(nn.Module):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
         z = self.fc2_proj(y)
+        z = F.relu(z).square()
         return z
 
 ##########################
