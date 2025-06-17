@@ -46,8 +46,8 @@ batch = get_batch()
 if  args.L: # (L)arge  ~ 840m
     model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M:# (M)edium ~ 520m
-    model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
+elif args.M:# (M)edium ~ 540m
+    model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=96,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 else:       # (S)mall  ~ 260m
     model = WinGPT(dim=1024, n_layers=18, num_heads=16, num_kv_heads=4, head_dim=64,
