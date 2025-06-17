@@ -58,9 +58,8 @@ def _attn_fwd_inner(
 
 # Define autotuning configurations
 _cfgs = [triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s, num_warps=w) for m, n, s, w in \
-    (128,  64, 4, 4), (128, 64, 4, 8), (128, 128, 4, 4), (128, 128, 4, 8), ( 64,  64, 4, 4),
-    ( 64, 128, 4, 4), (256, 64, 3, 8), (256, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8),
-]
+  [ (128,  64, 4, 4), (128, 64, 4, 8), (128, 128, 4, 4), (128, 128, 4, 8), ( 64,  64, 4, 4),
+    ( 64, 128, 4, 4), (256, 64, 3, 8), (256, 256, 4, 8), (256, 128, 4, 8), (128, 256, 4, 8), ]]
 @triton.autotune(configs=_cfgs, key=['max_seqlen', 'HEAD_DIM', 'H', 'num_kv_groups'],)
 @triton.jit
 def _attn_fwd(
