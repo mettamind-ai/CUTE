@@ -61,7 +61,7 @@ _cfgs = [ triton.Config(dict(BLOCK_M=m, BLOCK_N=n), num_stages=s) for m, n, s in
   [ (128,  64, 3), (128, 64, 3), ( 64, 128, 4), (128,  64, 4), ( 64,  64, 3),
     (128, 128, 4), (256, 64, 4), ( 64, 256, 4), (256, 128, 4), (128, 256, 4),]
 ]
-@triton.autotune(configs=_cfgs, key=['max_seqlen', 'BLOCK_M', 'H', 'num_seqs'],)
+@triton.autotune(configs=_cfgs, key=['max_seqlen', 'H', 'num_seqs'],)
 @triton.jit
 def _attn_fwd(
     Q, K, V, cu_seqlens,
@@ -72,7 +72,7 @@ def _attn_fwd(
     H: tl.constexpr, num_kv_groups: tl.constexpr,
     HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr,  
     BLOCK_N: tl.constexpr, STAGE: tl.constexpr,
-    max_seqlen, num_seqs, num_warps: tl.constexpr
+    max_seqlen, num_seqs,
 ):
     start_m = tl.program_id(0)
     off_z   = tl.program_id(2).to(tl.int64)
