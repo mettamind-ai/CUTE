@@ -35,14 +35,14 @@ assert_sage_attn_is_same_as_sdpa()
 
 
 lines = "FA_varlen sage_varlen moba_varlen FA".split()
-BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 16, 128
+BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 4, 4, 128
 assert N_HEADS == Hkv # cần cho MoBA
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
 
 config = triton.testing.Benchmark(
     line_vals=lines, line_names=lines,
     line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-    x_vals=[2**i for i in range(12, 14)], # 4096 8192 16384   
+    x_vals=[2**i for i in range(12, 15)], # 4096 8192 16384   
     plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
     args=dict(H=N_HEADS, Hkv=Hkv, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
 )
