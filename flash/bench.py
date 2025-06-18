@@ -75,7 +75,7 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
             return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
         if provider == "moba_varlen":
-            return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
+            return lambda: moba_attn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
 
         if provider == "sage_varlen":
             return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
