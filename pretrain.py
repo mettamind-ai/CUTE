@@ -86,7 +86,7 @@ muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
     dict(params=[*model.embeds.parameters()  ], lr=0.3    ), # 0.300000   x10 lần default (0.03) 
     dict(params=[ model.scalars              ], lr=0.015  ), # 0.015000   1/20  embeds
-    dict(params=[*model.unembedsparameters()], lr=1/320  ), # 0.003125   1/100 embeds
+    dict(params=[*model.unembeds.parameters()], lr=1/320  ), # 0.003125   1/100 embeds
 ]
 # small adam epsilon by @YouJiacheng. this is an alternate method of fixing the world_size dependence
 adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
