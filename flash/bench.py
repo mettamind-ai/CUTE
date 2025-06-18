@@ -35,7 +35,7 @@ assert_sage_attn_is_same_as_sdpa()
 
 
 lines = "FA_varlen sage_varlen moba_varlen FA".split()
-BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 4, 64
+BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 8, 4, 128
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
 
 config = triton.testing.Benchmark(
