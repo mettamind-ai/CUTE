@@ -203,16 +203,15 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         ## Token embeddings
-        def prepare(embs):
-            x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
-            ## Value embeddings, bổ trợ cho value trong attention
-            v_embs = embs[..., -self.ve*self.kv_dim : ]
-            v_embs = list(v_embs.chunk(self.ve, dim=-1))
-            v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
-            return x0, x0, v_embs
-
         embs = self.embeds(input_seq.long())
-        x, x0, v_embs = checkpoint(prepare, embs, use_reentrant=False)
+        # def prepare(embs):
+        x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+        ## Value embeddings, bổ trợ cho value trong attention
+        v_embs = embs[..., -self.ve*self.kv_dim : ]
+        v_embs = list(v_embs.chunk(self.ve, dim=-1))
+        v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+        # return x, x0, v_embs
+        # x, x0, v_embs = checkpoint(prepare, embs, use_reentrant=False)
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
@@ -274,7 +273,7 @@ if __name__ == "__main__":
     vocab_size = 32*1024
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 16, 1
-    print(f" win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
+    print(f"win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len).cuda()
