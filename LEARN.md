@@ -281,3 +281,21 @@ gt = (gt / gnorm) * adaptive_norm
 - https://proceedings.neurips.cc/paper_files/paper/2024/file/cdf00c97c0cb2cc35179f03363da6c4f-Paper-Conference.pdf ADATOK
 - https://alphaxiv.org/abs/2410.04335v1?conversation_id=684b9e2201b4f61b63a7ab65 EVOT
 - https://www.alphaxiv.org/abs/2410.01188 dùng gradient trên toàn bộ dataset để chấm điểm thay vì logits
+
+---
+
+ABBA PEFT Finetune https://www.alphaxiv.org/abs/2505.14238
+```
+s_ABBA = α²_LoRA/√(r₁r₂), where α_LoRA is the standard LoRA scaling coefficient
+```
+
+Tên gọi "ABBA" được tác giả giải thích một cách khá đơn giản trong bài báo. Họ cho biết: **"The name ABBA reflects the four low-rank matrices that define the architecture."**
+
+Cụ thể, trong kiến trúc ABBA, weight update được định nghĩa là: **∆W = s(B₁A₁) ⊙ (B₂A₂)**, bao gồm bốn ma trận low-rank: **A₁, B₁, B₂, A₂**. Khi sắp xếp các ma trận này theo thứ tự xuất hiện, ta có: **A-B-B-A**, chính là từ "ABBA".
+
+Đây là cách đặt tên khá sáng tạo và dễ nhớ, phản ánh đúng cấu trúc toán học của phương pháp. Thay vì chọn một tên phức tạp hoặc viết tắt khó nhớ, tác giả đã tạo ra một từ đơn giản mà bất kỳ ai quen thuộc với nhóm nhạc ABBA nổi tiếng cũng có thể nhớ được.
+
+Cách đặt tên này cũng thể hiện tính đối xứng trong kiến trúc: hai cặp adapter (B₁A₁) và (B₂A₂) hoạt động song song và được kết hợp thông qua Hadamard product, tạo nên một cấu trúc cân bằng giống như tên gọi ABBA.
+
+[Low-rank matrices: ma trận low-rank - ma trận có rank thấp hơn nhiều so với kích thước; Weight update: cập nhật trọng số; Hadamard product: tích Hadamard - phép nhân từng phần tử tương ứng; Adapter: bộ điều hợp - module nhỏ có thể huấn luyện được]
+
