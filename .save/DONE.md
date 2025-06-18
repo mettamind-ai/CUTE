@@ -182,3 +182,15 @@
     - Cả hai đều sử dụng cơ chế scoring để chọn blocks quan trọng. SeerAttention tạo gating scores thông qua AttnGate, trong khi NSA tính importance scores cho từng block: "We retain tokens within the top-n sparse blocks ranked by block importance scores."
     - Cả hai đều có thể sử dụng TopK selection để tạo binary mask cuối cùng. SeerAttention mô tả: "users can adjust the TopK ratio or threshold at test time to achieve various trade-offs," tương tự NSA với "Top-n Block Selection."
     - Phương pháp training khác biệt. SeerAttention sử dụng self-distillation với "2DMaxPooled attention map from full attention as ground truth," trong khi NSA được pretrain end-to-end như một architecture hoàn chỉnh: "We enable end-to-end training, reducing pretraining computation without sacrificing model performance."
+
+20250618
+--------
+
+- [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
+  - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
+    https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/nn/functional/flash_attention.py#L1535
+  - kho kernels: Paddle HIgh reusability operator library (PHI): 1dconv, adam, CE2/LSE, beam, embed, FA3, MoE, swiglu, 
+    https://github.com/PaddlePaddle/Paddle/tree/develop/paddle/phi/kernels/gpu
+  [ ] Trích xuất flashmask kernel code để dùng lại trong pytorch !?!
+
+  

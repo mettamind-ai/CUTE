@@ -110,6 +110,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - https://huggingface.co/HPLT/translate-vi-en-v2.0-hplt
   - https://huggingface.co/HPLT/translate-en-vi-v2.0-hplt
 
-- [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl minimax lightening attn
-  ![](https://pbs.twimg.com/media/Gtogh3qbMAAzJpn?format=jpg&name=large)
-
+- [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
+  - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
+  - cách nhanh và rẻ nhất là masking ở **block level** với block là processing unit của FA
