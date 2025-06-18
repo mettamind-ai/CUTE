@@ -40,13 +40,13 @@ batch = get_batch()
 #############################
 ## Init model for pretraining
 #############################
-if  args.L: # (L)arge  ~ 840m
-    model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=128,
+if  args.L: # (L)arge  ~ 750m
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M:# (M)edium ~ 530m
+elif args.M:# (M)edium ~ 510m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-else:       # (S)mall  ~ 260m
+else:       # (S)mall  ~ 240m
     model = WinGPT(dim=1024, n_layers=18, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
@@ -84,9 +84,9 @@ class LRSchedule:
 lr_schedule = LRSchedule(args.steps, **args.schedule)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
-    dict(params=[*model.embeds.parameters()  ], lr=0.3    ), # 0.300000   x10 lần default (0.03) 
-    dict(params=[ model.scalars              ], lr=0.015  ), # 0.015000   1/20  embeds
-    dict(params=[*model.unembeds.parameters()], lr=1/320  ), # 0.003125   1/100 embeds
+    dict(params=[*model.embeds.parameters()  ], lr=0.100  ), 
+    dict(params=[ model.scalars              ], lr=0.015  ),
+    dict(params=[*model.unembeds.parameters()], lr=0.010  ),
 ]
 # small adam epsilon by @YouJiacheng. this is an alternate method of fixing the world_size dependence
 adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
