@@ -43,7 +43,7 @@ batch = get_batch()
 if  args.L: # (L)arge  ~ 750m
     model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M:# (M)edium ~ 510m
+elif args.M:# (M)edium ~ 520m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 else:       # (S)mall  ~ 240m
@@ -84,12 +84,12 @@ class LRSchedule:
 lr_schedule = LRSchedule(args.steps, **args.schedule)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
-    dict(params=[*model.embeds.parameters()  ], lr=0.100  ), 
-    dict(params=[ model.scalars              ], lr=0.015  ),
-    dict(params=[*model.unembeds.parameters()], lr=0.010  ),
+    dict(params=[*model.embeds.parameters()  ], lr=0.009  ), 
+    dict(params=[ model.scalars              ], lr=0.006  ),
+    dict(params=[*model.unembeds.parameters()], lr=0.003  ),
 ]
 # small adam epsilon by @YouJiacheng. this is an alternate method of fixing the world_size dependence
-adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
+adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0.0, fused=True)  # eps=1e-10,
 muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.008)
 for opt in [adam_optim, muon_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
