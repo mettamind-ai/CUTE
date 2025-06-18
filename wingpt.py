@@ -111,28 +111,26 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        def attention(qkv):
-            q    = qkv[..., :self.qo_inner_dim]
-            k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
-            if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
+        qkv  = self.qkv_proj(x)
+        q    = qkv[..., :self.qo_inner_dim]
+        k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
+        if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
 
-            H, Hkv  = self.num_heads, self.num_kv_heads
-            D, T    =  self.head_dim, self.seq_len
+        H, Hkv  = self.num_heads, self.num_kv_heads
+        D, T    =  self.head_dim, self.seq_len
 
-            q = q.contiguous().view(T, H,   D)
-            k = k.contiguous().view(T, Hkv, D)
-            v = v.contiguous().view(T, Hkv, D)
+        q = q.contiguous().view(T, H,   D)
+        k = k.contiguous().view(T, Hkv, D)
+        v = v.contiguous().view(T, Hkv, D)
 
-            q, k, v = norm(q), norm(k), norm(v)
-            if self.rope: q, k = rotary(q), rotary(k)
+        q, k, v = norm(q), norm(k), norm(v)
+        if self.rope: q, k = rotary(q), rotary(k)
 
-            return flash_attn_varlen_func( q, k, v,
-                cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-                dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-            ).contiguous().reshape(T, H * D)
-
-        qkv = self.qkv_proj(x)
-        y   = checkpoint(attention, qkv, use_reentrant=False)
+        y = flash_attn_varlen_func( q, k, v,
+            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
+            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        ).contiguous().reshape(T, H * D)
+ 
         z   = self.o_proj(y)
         return z
 
@@ -215,7 +213,8 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            fw = lambda blk: lambda x: blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x  = checkpoint(fw(blk), x, use_reentrant=False)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 

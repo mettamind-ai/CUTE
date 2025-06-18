@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=56)           # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=64)           # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=500)
 parser.add_argument("--vocab", type=int, default=8192)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
@@ -131,12 +131,12 @@ for step in range(args.steps):  # training loop
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
     # set optimization hyperparameters
-    # for opt in [muon_optim, adam_optim]:
-    #     for group in opt.param_groups:
-    #         group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-    #         if opt == muon_optim:
-    #             frac = min(step / 50, 1) # momentum warmup for muon
-    #             group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+    for opt in [muon_optim, adam_optim]:
+        for group in opt.param_groups:
+            group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
+            if opt == muon_optim:
+                frac = min(step / 50, 1) # momentum warmup for muon
+                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
     adam_optim.step()
