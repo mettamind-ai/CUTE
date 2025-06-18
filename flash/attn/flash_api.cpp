@@ -7,19 +7,17 @@
 #include <torch/nn/functional.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>  // For at::Generator and at::PhiloxCudaState
-#include "philox_unpack.cuh"  // For at::cuda::philox::unpack
+#include <ATen/cuda/CUDAGeneratorImpl.h>    // For at::Generator and at::PhiloxCudaState
+#include "philox_unpack.cuh"                // For at::cuda::philox::unpack
 
 #include <cutlass/numeric_types.h>
-
 #include "hardware_info.h"
 #include "flash.h"
 #include "static_switch.h"
 
-#define CHECK_DEVICE(x) TORCH_CHECK(x.is_cuda(), #x " must be on CUDA")
+#define CHECK_DEVICE(x)     TORCH_CHECK(x.is_cuda(), #x " must be on CUDA")
 #define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == torch::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
-
 
 void set_params_fprop(Flash_fwd_params &params,
                       // sizes
@@ -36,7 +34,7 @@ void set_params_fprop(Flash_fwd_params &params,
                       const at::Tensor q,
                       const at::Tensor k,
                       const at::Tensor v,
-                      at::Tensor out,
+                            at::Tensor out,
                       void *cu_seqlens_q_d,
                       void *cu_seqlens_k_d,
                       void *seqused_k,
@@ -1265,17 +1263,17 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x round_mult
 
 
 std::vector<at::Tensor>
-mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x multiple_of(head_size_og, 8)
-        const at::Tensor &q,   // batch_size x seqlen_q x num_heads x head_size
-        const at::Tensor &k,   // batch_size x seqlen_k x num_heads_k x head_size
-        const at::Tensor &v,   // batch_size x seqlen_k x num_heads_k x head_size
-        const at::Tensor &out,   // batch_size x seqlen_q x num_heads x head_size
-        const at::Tensor &softmax_lse,     // b x h x seqlen_q
-        std::optional<at::Tensor> &dq_,   // batch_size x seqlen_q x num_heads x head_size
-        std::optional<at::Tensor> &dk_,   // batch_size x seqlen_k x num_heads_k x head_size
-        std::optional<at::Tensor> &dv_,   // batch_size x seqlen_k x num_heads_k x head_size
+mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x multiple_of(head_size_og, 8)
+        const at::Tensor &q,        // batch_size x seqlen_q x num_heads   x head_size
+        const at::Tensor &k,        // batch_size x seqlen_k x num_heads_k x head_size
+        const at::Tensor &v,        // batch_size x seqlen_k x num_heads_k x head_size
+        const at::Tensor &out,      // batch_size x seqlen_q x num_heads   x head_size
+        const at::Tensor &softmax_lse,  // b x h x seqlen_q
+        std::optional<at::Tensor> &dq_, // batch_size x seqlen_q x num_heads x head_size
+        std::optional<at::Tensor> &dk_, // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &dv_, // batch_size x seqlen_k x num_heads_k x head_size
         std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
-        const float p_dropout,         // probability to drop
+        const float p_dropout,          // probability to drop
         const float softmax_scale,
         const bool is_causal,
         int window_size_left,

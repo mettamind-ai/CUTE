@@ -233,7 +233,7 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa l
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0.008, momentum=0.95, **args):
+    def __init__(self, params, lr=0.025, weight_decay=0.008, momentum=0.95, **args):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
 
     @torch.no_grad()

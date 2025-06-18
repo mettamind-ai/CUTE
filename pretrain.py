@@ -12,15 +12,12 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=56) # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=56)           # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=500)
 parser.add_argument("--vocab", type=int, default=8192)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
-parser.add_argument("--muonlr", type=float, default=0.020)  # default 0.02, modded gpt 0.025
-parser.add_argument("--adamlr", type=float, default=0.003)  # 3e-4
-parser.add_argument("--wd", type=float, default=0.01)       # std=0.01 (1e-2)
 for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
@@ -81,7 +78,6 @@ class LRSchedule:
         if step < 0 or step > self.t3: return 0.0
         if step < self.t1: return self.lr * step / self.t1
         if step < self.t2: return self.lr
-
         progress = (step - self.t2) / (self.t3 - self.t2)
         if self.decay_type == "linear": return self.lr * (1 - progress)
         return 0.5 * self.lr * (1 + math.cos(progress * math.pi)) # cosine
@@ -91,14 +87,16 @@ class LRSchedule:
             if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
             else: param_group["lr"] = self.get_lr(step)
 
-muon_lr_schedule = LRSchedule(args.muonlr, args.steps, **args.schedule)
-adam_lr_schedule = LRSchedule(args.adamlr, args.steps, **args.schedule)
-
-adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-
-adam_optim = torch.optim.AdamW(adam_params, lr=args.adamlr, weight_decay=args.wd, fused=True)
-muon_optim = Muon(muon_params, lr=args.muonlr, weight_decay=args.wd, rank=rank, world_size=world_size,)
+adam_params = [
+    dict(params=[model.embeds  ], lr=0.3    ), # 0.300000   x10 lần default (0.03) 
+    dict(params=[model.scalars ], lr=0.015  ), # 0.015000   1/20  embeds
+    dict(params=[model.unembeds], lr=1/320  ), # 0.003125   1/100 embeds
+]
+# small adam epsilon by @YouJiacheng. this is an alternate method of fixing the world_size dependence
+adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
+muon_optim = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.008,)
+muon_lr_schedule = LRSchedule(0.025, args.steps, **args.schedule)
 
 ##############
 ## TRANING  ##
@@ -132,13 +130,13 @@ for step in range(args.steps):  # training loop
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
-        adam_lr = adam_optim.param_groups[0]["lr"]
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, muon_lr=muon_lr, adam_lr=adam_lr)
+        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr)
 
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
+    muon_lr_schedule.set_lr(step, muon_optim)
     muon_optim.step(); muon_optim.zero_grad()
     adam_optim.step(); adam_optim.zero_grad()
  

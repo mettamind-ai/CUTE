@@ -11,7 +11,7 @@ free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
     max_jobs = int(free_memory_gb / 5)
     os.environ["MAX_JOBS"] = str(max_jobs)
-print(f"flash_attn_2: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
+print(f"flash_attn_2.7.1: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
 
 NVCC_FLAGS = [
     "-O3", "-std=c++17",
@@ -22,9 +22,8 @@ NVCC_FLAGS = [
     "--expt-relaxed-constexpr",
     "--expt-extended-lambda",
     "--use_fast_math",
-    "--threads=8", # "-diag-suppress=174", # suppress the specific warning
+    "--threads=8",
 ]
-
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 NVCC_FLAGS += ["-gencode", f"arch=compute_86,code=sm_86"]
@@ -36,22 +35,17 @@ started_at = time.time()
 CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
-        abspath / "flash_api.cpp",
-        abspath / "src/flash_fwd_split_hdim128_bf16_causal_sm80.cu",
-        abspath / "src/flash_fwd_split_hdim96_bf16_causal_sm80.cu",
-        abspath / "src/flash_fwd_split_hdim64_bf16_causal_sm80.cu",
-        abspath / "src/flash_bwd_hdim128_bf16_causal_sm80.cu",
-        abspath / "src/flash_bwd_hdim96_bf16_causal_sm80.cu",
-        abspath / "src/flash_bwd_hdim64_bf16_causal_sm80.cu",
+        abspath/"flash_api.cpp",
+        abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
+        abspath/"flash_fwd_split_hdim64_bf16_causal_sm80.cu",
+        abspath/"flash_bwd_split_hdim128_bf16_causal_sm80.cu",
+        abspath/"flash_bwd_split_hdim64_bf16_causal_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
-    extra_include_paths=[ 
-        str(abspath / "src"), 
-        str(abspath / "cutlass/include"),
-    ],
+    extra_include_paths=[ str(abspath),  str(abspath/"cutlass/include"),],
 )
 # ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
-print(f"flash_attn_2: DONE. In {int(time.time() - started_at)} seconds.")
+print(f"flash_attn_2.7.1: DONE. In {int(time.time() - started_at)} seconds.")
 #########################################################################
 
 
@@ -67,7 +61,6 @@ def round_multiple(x, m): return (x + m - 1) // m * m
 assert torch.__version__ >= "2.4.0"
 _torch_custom_op_wrapper = torch.library.custom_op
 _torch_register_fake_wrapper = torch.library.register_fake
-
 
 @_torch_custom_op_wrapper("flash_attn::_flash_attn_varlen_forward", mutates_args=(), device_types="cuda")
 def _flash_attn_varlen_forward(
