@@ -43,7 +43,7 @@ batch = get_batch()
 if  args.L: # (L)arge  ~ 840m
     model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M:# (M)edium ~ 540m
+elif args.M:# (M)edium ~ 530m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=8, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 else:       # (S)mall  ~ 260m
@@ -137,12 +137,13 @@ for step in range(args.steps):  # training loop
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-    for group in muon_optim.param_groups:
-        frac = min(step / 300, 1) # momentum warmup for muon
-        group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+            if opt == muon_optim:
+                frac = min(step / 300, 1) # momentum warmup for muon
+                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    muon_optim.step(); muon_optim.zero_grad()
-    adam_optim.step(); adam_optim.zero_grad()
+    muon_optim.step()
+    adam_optim.step()
+    model.zero_grad(set_to_none=True)
  
     if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
         time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
