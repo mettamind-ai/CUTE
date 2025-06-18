@@ -66,37 +66,33 @@ INT8: {short_names}""")
 ##  Init Optimizer(s)  ##
 #########################
 class LRSchedule:
-    def __init__(self, lr, n_steps, decay_type="linear", warmup: float = 0.05, decay:  float = 0.15,):
-        self.lr = lr
+    def __init__(self, n_steps, decay_type="linear", warmup: float = 0.05, decay:  float = 0.15,):
         self.t1 = int(n_steps * warmup)
         self.t2 = int(n_steps * (1 - decay))
         self.t3 = n_steps
         self.decay_type = decay_type
         assert self.t1 <= self.t2
 
-    def get_lr(self, step: int) -> float:
+    def get_lr(self, init_lr: float, step: int) -> float:
         if step < 0 or step > self.t3: return 0.0
-        if step < self.t1: return self.lr * step / self.t1
-        if step < self.t2: return self.lr
+        if step < self.t1: return init_lr * step / self.t1
+        if step < self.t2: return init_lr
         progress = (step - self.t2) / (self.t3 - self.t2)
-        if self.decay_type == "linear": return self.lr * (1 - progress)
-        return 0.5 * self.lr * (1 + math.cos(progress * math.pi)) # cosine
+        if self.decay_type == "linear": return init_lr * (1 - progress)
+        return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-    def set_lr(self, step: int, optim: torch.optim.Optimizer):
-        for param_group in optim.param_groups:
-            if isinstance(param_group["lr"], Tensor): param_group["lr"].fill_(self.get_lr(step))
-            else: param_group["lr"] = self.get_lr(step)
-
+lr_schedule = LRSchedule(args.steps, **args.schedule)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
-    dict(params=[model.embeds  ], lr=0.3    ), # 0.300000   x10 lần default (0.03) 
-    dict(params=[model.scalars ], lr=0.015  ), # 0.015000   1/20  embeds
-    dict(params=[model.unembeds], lr=1/320  ), # 0.003125   1/100 embeds
+    dict(params=[*model.embeds.parameters()  ], lr=0.3    ), # 0.300000   x10 lần default (0.03) 
+    dict(params=[ model.scalars              ], lr=0.015  ), # 0.015000   1/20  embeds
+    dict(params=[*model.unembedsparameters()], lr=1/320  ), # 0.003125   1/100 embeds
 ]
 # small adam epsilon by @YouJiacheng. this is an alternate method of fixing the world_size dependence
-adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
-muon_optim = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.008,)
-muon_lr_schedule = LRSchedule(0.025, args.steps, **args.schedule)
+adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, fused=True)
+muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.008)
+for opt in [adam_optim, muon_optim]:
+    for group in opt.param_groups: group["init_lr"] = group["lr"]
 
 ##############
 ## TRANING  ##
@@ -136,7 +132,15 @@ for step in range(args.steps):  # training loop
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
-    muon_lr_schedule.set_lr(step, muon_optim)
+    
+    # set optimization hyperparameters
+    for opt in [muon_optim, adam_optim]:
+        for group in opt.param_groups:
+            group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
+    for group in muon_optim.param_groups:
+        frac = min(step / 300, 1) # momentum warmup for muon
+        group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+
     muon_optim.step(); muon_optim.zero_grad()
     adam_optim.step(); adam_optim.zero_grad()
  
