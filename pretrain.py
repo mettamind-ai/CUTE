@@ -83,11 +83,11 @@ class LRSchedule:
 
 lr_schedule = LRSchedule(args.steps, **args.schedule)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
-    # dict(params=[*model.embeds.parameters()  ], lr=0.003  ), 
-    # dict(params=[ model.scalars              ], lr=0.003  ),
-    # dict(params=[*model.unembeds.parameters()], lr=0.003  ), ]
-adam_optim  = torch.optim.AdamW(adam_params,  lr=0.003, weight_decay=0.00, fused=True)  # eps=1e-10,
+adam_params = [#p for n, p in model.named_parameters() if "proj" not in n]
+    dict(params=[*model.embeds.parameters()  ], lr=0.02   ), 
+    dict(params=[ model.scalars              ], lr=0.003  ),
+    dict(params=[*model.unembeds.parameters()], lr=0.001  ), ]
+adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.00, fused=True)  # eps=1e-10,
 muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -130,14 +130,13 @@ for step in range(args.steps):  # training loop
         logger.log(log_dict, step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
-    
     # set optimization hyperparameters
-    for opt in [muon_optim, adam_optim]:
-        for group in opt.param_groups:
-            group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-            if opt == muon_optim:
-                frac = min(step / 50, 1) # momentum warmup for muon
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+    # for opt in [muon_optim, adam_optim]:
+    #     for group in opt.param_groups:
+    #         group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
+    #         if opt == muon_optim:
+    #             frac = min(step / 50, 1) # momentum warmup for muon
+    #             group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
     adam_optim.step()
