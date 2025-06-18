@@ -35,7 +35,8 @@ assert_sage_attn_is_same_as_sdpa()
 
 
 lines = "FA_varlen sage_varlen moba_varlen FA".split()
-BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 8, 4, 128
+BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 16, 128
+assert N_HEADS == Hkv # cần cho MoBA
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
 
 config = triton.testing.Benchmark(
@@ -68,7 +69,6 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
     qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM)   # seq_len, H, D
     kk = k.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
     vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
-    # assert H // Hkv == 16 # for infllmv2_varlen
 
     def attn_fn(provider, q, k, v):
         if provider == "FA_varlen":
