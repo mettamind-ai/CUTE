@@ -138,7 +138,7 @@ for step in range(args.steps):  # training loop
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
-                frac = min(step / 300, 1) # momentum warmup for muon
+                frac = min(step / 50, 1) # momentum warmup for muon
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
