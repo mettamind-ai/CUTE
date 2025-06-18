@@ -110,13 +110,13 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
-        def attention(qkv):
+        H, Hkv  = self.num_heads, self.num_kv_heads
+        D, T    =  self.head_dim, self.seq_len
+
+        def prepare(qkv):
             q    = qkv[..., :self.qo_inner_dim]
             k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
             if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
-
-            H, Hkv  = self.num_heads, self.num_kv_heads
-            D, T    =  self.head_dim, self.seq_len
 
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
@@ -124,15 +124,15 @@ class CausalSelfAttention(nn.Module):
 
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
+            return q, k, v
 
-            return flash_attn_varlen_func( q, k, v,
-                cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-                dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-            ).contiguous().reshape(T, H * D)
-
-        qkv = self.qkv_proj(x)
-        y   = checkpoint(attention, qkv, use_reentrant=False)
-        z   = self.o_proj(y)
+        q, k, v = checkpoint(prepare, self.qkv_proj(x), use_reentrant=False)
+        y = flash_attn_varlen_func( q, k, v,
+            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
+            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        )
+        y = y.contiguous().reshape(T, H * D)
+        z = self.o_proj(y)
         return z
 
 
@@ -150,11 +150,10 @@ class Block(nn.Module):
 
     def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
         def prepare(x, x0, te_lambdas):
-            x = te_lambdas[self.layer_id][0] * x + \
-                te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-            return x
+            return  te_lambdas[self.layer_id][0] * x + \
+                    te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
         x = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
-        x = x + self.mlp(norm(x)) if self.mlp is not None else x
+        if self.mlp is not None: x = x + self.mlp(norm(x))
         x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -164,7 +163,7 @@ class WinGPT(nn.Module):
         self.n_layers = n_layers
 
         Embedding = OhMaiEmbedding if active_vocab else nn.Embedding
-        Unembedding = OhMaiHead if active_vocab and vocab_size >= 32*1024 else nn.Linear
+        Unembedding = OhMaiHead    if active_vocab and vocab_size >= 32*1024 else nn.Linear
         print(f"Using {Embedding.__name__} and {Unembedding.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
@@ -201,17 +200,15 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        ## Token embeddings
         def prepare(embs):
-            x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+            ## Token embeddings
+            x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
             ## Value embeddings, bổ trợ cho value trong attention
             v_embs = embs[..., -self.ve*self.kv_dim : ]
             v_embs = list(v_embs.chunk(self.ve, dim=-1))
             v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
-            return x0, x0, v_embs
-
-        embs = self.embeds(input_seq.long())
-        x, x0, v_embs = checkpoint(prepare, embs, use_reentrant=False)
+            return x, x0, v_embs
+        x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
 
         skip_weights = self.scalars[ : self.n_layers]
         te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
