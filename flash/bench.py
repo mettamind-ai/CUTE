@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import triton, torch, torch.nn.functional as F
 
+from moba import moba_attn_varlen
 from sagefwd import sageattn_varlen
 from attn import flash_attn_func, flash_attn_varlen_func
 
@@ -33,7 +34,7 @@ def assert_sage_attn_is_same_as_sdpa():
 assert_sage_attn_is_same_as_sdpa()
 
 
-lines = "flash_attn_varlen sageattn_varlen flash_attn".split()
+lines = "FA_varlen sage_varlen moba_varlen FA".split()
 BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 4, 64
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
 
@@ -70,20 +71,16 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
     # assert H // Hkv == 16 # for infllmv2_varlen
 
     def attn_fn(provider, q, k, v):
-        if provider == "parallel_nsa":
-            return lambda: parallel_nsa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_indices=indices, block_size=block_size)
-
-        if provider == "parallel_attn":
-            # parallel_attn expects [B, T, H, D] format when head_first=False
-            return lambda: parallel_attn(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), scale=1.3, head_first=False)
-
-        if provider == "flash_attn_varlen":
+        if provider == "FA_varlen":
             return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
 
-        if provider == "sageattn_varlen":
+        if provider == "moba_varlen":
+            return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
+
+        if provider == "sage_varlen":
             return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
 
-        if provider == "flash_attn":
+        if provider == "FA":
             return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
                     causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
 
