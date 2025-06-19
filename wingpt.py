@@ -181,10 +181,7 @@ class WinGPT(nn.Module):
           *[torch.tensor([1.0, 0.0 ]) for _ in range(n_layers)], # token emb mix
           *[torch.tensor([0.5, 0.5 ]) for _ in range(n_layers)], # value emb mix
         ]))
-
-        self.layer_skips  = self.scalars[ : self.n_layers]
-        self.te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
-        self.ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
+        self.layer_skips = self.te_lambdas = self.ve_lambdas = None
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -211,6 +208,10 @@ class WinGPT(nn.Module):
             v_embs = list(embs[..., self.edim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+
+        self.layer_skips  = self.scalars[ : self.n_layers]
+        self.te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
+        self.ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
