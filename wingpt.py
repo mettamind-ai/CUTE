@@ -177,8 +177,8 @@ class WinGPT(nn.Module):
         self.mlp0   = ReLuSquareMLP(self.edim, hdim=2*self.edim, odim=dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
-        self.te_lambdas   = nn.Parameter(torch.cat(torch.tensor([1.0, 0.0]) for _ in range(n_layers)).view(-1, 2))
-        self.ve_lambdas   = nn.Parameter(torch.cat(torch.tensor([0.5, 0.5]) for _ in range(n_layers)).view(-1, 2))
+        self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([1.0, 0.0]) for _ in range(n_layers)]).view(-1, 2))
+        self.ve_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
