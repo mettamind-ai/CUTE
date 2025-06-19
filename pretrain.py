@@ -158,8 +158,8 @@ for step in range(args.steps):  # training loop
 
     if step % (3*log_interval) == 0:
         print0(f"layer_skips: {model.layer_skips}")
-        print0(f"token embs: {model.te_lambdas}")
-        print0(f"value embs: {model.ve_lambdas}")
+        print0(f"token embs:  {model.te_lambdas}")
+        print0(f"value embs:  {model.ve_lambdas}")
 
 model.update_async_weight()
 logger.finish()
