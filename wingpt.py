@@ -22,22 +22,13 @@ def init_linear(w: Tensor, scale=1):
     bound = (3 ** 0.5) * std * scale # ... than default 1/sqrt(3)
     return w.uniform_(-bound, bound)
 
-class DenseReluSquare(nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.weight = nn.Parameter(torch.empty(out_features, in_features))
-        with torch.no_grad(): self.weight.copy_(init_linear(torch.empty(out_features, in_features)))
-
-    def forward(self, x):
-        return Int8MixedLinear.apply(x, self.weight, None, True)
-
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, zero_out=True):
         super().__init__()
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
-        self.fc1_relu_square_proj = DenseReluSquare(dim, hdim)
+        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
@@ -45,11 +36,13 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight            .wd_mul = 2.0  # gấp đôi so với mặc định 
 
         with torch.no_grad():
+            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
             else: self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim), scale=0.3)) # gần zeros hơn
 
     def forward(self, x):
-        y = self.fc1_relu_square_proj(x)
+        y = self.fc1_proj(x)
+        y = F.relu(y).square()
         z = self.fc2_proj(y)
         return z
 
