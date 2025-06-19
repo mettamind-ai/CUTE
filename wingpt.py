@@ -173,9 +173,9 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.tok_dim = dim*2
-        self.val_dim = self.kv_dim*2
+        self.val_dim = self.kv_dim*4
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.val_dim*n_layers, active_vocab)
-        self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
+        self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim,         zero_out=False)
         self.val_mlp = ReLuSquareMLP(self.val_dim, hdim=4*self.val_dim, odim=self.kv_dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
@@ -196,18 +196,19 @@ class WinGPT(nn.Module):
 
     def update_async_weight(self):
         if isinstance(self.embeds, OhMaiEmbedding): self.embeds.update_async_weight()
-        if isinstance(self.unembeds, OhMaiHead): self.unembeds.update_async_weight()
+        if isinstance(self.unembeds, OhMaiHead):  self.unembeds.update_async_weight()
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
-            ## Token embeddings
             x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
-            ## Value embeddings, bổ trợ cho value trong attention
-            v_embs = self.val_mlp(embs[..., self.tok_dim : ]) # thu val_dim về kv_dim
+            v_embs = embs[..., self.tok_dim : ].reshape(-1, self.val_dim)
+            v_embs = self.val_mlp(norm(v_embs)) # thu val_dim về kv_dim
+            v_embs = v_embs.reshape(-1, self.n_layers * self.kv_dim)
             v_embs = list(v_embs.chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+        print(v_embs[0].shape, self.kv_dim)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
