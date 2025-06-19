@@ -208,7 +208,6 @@ class WinGPT(nn.Module):
             v_embs = list(v_embs.chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
-        print(v_embs[0].shape, self.kv_dim)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
