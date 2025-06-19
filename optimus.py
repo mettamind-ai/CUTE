@@ -120,6 +120,7 @@ class Int8MixedLinear(torch.autograd.Function):
         ctx.ReLU_Square = ReLU_Square
 
     @staticmethod
+    @torch.compile()
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None
