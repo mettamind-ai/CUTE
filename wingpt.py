@@ -37,8 +37,8 @@ class ReLuSquareMLP(nn.Module):
 
         with torch.no_grad():
             self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là ko
-            else: self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim), scale=0.3)) # gần zeros hơn
+            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
+            else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
         y = self.fc1_proj(x)
