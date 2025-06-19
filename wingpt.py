@@ -172,13 +172,15 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.edim   = dim*2
-        self.embeds = Embedding(vocab_size, self.edim + self.kv_dim*n_layers, active_vocab)
-        self.mlp0   = ReLuSquareMLP(self.edim, hdim=2*self.edim, odim=dim, zero_out=False)
+        self.edim    = dim*2
+        self.vdim    = self.kv_dim*2
+        self.embeds  = Embedding(vocab_size, self.edim + self.vdim*n_layers, active_vocab)
+        self.tok_mlp = ReLuSquareMLP(self.edim, hdim=2*self.edim, odim=dim, zero_out=False)
+        self.val_mlp = ReLuSquareMLP(self.vdim, hdim=2*self.vdim, odim=self.kv_dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
         self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([1.0, 0.0]) for _ in range(n_layers)]).view(-1, 2))
-        self.ve_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
+        self.ve_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.2, 0.8]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -200,9 +202,10 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
             ## Token embeddings
-            x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
+            x = x0 = self.tok_mlp(norm(embs[..., : self.edim ])) # thu edim về dim
             ## Value embeddings, bổ trợ cho value trong attention
-            v_embs = list(embs[..., self.edim : ].chunk(self.n_layers, dim=-1))
+            v_embs = self.val_mlp(embs[..., self.edim : ]) # thu vdim về kv_dim
+            v_embs = list(v_embs.chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
