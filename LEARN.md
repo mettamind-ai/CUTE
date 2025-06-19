@@ -299,3 +299,10 @@ Cách đặt tên này cũng thể hiện tính đối xứng trong kiến trúc
 
 [Low-rank matrices: ma trận low-rank - ma trận có rank thấp hơn nhiều so với kích thước; Weight update: cập nhật trọng số; Hadamard product: tích Hadamard - phép nhân từng phần tử tương ứng; Adapter: bộ điều hợp - module nhỏ có thể huấn luyện được]
 
+# Dynamic Token Pooling
+- https://www.alphaxiv.org/abs/2211.09761
+tự động pool các tokens gần nhau lại thành 1 vector (giảm seqlen), tăng chất lượng, speedup và giảm vram. Transformer với các layers hình đồng hồ cát (phình 2 đầu với số tokens = nhau) và giảm ở giữa (pooling). hdim không đổi ở mọi layers.
+
+
+|![](https://pbs.twimg.com/media/GtxpWG_WoAA6VIy?format=jpg)|![](https://pbs.twimg.com/media/GtxqA1DbIAEE2ez?format=jpg)|
+|-|-|
