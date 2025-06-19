@@ -29,6 +29,7 @@ def _scaled_mm_kernel(
     stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
     BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
     GROUP_M:   tl.constexpr = 8, # số khối theo chiều M được nhóm lại (để tối ưu L2 cache)
+    ReLU_Square: tl.constexpr = False,
 ):
     pid = tl.program_id(0)
     grid_m = (M + BLOCK_M - 1) // BLOCK_M
@@ -67,24 +68,28 @@ def _scaled_mm_kernel(
     B_scale = tl.load(B_scale_ptr + idx_n, mask=idx_n < N)
     acc = acc.to(tl.float32) * A_scale * B_scale
 
+    if ReLU_Square:
+        acc = tl.maximum(acc, 0)  # ReLU
+        acc = acc * acc           # Square
+
     mask  = (idx_m < M) & (idx_n < N)
     index = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(index, mask.shape), acc, mask)
 
 
-lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, ScalarType? dtype=None) -> Tensor")
-def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None) -> Tensor:
-    return lib_ops.scaled_mm(A, B, scale_A, scale_B, dtype)
+lib.define("scaled_mm(Tensor A, Tensor B, Tensor scale_A, Tensor scale_B, ScalarType? dtype=None, bool ReLU_Square=False) -> Tensor")
+def scaled_mm(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None, ReLU_Square=False) -> Tensor:
+    return lib_ops.scaled_mm(A, B, scale_A, scale_B, dtype, ReLU_Square)
 
 @torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None):
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None, ReLU_Square=False):
     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=dtype)
 
 @torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None):
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None, ReLU_Square=False):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
-    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(), ReLU_Square)
     return C
 
 
@@ -101,20 +106,23 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
 
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
-    def forward(inp, weight, bias=None):
+    def forward(inp, weight, bias=None, ReLU_Square=False):
         A, As = quantize_int8(inp, dim=1, sr=False)
         B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
-        return scaled_mm(A, B, As, Bs, dtype=inp.dtype)
+        act = scaled_mm(A, B, As, Bs, dtype=inp.dtype, ReLU_Square)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        inp, weight, _ = inputs
-        ctx.save_for_backward(inp, weight._data)
+        inp, weight, _, ReLU_Square = inputs
+        ctx.save_for_backward(inp, weight._data, ReLU_Square)
 
     @staticmethod
     def backward(ctx, grad_output):
-        inp, weight = ctx.saved_tensors
-        grad_weight = grad_bias = None 
+        inp, weight, ReLU_Square = ctx.saved_tensors
+        grad_weight = grad_bias = None
+
+        if ReLU_Square: # grad_relu² = 2*sqrt(output) nếu output > 0
+            grad_output = grad_output*2*torch.sqrt(grad_output.clamp(min=0))*(grad_output > 0)
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
@@ -126,7 +134,7 @@ class Int8MixedLinear(torch.autograd.Function):
             B, Bs = quantize_int8(inp, dim=0, sr=False)           # ... nó được update thẳng vào weight
             grad_weight = scaled_mm(A, B, As, Bs, dtype=weight.dtype)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, None
 
 
 ###########################
