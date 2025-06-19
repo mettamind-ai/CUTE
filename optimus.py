@@ -89,7 +89,7 @@ def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None, ReLU_S
 def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None, ReLU_Square=False):
     M, K = A.shape; _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
-    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(), ReLU_Square)
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(), ReLU_Square=ReLU_Square)
     return C
 
 
@@ -107,21 +107,24 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(inp, weight, bias=None, ReLU_Square=False):
+        w     = weight if isinstance(weight, nn.Parameter) else weight._data
         A, As = quantize_int8(inp, dim=1, sr=False)
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
-        act = scaled_mm(A, B, As, Bs, dtype=inp.dtype, ReLU_Square)
+        B, Bs = quantize_int8(w.T, dim=0, sr=True) # phép rounding này rẻ
+        return scaled_mm(A, B, As, Bs, inp.dtype, ReLU_Square)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
         inp, weight, _, ReLU_Square = inputs
-        ctx.save_for_backward(inp, weight._data, ReLU_Square)
+        w  = weight if isinstance(weight, nn.Parameter) else weight._data
+        ctx.save_for_backward(inp, w)
+        ctx.ReLU_Square = ReLU_Square
 
     @staticmethod
     def backward(ctx, grad_output):
-        inp, weight, ReLU_Square = ctx.saved_tensors
+        inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None
 
-        if ReLU_Square: # grad_relu² = 2*sqrt(output) nếu output > 0
+        if ctx.ReLU_Square: # grad_relu² = 2*sqrt(output) nếu output > 0
             grad_output = grad_output*2*torch.sqrt(grad_output.clamp(min=0))*(grad_output > 0)
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
@@ -288,9 +291,9 @@ class Int8MixedLWeight(Tensor):
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None): return cls(tensor_data_dict["_data"])
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = kwargs or dict()                           # hook vào torch_function để ...
-        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)              # 1) xử lý riêng F.linear
-        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)      # 2) các hàm khác giữ nguyên
+        kwargs = kwargs or dict()                                                   # hook vào torch_function để:
+        if func is F.linear: return Int8MixedLinear.apply(*args, **kwargs)          # 1) xử lý riêng F.linear
+        with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs)  # 2) các hàm khác giữ nguyên
     @classmethod # Adapted from FP8 implementation of WeightWithDynamicFloat8CastTensor
     def __torch_dispatch__(cls, func, types, args, kwargs): # đảm bảo các operations khác (transpose, clone, view...) vẫn hoạt động
         def unwrap(x: cls): return x._data                  # Weight vẫn có thể được sử dụng như tensor bình thường
