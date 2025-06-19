@@ -34,7 +34,7 @@ def assert_sage_attn_is_same_as_sdpa():
 assert_sage_attn_is_same_as_sdpa()
 
 
-lines = "FA_varlen sage_varlen moba_varlen FA".split()
+lines = "FA_varlen sage_varlen FA".split()
 BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 4, 128
 # assert N_HEADS == Hkv # cần cho MoBA
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
