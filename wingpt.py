@@ -93,11 +93,13 @@ class CausalSelfAttention(nn.Module):
         self.qo_inner_dim = num_heads * head_dim
         self.kv_inner_dim = num_kv_heads * head_dim
 
+        self.val_proj = nn.Linear(2*self.kv_inner_dim, self.kv_inner_dim, bias=False)
         n = self.qo_inner_dim + 2*self.kv_inner_dim
         self.qkv_proj = nn.Linear(dim, n, bias=False)
         self.  o_proj = nn.Linear(self.qo_inner_dim, odim, bias=False)
 
         with torch.no_grad(): # init weights
+            self.val_proj.weight.copy_(init_linear(torch.empty(self.kv_inner_dim, 2*self.kv_inner_dim)))
             self.qkv_proj.weight.copy_(init_linear(torch.empty(n, dim)))
             self.  o_proj.weight.zero_() # zero init
 
@@ -108,7 +110,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, val_mlp, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
@@ -116,8 +118,7 @@ class CausalSelfAttention(nn.Module):
             q    = qkv[..., :self.qo_inner_dim]
             k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
             if v_emb is not None:
-                v = norm(torch.cat([v, v_emb], dim=-1))
-                v = val_mlp(v)
+                v = self.val_proj(torch.cat([v, v_emb], dim=-1))
 
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
@@ -149,14 +150,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, te_lambdas, val_mlp, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, te_lambdas, cu_seqlens, max_seqlen, rotary):
         def prepare(x, x0, te_lambdas):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
             return x
         x = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
-        x = x + self.attn(x, ve[self.layer_id], val_mlp, cu_seqlens, max_seqlen, rotary)
+        x = x + self.attn(x, ve[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -175,8 +176,7 @@ class WinGPT(nn.Module):
         
         self.tok_dim = dim*2
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
-        self.tok_mlp = ReLuSquareMLP(self.tok_dim,  hdim=2*self.tok_dim, odim=dim,         zero_out=False)
-        self.val_mlp = ReLuSquareMLP(self.kv_dim*2, hdim=self.kv_dim*4,  odim=self.kv_dim, zero_out=False)
+        self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
         self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([1.0, 0.0]) for _ in range(n_layers)]).view(-1, 2))
@@ -208,7 +208,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, v_embs, self.te_lambdas, self.val_mlp, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, v_embs, self.te_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
