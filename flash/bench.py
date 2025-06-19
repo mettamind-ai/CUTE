@@ -35,8 +35,8 @@ assert_sage_attn_is_same_as_sdpa()
 
 
 lines = "FA_varlen sage_varlen moba_varlen FA".split()
-BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 4, 4, 128
-assert N_HEADS == Hkv # cần cho MoBA
+BATCH, N_HEADS, Hkv, HEAD_DIM = 8, 16, 4, 128
+# assert N_HEADS == Hkv # cần cho MoBA
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen (tối ưu GPU)
 
 config = triton.testing.Benchmark(
@@ -66,26 +66,17 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
     max_seqlen, seq_len = N_CTX//2, BATCH*N_CTX
     cu_seqlens = [i for i in range(0, BATCH*N_CTX + max_seqlen, max_seqlen)]
     cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device="cuda")
-    qq = q.transpose(1, 2).reshape(seq_len, H, HEAD_DIM)   # seq_len, H, D
+    qq = q.transpose(1, 2).reshape(seq_len, H,   HEAD_DIM) # seq_len, H, D
     kk = k.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
     vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
 
     def attn_fn(provider, q, k, v):
-        if provider == "FA_varlen":
-            return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
-
-        if provider == "moba_varlen":
-            return lambda: moba_attn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
-
-        if provider == "sage_varlen":
-            return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
-
-        if provider == "FA":
-            return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, 
-                    causal=True, window_size=(-1,-1), alibi_slopes=None, deterministic=False)
+        if provider == "FA_varlen": return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
+        # if provider == "moba_varlen": return lambda: moba_attn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
+        if provider == "sage_varlen": return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
+        if provider == "FA": return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, causal=True,)
 
     ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
-
     flops_per_matmul = 2.0 * BATCH * H * N_CTX * N_CTX * HEAD_DIM
     total_flops = 2 * flops_per_matmul
     total_flops *= 0.5
