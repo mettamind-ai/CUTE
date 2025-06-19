@@ -172,9 +172,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
-        self.ve     = n_layers // 2 # tokenwise layer value embeddings
         self.edim   = dim*2
-        self.embeds = Embedding(vocab_size, self.edim + self.kv_dim*self.ve, active_vocab)
+        self.embeds = Embedding(vocab_size, self.edim + self.kv_dim*n_layers, active_vocab)
         self.mlp0   = ReLuSquareMLP(self.edim, hdim=2*self.edim, odim=dim, zero_out=False)
 
         self.scalars = nn.Parameter(torch.cat([
@@ -205,20 +204,18 @@ class WinGPT(nn.Module):
             ## Token embeddings
             x = x0 = self.mlp0(norm(embs[..., : self.edim ])) # thu edim về dim
             ## Value embeddings, bổ trợ cho value trong attention
-            v_embs = embs[..., -self.ve*self.kv_dim : ]
-            v_embs = list(v_embs.chunk(self.ve, dim=-1))
-            v_embs = v_embs + [None]*(self.n_layers - 2*len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+            v_embs = list(embs[..., self.edim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
 
-        skip_weights = self.scalars[ : self.n_layers]
-        te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
-        ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
+        self.layer_skips  = self.scalars[ : self.n_layers]
+        self.te_lambdas   = self.scalars[1*self.n_layers : 3*self.n_layers].view(-1, 2)
+        self.ve_lambdas   = self.scalars[3*self.n_layers : 5*self.n_layers].view(-1, 2)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
-            if i in self.skip_from: x = x + skip_weights[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, v_embs, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
+            x = blk(x, x0, v_embs, self.te_lambdas, self.ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 

@@ -41,7 +41,7 @@ batch = get_batch()
 ## Init model for pretraining
 #############################
 if  args.L: # (L)arge  ~ 750m
-    model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=64,
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 elif args.M:# (M)edium ~ 520m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
@@ -155,6 +155,11 @@ for step in range(args.steps):  # training loop
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-    if step % (3*log_interval) == 0: print0(model.scalars)
+
+    if step % (3*log_interval) == 0:
+        print0(f"layer_skips: {model.layer_skips}")
+        print0(f"token embs: {model.te_lambdas}")
+        print0(f"value embs: {model.ve_lambdas}")
+
 model.update_async_weight()
 logger.finish()
