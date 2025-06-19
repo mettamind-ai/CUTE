@@ -174,8 +174,6 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.tok_dim = dim*2
-        self.val_dim = 3*
-        n = self.kv_dim + self.val_dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim,  hdim=2*self.tok_dim, odim=dim,         zero_out=False)
         self.val_mlp = ReLuSquareMLP(self.kv_dim*2, hdim=self.kv_dim*4,  odim=self.kv_dim, zero_out=False)
