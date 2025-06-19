@@ -32,8 +32,8 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
-        self.fc1_relu_square_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.fc2_proj.weight            .wd_mul = 2.0  # gấp đôi so với mặc định 
+        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định 
 
         with torch.no_grad():
             self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
