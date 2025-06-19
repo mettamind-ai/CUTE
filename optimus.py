@@ -104,6 +104,11 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     return ( tensor, scale )                            # int8, float32
 
 
+@torch.compile()
+def relu_square_grad(grad_output):
+    return grad_output*2*torch.sqrt(grad_output.clamp(min=0))*(grad_output > 0)
+
+
 class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(inp, weight, bias=None, ReLU_Square=False):
@@ -120,13 +125,12 @@ class Int8MixedLinear(torch.autograd.Function):
         ctx.ReLU_Square = ReLU_Square
 
     @staticmethod
-    @torch.compile()
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None
 
         if ctx.ReLU_Square: # grad_relu² = 2*sqrt(output) nếu output > 0
-            grad_output = grad_output*2*torch.sqrt(grad_output.clamp(min=0))*(grad_output > 0)
+            grad_output = relu_square_grad(grad_output)
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
