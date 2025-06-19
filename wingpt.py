@@ -93,7 +93,7 @@ class CausalSelfAttention(nn.Module):
         self.qo_inner_dim = num_heads * head_dim
         self.kv_inner_dim = num_kv_heads * head_dim
 
-        n = self.qo_inner_dim + 2*self.kv_inner_dim
+        n = self.qo_inner_dim + 1*self.kv_inner_dim
         self.qkv_proj = nn.Linear(dim, n, bias=False)
         self.  o_proj = nn.Linear(self.qo_inner_dim, odim, bias=False)
 
@@ -116,9 +116,10 @@ class CausalSelfAttention(nn.Module):
 
         def prepare(qkv):
             q    = qkv[..., :self.qo_inner_dim]
-            k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
-            # v = self.val_proj(torch.cat([v, v_emb], dim=-1))
-            v    = v * ve_lambdas[0] + v_emb * ve_lambdas[1]
+            k, v = qkv[..., self.qo_inner_dim:]#.chunk(2, dim=-1) # T, C
+            # v = self.val_proj(torch.cat([v, v_emb], dim=-1)) # 
+            # v    = v * ve_lambdas[0] + v_emb * ve_lambdas[1] # vì ve_lamba rất lớn nên thử bỏ qua v, dùng hoàn toàn v_emb
+            v    = v_emb
 
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
