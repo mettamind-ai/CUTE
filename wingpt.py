@@ -108,7 +108,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, val_mlp, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
@@ -116,7 +116,8 @@ class CausalSelfAttention(nn.Module):
             q    = qkv[..., :self.qo_inner_dim]
             k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
             if v_emb is not None:
-               v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
+                v = norm(torch.cat([v, v_emb], dim=-1))
+                v = val_mlp(v)
 
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
@@ -148,14 +149,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, ve, te_lambdas, val_mlp, cu_seqlens, max_seqlen, rotary):
         def prepare(x, x0, te_lambdas):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
             return x
         x = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
-        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
+        x = x + self.attn(x, ve[self.layer_id], val_mlp, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -173,14 +174,14 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads*head_dim
         
         self.tok_dim = dim*2
-        self.val_dim = self.kv_dim*4
+        self.val_dim = 3*self.kv_dim
+        n = self.kv_dim + self.val_dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.val_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim,         zero_out=False)
-        self.val_mlp = ReLuSquareMLP(self.val_dim, hdim=4*self.val_dim, odim=self.kv_dim, zero_out=False)
+        self.val_mlp = ReLuSquareMLP(n,            hdim=2*n,            odim=self.kv_dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
         self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([1.0, 0.0]) for _ in range(n_layers)]).view(-1, 2))
-        self.ve_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.2, 0.8]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -202,17 +203,14 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
             x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
-            v_embs = embs[..., self.tok_dim : ].reshape(-1, self.val_dim)
-            v_embs = self.val_mlp(norm(v_embs)) # thu val_dim về kv_dim
-            v_embs = v_embs.reshape(-1, self.n_layers * self.kv_dim)
-            v_embs = list(v_embs.chunk(self.n_layers, dim=-1))
+            v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, v_embs, self.te_lambdas, self.ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, v_embs, self.te_lambdas, self.val_mlp, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
@@ -227,7 +225,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     def prepare(x, x0, target, xe):
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
-        xx_x0 = torch.cat([xx, x0], dim=1)
+        xx_x0 = torch.cat([xx, x0], dim=-1)
         re    = (xx + x0) * 0.5 # residual
         y     = re + model.head2_mlp(norm(xx_x0))
         xe    = xe + model.head1_mlp(norm(xe))
