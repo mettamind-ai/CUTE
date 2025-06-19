@@ -299,10 +299,37 @@ Cách đặt tên này cũng thể hiện tính đối xứng trong kiến trúc
 
 [Low-rank matrices: ma trận low-rank - ma trận có rank thấp hơn nhiều so với kích thước; Weight update: cập nhật trọng số; Hadamard product: tích Hadamard - phép nhân từng phần tử tương ứng; Adapter: bộ điều hợp - module nhỏ có thể huấn luyện được]
 
-# Dynamic Token Pooling
+## Paper6: # Dynamic Token Pooling
 - https://www.alphaxiv.org/abs/2211.09761
-tự động pool các tokens gần nhau lại thành 1 vector (giảm seqlen), tăng chất lượng, speedup và giảm vram. Transformer với các layers hình đồng hồ cát (phình 2 đầu với số tokens = nhau) và giảm ở giữa (pooling). hdim không đổi ở mọi layers.
+tự động pool các tokens (trong paper là characters) gần nhau lại thành 1 vector (giảm seqlen), tăng chất lượng, speedup và giảm vram. Transformer với các layers hình đồng hồ cát (phình 2 đầu với số tokens = nhau) và giảm ở giữa (pooling). hdim không đổi ở mọi layers.
 
 
 |![](https://pbs.twimg.com/media/GtxpWG_WoAA6VIy?format=jpg)|![](https://pbs.twimg.com/media/GtxqA1DbIAEE2ez?format=jpg)|
 |-|-|
+
+Dynamic pooling hoạt động như một cỗ máy thông minh có khả năng "đọc hiểu" văn bản và tự động chia nhỏ thành các đoạn có ý nghĩa, thay vì cắt đại theo kích thước cố định như các phương pháp trước đây.
+
+**Bước 1: Đọc và hiểu văn bản ban đầu**
+
+Model nhận vào một chuỗi ký tự dài, ví dụ "with one of his greatest performances in last tango". Khối Transformer đầu tiên sẽ xử lý từng ký tự và tạo ra các hidden representations - như việc model "suy nghĩ" về từng phần của câu.
+
+**Bước 2: Dự đoán ranh giới có ý nghĩa**
+
+Một mạng neural nhỏ gọi là boundary predictor sẽ xem xét từng vị trí trong câu và quyết định có nên "cắt" tại đó không. Giống như cách con người đọc và tự nhiên chia câu thành các từ hoặc cụm từ có nghĩa. Ví dụ boundary predictor có thể quyết định cắt sau "with", "one", "of his", "greatest", "performances" để tạo thành các segment tự nhiên.
+
+**Bước 3: Gom nhóm thông minh**
+
+Thay vì chia đều thành các nhóm 3-4 ký tự như fixed pooling, dynamic pooling sẽ gom các ký tự thuộc cùng một đơn vị ý nghĩa lại với nhau. Ví dụ tất cả ký tự trong từ "greatest" sẽ được gom thành một representation duy nhất bằng cách lấy trung bình. Điều này giúp model hiểu được ranh giới tự nhiên của ngôn ngữ.
+
+**Bước 4: Xử lý hiệu quả với sequence ngắn**
+
+Sau khi gom nhóm, sequence từ hàng trăm ký tự có thể rút ngắn xuống chỉ vài chục segments. Khối Transformer giữa sẽ xử lý sequence ngắn này một cách cực kỳ hiệu quả về mặt tính toán và bộ nhớ, vì complexity giảm từ O(n²) xuống O((n/k)²) với k là shortening factor.
+
+**Bước 5: Khôi phục độ dài gốc để sinh văn bản**
+
+Cuối cùng, model cần sinh ra từng ký tự như ban đầu, nên nó sẽ "giãn" sequence ngắn trở lại độ dài gốc bằng cách nhân đôi các representations. Khối Transformer cuối sẽ sinh ra ký tự tiếp theo dựa trên toàn bộ thông tin đã được xử lý hiệu quả.
+
+**Điểm thông minh của phương pháp:**
+
+Dynamic pooling giống như cách con người đọc - chúng ta **không đọc từng chữ cái riêng lẻ mà nhận diện từ, cụm từ rồi hiểu nghĩa**. Model học được cách chia văn bản theo đơn vị ý nghĩa tự nhiên thay vì cắt máy móc, giúp vừa tiết kiệm tài nguyên tính toán vừa hiểu ngôn ngữ tốt hơn. Kết quả là model chạy nhanh hơn 2-3 lần mà độ chính xác còn cao hơn so với các phương pháp truyền thống.
+

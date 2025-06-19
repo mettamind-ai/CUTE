@@ -155,6 +155,6 @@ for step in range(args.steps):  # training loop
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-        print0(model.scalars)
+    if step % (3*log_interval) == 0: print0(model.scalars)
 model.update_async_weight()
 logger.finish()

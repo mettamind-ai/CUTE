@@ -192,8 +192,7 @@ Position shift đảm bảo chúng ta capture cả hai khía cạnh:
 - `Understanding` (embeddings): Gradient khi model "hiểu" token đó trong input
 - `Generation` (lm_head): Gradient khi model "sinh ra" token đó trong output
 
-## IMPORTANT
-Paper5 cũng chỉ ra rằng “VEGAD+2-gram” outperforms VEGAD, lý lo là vì 2-gram tối ưu hơn cho việc giảm gradient của toàn bộ training dataset. => Tiếp tục mở rộng ra 3-gram, ... n-gram sẽ giúp tối ưu cho việc giảm gradient hơn nữa. Đây là một hướng đi mà paper5 chưa phám khá.
+**IMPORTANT**: Paper5 cũng chỉ ra rằng “VEGAD+2-gram” outperforms VEGAD, lý lo là vì 2-gram tối ưu hơn cho việc giảm gradient của toàn bộ training dataset. => Tiếp tục mở rộng ra 3-gram, ... n-gram sẽ giúp tối ưu cho việc giảm gradient hơn nữa. Đây là một hướng đi mà paper5 chưa phám khá.
 
 |![](https://pbs.twimg.com/media/GtilNRna4AAuW8z?format=jpg)|![](https://pbs.twimg.com/media/GtimanPboAAToM8?format=jpg)|
 |-|-|

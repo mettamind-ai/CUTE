@@ -115,7 +115,8 @@ class CausalSelfAttention(nn.Module):
         def prepare(qkv):
             q    = qkv[..., :self.qo_inner_dim]
             k, v = qkv[..., self.qo_inner_dim:].chunk(2, dim=-1) # T, C
-            if v_emb is not None: v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
+            if v_emb is not None:
+               v = ve_lambdas[0]*v + ve_lambdas[1]*v_emb
 
             q = q.contiguous().view(T, H,   D)
             k = k.contiguous().view(T, Hkv, D)
@@ -206,7 +207,7 @@ class WinGPT(nn.Module):
             ## Value embeddings, bổ trợ cho value trong attention
             v_embs = embs[..., -self.ve*self.kv_dim : ]
             v_embs = list(v_embs.chunk(self.ve, dim=-1))
-            v_embs = v_embs + [None]*(self.n_layers - len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
+            v_embs = v_embs + [None]*(self.n_layers - 2*len(v_embs)) + v_embs # U-shape theo kiểu 0,1,2 ... 0,1,2
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
 
