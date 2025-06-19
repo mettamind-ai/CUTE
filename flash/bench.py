@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import triton, torch, torch.nn.functional as F
 
-from moba import moba_attn_varlen
+# from moba import moba_attn_varlen
 from sagefwd import sageattn_varlen
 from attn import flash_attn_func, flash_attn_varlen_func
 
