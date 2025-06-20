@@ -16,8 +16,6 @@ torch.set_default_dtype(torch.bfloat16)
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
 
-def residual(x, y): return x + y
-
 @torch.no_grad()
 def init_linear(w: Tensor, scale=1):
     std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better ...
@@ -147,8 +145,8 @@ class Block(nn.Module):
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         if self.mlp is not None:
-            x = checkpoint(residual, x, self.mlp(checkpoint(norm, x, use_reentrant=False)),  use_reentrant=False)
-        return  checkpoint(residual, x, self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary), use_reentrant=False)
+               x = x + self.mlp(checkpoint(norm, x, use_reentrant=False))
+        return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
