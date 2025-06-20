@@ -106,7 +106,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-def forward(self, x, qkv_, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, qkv_, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
