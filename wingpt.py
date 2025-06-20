@@ -92,8 +92,12 @@ class CausalSelfAttention(nn.Module):
         self.qo_dim = num_heads * head_dim
         self.kv_dim = num_kv_heads * head_dim
 
-        self.o_proj  = nn.Linear(self.qo_dim, odim, bias=False)
-        with torch.no_grad(): self.o_proj.weight.zero_() # zero init
+        self.qk_proj = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
+        self. o_proj = nn.Linear(self.qo_dim, odim, bias=False)
+
+        with torch.no_grad():
+            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + + self.kv_dim, dim)))
+            self. o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -102,19 +106,27 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, qkv, cu_seqlens, max_seqlen, rotary):
+def forward(self, x, qkv_, q_lambdas, k_lambdas, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
-        def prepare(qkv):
-            q = qkv[..., : self.qo_dim                ].view(T, H,   D)
-            k = qkv[...,   self.qo_dim : -self.kv_dim ].view(T, Hkv, D)
-            v = qkv[...,  -self.kv_dim :              ].view(T, Hkv, D)
+        def prepare():
+            qk = self.q_proj(x).contiguous()
+            q  = qk[..., : self.qo_dim ]
+            k  = qk[..., self.qo_dim : ]
+
+            q_ = qkv_[..., : self.qo_dim                ]
+            k_ = qkv_[...,   self.qo_dim : -self.kv_dim ]
+            v  = qkv_[...,  -self.kv_dim :              ]
+
+            q = q_lambdas[0] * q + q_lambdas[1] * q_
+            k = k_lambdas[0] * k + k_lambdas[1] * k_
+
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
-            return q, k, v
+            return q.contiguous(), k.contiguous(), v.contiguous()
 
-        q, k, v = checkpoint(prepare, qkv, use_reentrant=False)
+        q, k, v = checkpoint(prepare, use_reentrant=False)
         y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
@@ -136,14 +148,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, qkv, te_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, te_lambdas, qkv, q_lambdas, k_lambdas, cu_seqlens, max_seqlen, rotary):
         def prepare(x, x0, te_lambdas):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x, qkv[self.layer_id]
-        x, _qkv = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
-        x       = x + self.attn(_qkv, cu_seqlens, max_seqlen, rotary)
+            return x, qkv[self.layer_id], q_lambdas[self.layer_id], k_lambdas[self.layer_id]
+        x, qkv_, ql, kl = checkpoint(prepare, use_reentrant=False)
+        x  = x + self.attn(x, qkv_, ql, kl, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -166,6 +178,8 @@ class WinGPT(nn.Module):
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
         self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.9, 0.1]) for _ in range(n_layers)]).view(-1, 2))
+        self.qe_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
+        self.ke_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -194,7 +208,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, qkv, self.te_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, self.te_lambdas, self.qe_lambdas, self.ke_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
@@ -243,7 +257,7 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     seed = 1981
-    seq_len = 1024
+    seq_len = 256
     vocab_size = 32*1024
     dim, n_layers = 128, 8
     num_heads, num_kv_heads = 16, 1
