@@ -106,23 +106,23 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
-        def prepare(qk, v):
+        def prepare(qk, v_emb):
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
-            q = q.view(T, H,   D)
-            k = k.view(T, Hkv, D)
-            v = v.view(T, Hkv, D)
+            q = q    .view(T, H,   D)
+            k = k    .view(T, Hkv, D)
+            v = v_emb.view(T, Hkv, D)
 
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
 
-        q, k, v = checkpoint(prepare, self.qk_proj(x), v, use_reentrant=False)
+        q, k, v = checkpoint(prepare, self.qk_proj(x), v_emb, use_reentrant=False)
         y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
@@ -144,14 +144,9 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, te_lambdas, v_embs, cu_seqlens, max_seqlen, rotary):
-        def prepare(x):
-            x = te_lambdas[self.layer_id][0] * x + \
-                te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
-            if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x, v_embs[self.layer_id]
-        x, v  = checkpoint(prepare, x, use_reentrant=False)
-        x     = x + self.attn(x, v, cu_seqlens, max_seqlen, rotary)
+    def forward(self, x, v_embs, cu_seqlens, max_seqlen, rotary):
+        if self.mlp is not None: x = x + self.mlp(norm(x))
+        x = x + self.attn(x, v_embs[self.layer_id], cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -202,7 +197,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, self.te_lambdas, v_embs, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, v_embs, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 

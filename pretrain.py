@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=64)           # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=56)           # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
@@ -161,7 +161,7 @@ for step in range(args.steps):  # training loop
         time0 = time.time()
 
     if step % (3*log_interval) == 0:
-        print(torch.cat([model.te_lambdas], dim=-1))
+        print(model.layer_skips)
 
 model.update_async_weight()
 logger.finish()
