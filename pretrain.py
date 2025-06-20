@@ -37,9 +37,11 @@ tokens_per_batch = args.bs*1024
 if   args.L: # (L)arge  ~ 680m
     model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 elif args.M: # (M)edium ~ 460m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
 else:        # (S)mall  ~ 240m vram params
     model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
@@ -49,6 +51,7 @@ data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = tokens_per_batch + 1
 N    = len(data) - CTX
 WIN  = torch.arange(CTX)
+
 def get_batch():
     idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
     x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.

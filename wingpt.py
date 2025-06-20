@@ -193,8 +193,8 @@ class WinGPT(nn.Module):
         
         for i, blk in enumerate(self.blocks):
             x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
-            if i == self.n_layers//2: half = x
-        return x, half, x0
+            if i == self.n_layers//2: xe = x # early exit
+        return x, xe, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
@@ -217,9 +217,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     w     = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
-    hloss = FusedCE.apply(xe, w, target, n_ignore, ignore, 0.10)  # NTP: Early exit
-    xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.65)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y,  w, ty,     n_ignore, ignore, 0.25)  # MTP: Next of next token prediction
+    hloss = FusedCE.apply(xe, w, target, n_ignore, ignore, 0.1)  # NTP: Early exit
+    xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.6)  # NTP: Next token prediction
+    yloss = FusedCE.apply(y,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
     return xloss + yloss + hloss
 
 
