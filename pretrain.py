@@ -26,8 +26,8 @@ torch.manual_seed(1981 + rank)
 
 if args.bs is None: # cài đặt mặc định bs cho 4090
     if   args.L: args.bs = 48
-    elif args.M: args.bs = 64
-    else:        args.bs = 80
+    elif args.M: args.bs = 56
+    else:        args.bs = 64
 
 def print0(msg): is_master and print(msg)
 tokens_per_batch = args.bs*1024
@@ -86,14 +86,13 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-m             = model
 lr_schedule   = LRSchedule(args.steps, **args.schedule)
-muon_params   = [p for n, p in m.named_parameters() if "proj" in n]
+muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=[*m.embeds.parameters()],       lr=0.1    ), 
-    dict(params=[ m.layer_skips, m.te_lambdas], lr=0.015  ),
-    dict(params=[*m.unembeds.parameters()],     lr=1/300  ),
+    dict(params=[*model.embeds.parameters()],   lr=0.1    ), 
+    dict(params=[ model.m.scalars],             lr=0.015  ),
+    dict(params=[*model.unembeds.parameters()], lr=1/300  ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
 muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.01)
@@ -164,7 +163,7 @@ for step in range(args.steps):  # training loop
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-        if step % (10*log_interval) == 0: print(model.layer_skips)
+        if step % (10*log_interval) == 0: print(model.scalars)
 
 model.update_async_weight()
 logger.finish()
