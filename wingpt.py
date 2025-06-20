@@ -40,13 +40,10 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
-    def forward(self, x, use_checkpoint=True):
-        def prepare():
-            y = self.fc1_proj(norm(x))
-            return F.relu(y).square()
-        if use_checkpoint: y = checkpoint(prepare, use_reentrant=False)
-        else:              y = prepare()
-        return self.fc2_proj(y)
+    def forward(self, x):
+        x = self.fc1_proj(norm(x))
+        x = F.relu(x).square()
+        return self.fc2_proj(x)
 
 ##########################
 ## CausalSelfAttention  ##
@@ -168,7 +165,7 @@ class WinGPT(nn.Module):
         self.tok_dim = dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
-        self.scalars = nn.Parameter(torch.cat([torch.tensor([0.2, 0.8, 0.2]) for _ in range(n_layers)]).view(-1, 3))
+        self.scalars = nn.Parameter(torch.cat([torch.tensor([0.1, 0.9, 0.1]) for _ in range(n_layers)]).view(-1, 3))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -189,7 +186,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
-            x = x0 = self.tok_mlp(embs[..., : self.tok_dim ], use_checkpoint=False) # thu tok_dim về dim
+            x = x0 = self.tok_mlp(embs[..., : self.tok_dim ]) # thu tok_dim về dim
             v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
@@ -199,8 +196,8 @@ class WinGPT(nn.Module):
             def prepare(x, i):
                 s = self.scalars[i]
                 if i in self.skip_from:
-                    x =      x + s[0]*outputs[self.skip_from[i]]
-                x     = s[1]*x + s[2]*x0
+                    x = x      + s[0]*outputs[self.skip_from[i]]
+                x     = x*s[1] + s[2]*x0
                 return x, v_embs[i]
             x, v_emb = checkpoint(prepare, x, i, use_reentrant=False)
             x = blk(x, v_emb, cu_seqlens, max_seqlen, self.rotary)
@@ -220,8 +217,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         re    = (xx + x0) * 0.5 # residual
-        y     = re + model.head2_mlp(xx_x0, use_checkpoint=False)
-        xe    = xe + model.head1_mlp(xe,    use_checkpoint=False)
+        y     = re + model.head2_mlp(xx_x0)
+        xe    = xe + model.head1_mlp(xe)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x), norm(xe)
     y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
