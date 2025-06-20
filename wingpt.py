@@ -144,13 +144,13 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, te_lambdas, v, cu_seqlens, max_seqlen, rotary):
-        def prepare(x, v):
+    def forward(self, x, x0, te_lambdas, v_embs, cu_seqlens, max_seqlen, rotary):
+        def prepare(x):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x, v[self.layer_id]
-        x, v  = checkpoint(prepare, x, v, use_reentrant=False)
+            return x, v_embs[self.layer_id]
+        x, v  = checkpoint(prepare, x, use_reentrant=False)
         x     = x + self.attn(x, v, cu_seqlens, max_seqlen, rotary)
         return x
 
@@ -195,14 +195,14 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
             x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
-            v      = embs[..., self.tok_dim : ]
-            return x, x0, v
-        x, x0, v = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+            v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
+            return x, x0, v_embs
+        x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, self.te_lambdas, v, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, self.te_lambdas, v_embs, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
