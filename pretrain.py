@@ -83,7 +83,7 @@ class LRSchedule:
 
 lr_schedule   = LRSchedule(args.steps, **args.schedule)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
-scalar_params = [ model.layer_skips, model.te_lambda ]
+scalar_params = [ model.layer_skips, model.te_lambdas ]
 adam_params   = [
     dict(params=model.embeds.parameters(),   lr=0.1    ), 
     dict(params=scalar_params,               lr=0.015  ),
