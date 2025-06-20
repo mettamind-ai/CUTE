@@ -165,7 +165,7 @@ class WinGPT(nn.Module):
         self.tok_dim = dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
-        self.scalars = nn.Parameter(torch.cat([torch.tensor([0.1, 0.9, 0.1]) for _ in range(n_layers)]).view(-1, 3))
+        self.scalars = nn.Parameter(torch.cat([torch.tensor([0.9, 0.1, 0]) for _ in range(n_layers)]).view(-1, 3))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -193,14 +193,13 @@ class WinGPT(nn.Module):
         
         def prepare(x, i):
             s = self.scalars[i]
-            if i in self.skip_from:
-                x = x      + s[0]*outputs[self.skip_from[i]]
-            x     = x*s[1] + s[2]*x0
+            x = s[0]*x + s[1]*x0 + (s[2]*outputs[self.skip_from[i]] if i in self.skip_from else 0)
             return x, v_embs[i]
 
         outputs = []
         for i, blk in enumerate(self.blocks):
-            x, v_emb = checkpoint(prepare, x, i, use_reentrant=False)
+            # x, v_emb = checkpoint(prepare, x, i, use_reentrant=False)
+            x, v_emb = prepare(x, i)
             x = blk(x, v_emb, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
