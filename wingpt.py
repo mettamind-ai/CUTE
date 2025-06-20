@@ -97,7 +97,7 @@ class CausalSelfAttention(nn.Module):
         self. o_proj = nn.Linear(self.qo_dim, odim, bias=False)
 
         with torch.no_grad():
-            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + + self.kv_dim, dim)))
+            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
             self. o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4

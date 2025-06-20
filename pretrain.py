@@ -23,15 +23,28 @@ args = parser.parse_args()
 
 rank, world_size, is_master = 0, 1, True # 1 GPU
 torch.manual_seed(1981 + rank)
-
-if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L: args.bs = 32
-    elif args.M: args.bs = 48
-    else:        args.bs = 56
-
 def print0(msg): is_master and print(msg)
+
+##################
+##  Init Model  ##
+##################
+if args.bs is None: # cài đặt mặc định bs cho 4090
+    if   args.L:   args.bs = 48
+    elif args.M:   args.bs = 64
+    else:          args.bs = 96
 tokens_per_batch = args.bs*1024
 
+if   args.L: # (L)arge  ~ 680m
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+elif args.M: # (M)edium ~ 460m
+    model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+else:        # (S)mall  ~ 240m vram params
+    model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
+        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
+## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = tokens_per_batch + 1
 N    = len(data) - CTX
@@ -42,19 +55,7 @@ def get_batch():
     return x.pin_memory().to("cuda", dtype=torch.long, non_blocking=True)
 batch = get_batch()
 
-#############################
-## Init model for pretraining
-#############################
-if   args.L: # (L)arge  ~ 730m
-    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=8, head_dim=128,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M: # (M)edium ~ 480m
-    model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=8, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-else:        # (S)mall  ~ 240m vram params
-    model = WinGPT(dim=1024, n_layers=18, num_heads=16, num_kv_heads=8, head_dim=64,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-
+## INT8 hoá
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 def find_key(s):
     m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
