@@ -149,9 +149,9 @@ class Block(nn.Module):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x
-        x  = checkpoint(prepare, x, use_reentrant=False)
-        x  = x + self.attn(x, v, cu_seqlens, max_seqlen, rotary)
+            return x, v[self.layer_id]
+        x, v  = checkpoint(prepare, x, v, use_reentrant=False)
+        x     = x + self.attn(x, v, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
