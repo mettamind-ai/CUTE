@@ -84,24 +84,16 @@ class CausalSelfAttention(nn.Module):
 
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
-        self.num_kv_groups = num_heads // num_kv_heads
         self.head_dim = head_dim
         self.layer_id = layer_id
         self.seq_len = seq_len
         if odim == None: odim = dim
 
-        self.qo_inner_dim = num_heads * head_dim
-        self.kv_inner_dim = num_kv_heads * head_dim
+        self.qo_dim = num_heads * head_dim
+        self.kv_dim = num_kv_heads * head_dim
 
-        n = self.qo_inner_dim + 1*self.kv_inner_dim
-        self.qkv_proj = nn.Linear(dim, n, bias=False)
-        self.  o_proj = nn.Linear(self.qo_inner_dim, odim, bias=False)
-
-        # self.val_proj = nn.Linear(2*self.kv_inner_dim, self.kv_inner_dim, bias=False)
-        with torch.no_grad(): # init weights
-            # self.val_proj.weight.copy_(init_linear(torch.empty(self.kv_inner_dim, 2*self.kv_inner_dim)))
-            self.qkv_proj.weight.copy_(init_linear(torch.empty(n, dim)))
-            self.  o_proj.weight.zero_() # zero init
+        self.o_proj  = nn.Linear(self.qo_dim, odim, bias=False)
+        with torch.no_grad(): self.o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -110,27 +102,20 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, qkv, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
         def prepare(qkv):
-            q = qkv[..., :self.qo_inner_dim]
-            k = qkv[..., self.qo_inner_dim:]#.chunk(2, dim=-1) # T, C
-            v = v_emb
-            # v = self.val_proj(torch.cat([v, v_emb], dim=-1)) # 
-            # v    = v * ve_lambdas[0] + v_emb * ve_lambdas[1] # vì ve_lamba rất lớn nên thử bỏ qua v, dùng hoàn toàn v_emb
-
-            q = q.contiguous().view(T, H,   D)
-            k = k.contiguous().view(T, Hkv, D)
-            v = v.contiguous().view(T, Hkv, D)
-
+            q = qkv[..., : self.qo_dim                ].view(T, H,   D)
+            k = qkv[...,   self.qo_dim : -self.kv_dim ].view(T, Hkv, D)
+            v = qkv[...,  -self.kv_dim :              ].view(T, Hkv, D)
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
 
-        q, k, v = checkpoint(prepare, self.qkv_proj(x), use_reentrant=False)
-        y = flash_attn_varlen_func( q, k, v,
+        q, k, v = checkpoint(prepare, qkv, use_reentrant=False)
+        y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         )
@@ -151,14 +136,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, ve, te_lambdas, ve_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, qkv, te_lambdas, cu_seqlens, max_seqlen, rotary):
         def prepare(x, x0, te_lambdas):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x
-        x = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
-        x = x + self.attn(x, ve[self.layer_id], ve_lambdas[self.layer_id], cu_seqlens, max_seqlen, rotary)
+            return x, qkv[self.layer_id]
+        x, _qkv = checkpoint(prepare, x, x0, te_lambdas, use_reentrant=False)
+        x       = x + self.attn(_qkv, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -173,15 +158,14 @@ class WinGPT(nn.Module):
 
         blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
-        self.dim, self.kv_dim = dim, num_kv_heads*head_dim
+        self.dim, self.qkv_dim = dim, (num_kv_heads + num_heads) * head_dim
         
-        self.tok_dim = dim*2
-        self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
+        self.tok_dim = dim
+        self.embeds  = Embedding(vocab_size, self.tok_dim + self.qkv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
 
         self.layer_skips  = nn.Parameter(torch.ones(n_layers))
         self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.9, 0.1]) for _ in range(n_layers)]).view(-1, 2))
-        self.ve_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.2, 0.8]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -203,14 +187,14 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
             x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
-            v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
-            return x, x0, v_embs
-        x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+            qkv    = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
+            return x, x0, qkv
+        x, x0, qkv = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, v_embs, self.te_lambdas, self.ve_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, qkv, self.te_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
