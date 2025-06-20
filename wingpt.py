@@ -191,14 +191,15 @@ class WinGPT(nn.Module):
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
+        def prepare(x, i):
+            s = self.scalars[i]
+            if i in self.skip_from:
+                x = x      + s[0]*outputs[self.skip_from[i]]
+            x     = x*s[1] + s[2]*x0
+            return x, v_embs[i]
+
         outputs = []
         for i, blk in enumerate(self.blocks):
-            def prepare(x, i):
-                s = self.scalars[i]
-                if i in self.skip_from:
-                    x = x      + s[0]*outputs[self.skip_from[i]]
-                x     = x*s[1] + s[2]*x0
-                return x, v_embs[i]
             x, v_emb = checkpoint(prepare, x, i, use_reentrant=False)
             x = blk(x, v_emb, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
