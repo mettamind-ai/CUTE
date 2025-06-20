@@ -207,7 +207,7 @@ class WinGPT(nn.Module):
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, self.te_lambdas, self.qe_lambdas, self.ke_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, self.te_lambdas, qkv, self.qe_lambdas, self.ke_lambdas, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
