@@ -106,12 +106,11 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-def forward(self, x, qkv_, q_lambdas, k_lambdas, cu_seqlens, max_seqlen, rotary):
+def forward(self, x, qkv_, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
-        def prepare():
-            qk = self.q_proj(x).contiguous()
+        def prepare(qk):
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
@@ -119,14 +118,14 @@ def forward(self, x, qkv_, q_lambdas, k_lambdas, cu_seqlens, max_seqlen, rotary)
             k_ = qkv_[...,   self.qo_dim : -self.kv_dim ]
             v  = qkv_[...,  -self.kv_dim :              ]
 
-            q = q_lambdas[0] * q + q_lambdas[1] * q_
-            k = k_lambdas[0] * k + k_lambdas[1] * k_
+            q = qe_lambdas[0] * q + qe_lambdas[1] * q_
+            k = ke_lambdas[0] * k + ke_lambdas[1] * k_
 
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
             return q.contiguous(), k.contiguous(), v.contiguous()
 
-        q, k, v = checkpoint(prepare, use_reentrant=False)
+        q, k, v = checkpoint(prepare, self.qk_proj(x), use_reentrant=False)
         y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
@@ -148,14 +147,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, te_lambdas, qkv, q_lambdas, k_lambdas, cu_seqlens, max_seqlen, rotary):
-        def prepare(x, x0, te_lambdas):
+    def forward(self, x, x0, te_lambdas, qkv, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
+        def prepare():
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x, qkv[self.layer_id], q_lambdas[self.layer_id], k_lambdas[self.layer_id]
-        x, qkv_, ql, kl = checkpoint(prepare, use_reentrant=False)
-        x  = x + self.attn(x, qkv_, ql, kl, cu_seqlens, max_seqlen, rotary)
+            return x, qkv[self.layer_id], qe_lambdas[self.layer_id], ke_lambdas[self.layer_id]
+        x, qkv_, qe, ke = checkpoint(prepare, use_reentrant=False)
+        x  = x + self.attn(x, qkv_, qe, ke, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
