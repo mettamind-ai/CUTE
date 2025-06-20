@@ -166,10 +166,10 @@ class WinGPT(nn.Module):
 
         blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
-        self.dim, self.qkv_dim = dim, (2*num_kv_heads + num_heads) * head_dim
+        self.dim, self.kv_dim = dim, num_kv_heads * head_dim
         
         self.tok_dim = dim
-        self.embeds  = Embedding(vocab_size, self.tok_dim + self.qkv_dim*n_layers, active_vocab)
+        self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
 
         self.layer_skips = nn.Parameter(torch.ones(n_layers))
