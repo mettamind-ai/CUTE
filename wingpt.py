@@ -148,12 +148,12 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, x0, te_lambdas, qkv, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
-        def prepare():
+        def prepare(x):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
             return x, qkv[self.layer_id], qe_lambdas[self.layer_id], ke_lambdas[self.layer_id]
-        x, qkv_, qe, ke = checkpoint(prepare, use_reentrant=False)
+        x, qkv_, qe, ke = checkpoint(prepare, x, use_reentrant=False)
         x  = x + self.attn(x, qkv_, qe, ke, cu_seqlens, max_seqlen, rotary)
         return x
 
