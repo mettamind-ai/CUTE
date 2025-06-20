@@ -31,7 +31,7 @@ def print0(msg): is_master and print(msg)
 if args.bs is None: # cài đặt mặc định bs cho 4090
     if   args.L:   args.bs = 48
     elif args.M:   args.bs = 64
-    else:          args.bs = 96
+    else:          args.bs = 92
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 680m
