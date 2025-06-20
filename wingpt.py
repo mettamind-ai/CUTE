@@ -185,11 +185,11 @@ class WinGPT(nn.Module):
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        def prepare(embs):
+        def emb_prepare(embs):
             x = x0 = self.tok_mlp(embs[..., : self.tok_dim ]) # thu tok_dim về dim
             v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
-        x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+        x, x0, v_embs = checkpoint(emb_prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
         def prepare(x, i):
             s = self.scalars[i]
