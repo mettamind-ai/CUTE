@@ -40,11 +40,13 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
-    def forward(self, x):
-        y = self.fc1_proj(x)
-        y = F.relu(y).square()
-        z = self.fc2_proj(y)
-        return z
+    def forward(self, x, use_checkpoint=True):
+        def prepare():
+            y = self.fc1_proj(norm(x))
+            return F.relu(y).square()
+        if use_checkpoint: y = checkpoint(prepare, use_reentrant=False)
+        else:              y = prepare()
+        return self.fc2_proj(y)
 
 ##########################
 ## CausalSelfAttention  ##
@@ -145,7 +147,7 @@ class Block(nn.Module):
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         if self.mlp is not None:
-               x = x + self.mlp(checkpoint(norm, x, use_reentrant=False))
+               x = x + self.mlp(x)
         return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
@@ -187,7 +189,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
-            x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
+            x = x0 = self.tok_mlp(embs[..., : self.tok_dim ], use_checkpoint=False) # thu tok_dim về dim
             v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
@@ -218,8 +220,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         re    = (xx + x0) * 0.5 # residual
-        y     = re + model.head2_mlp(norm(xx_x0))
-        xe    = xe + model.head1_mlp(norm(xe))
+        y     = re + model.head2_mlp(xx_x0, use_checkpoint=False)
+        xe    = xe + model.head1_mlp(xe,    use_checkpoint=False)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x), norm(xe)
     y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
