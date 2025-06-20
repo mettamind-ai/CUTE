@@ -121,6 +121,10 @@ class CausalSelfAttention(nn.Module):
             q = qe_lambdas[0] * q + qe_lambdas[1] * q_
             k = ke_lambdas[0] * k + ke_lambdas[1] * k_
 
+            q = q.contiguous().view(T, H,   D)
+            k = k.contiguous().view(T, Hkv, D)
+            v = v.contiguous().view(T, Hkv, D)
+
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
             return q.contiguous(), k.contiguous(), v.contiguous()
