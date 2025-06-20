@@ -106,7 +106,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, qkv_, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
@@ -114,27 +114,20 @@ class CausalSelfAttention(nn.Module):
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
-            q_ = qkv_[..., : self.qo_dim                ]
-            k_ = qkv_[...,   self.qo_dim : -self.kv_dim ]
-            v  = qkv_[...,  -self.kv_dim :              ]
-
-            q = qe_lambdas[0] * q + qe_lambdas[1] * q_
-            k = ke_lambdas[0] * k + ke_lambdas[1] * k_
-
-            q = q.contiguous().view(T, H,   D)
-            k = k.contiguous().view(T, Hkv, D)
-            v = v.contiguous().view(T, Hkv, D)
+            q = q.view(T, H,   D)
+            k = k.view(T, Hkv, D)
+            v = v.view(T, Hkv, D)
 
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
-            return q.contiguous(), k.contiguous(), v.contiguous()
+            return q, k, v
 
         q, k, v = checkpoint(prepare, self.qk_proj(x), use_reentrant=False)
         y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         )
-        y = y.contiguous().reshape(T, H * D)
+        y = y.reshape(T, H * D)
         z = self.o_proj(y)
         return z
 
