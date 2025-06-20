@@ -25,9 +25,9 @@ rank, world_size, is_master = 0, 1, True # 1 GPU
 torch.manual_seed(1981 + rank)
 
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L: args.bs = 48
-    elif args.M: args.bs = 56
-    else:        args.bs = 64
+    if   args.L: args.bs = 32
+    elif args.M: args.bs = 48
+    else:        args.bs = 56
 
 def print0(msg): is_master and print(msg)
 tokens_per_batch = args.bs*1024
