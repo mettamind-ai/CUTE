@@ -81,15 +81,18 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
+m             = model
 lr_schedule   = LRSchedule(args.steps, **args.schedule)
-muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
-scalar_params = [ model.layer_skips, model.te_lambdas ]
+muon_params   = [p for n, p in m.named_parameters() if "proj" in n]
+
 adam_params   = [
-    dict(params=model.embeds.parameters(),   lr=0.1    ), 
-    dict(params=scalar_params,               lr=0.015  ),
-    dict(params=model.unembeds.parameters(), lr=1/300  ), ]
+    dict(params=[*m.embeds.parameters()],       lr=0.1    ), 
+    dict(params=[ m.layer_skips, m.te_lambdas], lr=0.015  ),
+    dict(params=[*m.unembeds.parameters()],     lr=1/300  ),
+]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
 muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.01)
+
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
         group["init_lr"] = group["lr"]
@@ -158,7 +161,7 @@ for step in range(args.steps):  # training loop
         time0 = time.time()
 
     if step % (3*log_interval) == 0:
-        print(torch.cat([model.layer_skips, model.te_lambdas], dim=-1))
+        print(torch.cat([model.te_lambdas], dim=-1))
 
 model.update_async_weight()
 logger.finish()
