@@ -106,7 +106,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
@@ -127,7 +127,7 @@ class CausalSelfAttention(nn.Module):
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         )
-        y = y.reshape(T, H * D)
+        y = y.view(T, H * D)
         z = self.o_proj(y)
         return z
 
@@ -144,14 +144,14 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, x0, te_lambdas, qkv, qe_lambdas, ke_lambdas, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, x0, te_lambdas, v, cu_seqlens, max_seqlen, rotary):
         def prepare(x):
             x = te_lambdas[self.layer_id][0] * x + \
                 te_lambdas[self.layer_id][1] * x0   # trộn với tok emb gốc x0
             if self.mlp is not None: x = x + self.mlp(norm(x))
-            return x, qkv[self.layer_id], qe_lambdas[self.layer_id], ke_lambdas[self.layer_id]
-        x, qkv_, qe, ke = checkpoint(prepare, x, use_reentrant=False)
-        x  = x + self.attn(x, qkv_, qe, ke, cu_seqlens, max_seqlen, rotary)
+            return x
+        x  = checkpoint(prepare, x, use_reentrant=False)
+        x  = x + self.attn(x, v, cu_seqlens, max_seqlen, rotary)
         return x
 
 class WinGPT(nn.Module):
@@ -172,10 +172,8 @@ class WinGPT(nn.Module):
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.qkv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
 
-        self.layer_skips  = nn.Parameter(torch.ones(n_layers))
-        self.te_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.9, 0.1]) for _ in range(n_layers)]).view(-1, 2))
-        self.qe_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
-        self.ke_lambdas   = nn.Parameter(torch.cat([torch.tensor([0.5, 0.5]) for _ in range(n_layers)]).view(-1, 2))
+        self.layer_skips = nn.Parameter(torch.ones(n_layers))
+        self.te_lambdas  = nn.Parameter(torch.cat([torch.tensor([0.8, 0.2]) for _ in range(n_layers)]).view(-1, 2))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -197,14 +195,14 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
             x = x0 = self.tok_mlp(norm(embs[..., : self.tok_dim ])) # thu tok_dim về dim
-            qkv    = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
-            return x, x0, qkv
-        x, x0, qkv = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
+            v      = embs[..., self.tok_dim : ]
+            return x, x0, v
+        x, x0, v = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         
         outputs = []
         for i, blk in enumerate(self.blocks):
             if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, x0, self.te_lambdas, qkv, self.qe_lambdas, self.ke_lambdas, cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, x0, self.te_lambdas, v, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
