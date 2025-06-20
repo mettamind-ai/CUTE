@@ -27,7 +27,7 @@ torch.manual_seed(1981 + rank)
 if args.bs is None: # cài đặt mặc định bs cho 4090
     if   args.L: args.bs = 48
     elif args.M: args.bs = 64
-    elif:        args.bs = 80
+    else:        args.bs = 80
 
 def print0(msg): is_master and print(msg)
 tokens_per_batch = args.bs*1024
