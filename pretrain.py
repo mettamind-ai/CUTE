@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=56)           # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=None)         # 64k tokens/step works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
@@ -40,15 +40,20 @@ batch = get_batch()
 #############################
 ## Init model for pretraining
 #############################
-if  args.L: # (L)arge  ~ 700m
-    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
+if   args.L: # (L)arge  ~ 730m
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=8, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-elif args.M:# (M)edium ~ 480m
+elif args.M: # (M)edium ~ 480m
     model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=8, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-else:       # (S)mall  ~ 240m vram params
+elif args.S: # (S)mall  ~ 240m vram params
     model = WinGPT(dim=1024, n_layers=18, num_heads=16, num_kv_heads=8, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+
+if args.bs is None: # cài đặt mặc định bs cho 4090
+    if   args.L: args.bs = 48
+    elif args.M: args.bs = 64
+    elif args.S: args.bs = 80
 
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 def find_key(s):
@@ -159,9 +164,7 @@ for step in range(args.steps):  # training loop
         logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
                         tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
         time0 = time.time()
-
-    if step % (3*log_interval) == 0:
-        print(model.layer_skips)
+        if step % (10*log_interval) == 0: print(model.layer_skips)
 
 model.update_async_weight()
 logger.finish()

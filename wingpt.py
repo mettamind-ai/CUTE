@@ -16,6 +16,8 @@ torch.set_default_dtype(torch.bfloat16)
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
 
+def residual(x, y): return x + y
+
 @torch.no_grad()
 def init_linear(w: Tensor, scale=1):
     std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better ...
@@ -40,6 +42,7 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
+    @torch.compile()
     def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
@@ -140,14 +143,14 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
-
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_embs, cu_seqlens, max_seqlen, rotary):
-        if self.mlp is not None: x = x + self.mlp(norm(x))
-        x = x + self.attn(x, v_embs[self.layer_id], cu_seqlens, max_seqlen, rotary)
-        return x
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
+        if self.mlp is not None:
+            x = checkpoint(residual, x, self.mlp(checkpoint(norm, x, use_reentrant=False)),  use_reentrant=False)
+        return  checkpoint(residual, x, self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary), use_reentrant=False)
+
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -166,12 +169,10 @@ class WinGPT(nn.Module):
         self.tok_dim = dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
-
-        self.layer_skips = nn.Parameter(torch.ones(n_layers))
-        self.te_lambdas  = nn.Parameter(torch.cat([torch.tensor([0.8, 0.2]) for _ in range(n_layers)]).view(-1, 2))
+        self.lambdas = nn.Parameter(torch.cat([torch.tensor([1.0, 0.2, 0.8, 0.2]) for _ in range(n_layers)]).view(-1, 4))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
-        self.head1_mlp  = ReLuSquareMLP(dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
+        self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
         self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim) # head2 to predict next of next token (MTP)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
@@ -196,8 +197,15 @@ class WinGPT(nn.Module):
         
         outputs = []
         for i, blk in enumerate(self.blocks):
-            if i in self.skip_from: x = x + self.layer_skips[self.skip_from[i]] * outputs[self.skip_from[i]]
-            x = blk(x, v_embs, cu_seqlens, max_seqlen, self.rotary)
+            def prepare(x):
+                lambdas = self.lambdas[i]
+                x = lambdas[0]*x
+                if i in self.skip_from:
+                    x = x + lambdas[1]*outputs[self.skip_from[i]]
+                x = lambdas[2]*x + lambdas[3]*x0
+                return x, v_embs[i]
+            x, v_emb = checkpoint(prepare, x, use_reentrant=False)
+            x = blk(x, v_emb, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
 
