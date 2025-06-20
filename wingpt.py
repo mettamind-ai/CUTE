@@ -193,7 +193,8 @@ class WinGPT(nn.Module):
         
         for i, blk in enumerate(self.blocks):
             x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
-        return x, outputs[self.n_layers//2], x0
+            if i == self.n_layers//2: half = x
+        return x, half, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
