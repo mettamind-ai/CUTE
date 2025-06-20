@@ -24,6 +24,11 @@ args = parser.parse_args()
 rank, world_size, is_master = 0, 1, True # 1 GPU
 torch.manual_seed(1981 + rank)
 
+if args.bs is None: # cài đặt mặc định bs cho 4090
+    if   args.L: args.bs = 48
+    elif args.M: args.bs = 64
+    elif args.S: args.bs = 80
+
 def print0(msg): is_master and print(msg)
 tokens_per_batch = args.bs*1024
 
@@ -49,11 +54,6 @@ elif args.M: # (M)edium ~ 480m
 elif args.S: # (S)mall  ~ 240m vram params
     model = WinGPT(dim=1024, n_layers=18, num_heads=16, num_kv_heads=8, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-
-if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L: args.bs = 48
-    elif args.M: args.bs = 64
-    elif args.S: args.bs = 80
 
 names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
 def find_key(s):
