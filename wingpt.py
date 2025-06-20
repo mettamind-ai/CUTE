@@ -42,7 +42,6 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
-    @torch.compile()
     def forward(self, x):
         y = self.fc1_proj(x)
         y = F.relu(y).square()
@@ -197,14 +196,13 @@ class WinGPT(nn.Module):
         
         outputs = []
         for i, blk in enumerate(self.blocks):
-            def prepare(x):
-                lambdas = self.lambdas[i]
-                x = lambdas[0]*x
+            def prepare(x, i):
+                l = self.lambdas[i]
                 if i in self.skip_from:
-                    x = x + lambdas[1]*outputs[self.skip_from[i]]
-                x = lambdas[2]*x + lambdas[3]*x0
+                    x =      x + l[0]*outputs[self.skip_from[i]]
+                x     = l[1]*x + l[2]*x0
                 return x, v_embs[i]
-            x, v_emb = checkpoint(prepare, x, use_reentrant=False)
+            x, v_emb = checkpoint(prepare, x, i, use_reentrant=False)
             x = blk(x, v_emb, cu_seqlens, max_seqlen, self.rotary)
             outputs.append(x)
         return x, outputs[self.n_layers//2], x0
