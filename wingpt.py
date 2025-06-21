@@ -121,14 +121,14 @@ class CausalSelfAttention(nn.Module):
 
             q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
-
-            y = flash_attn_varlen_func(q, k, v,
-                cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-                dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-            )
-            return y.view(T, H * D)
-
-        y = checkpoint(prepare, self.qk_proj(x), v_emb, use_reentrant=False)
+            return q, k, v
+    
+        q, k, v = checkpoint(prepare, self.qk_proj(x), v_emb, use_reentrant=False)
+        y = flash_attn_varlen_func(q, k, v,
+            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
+            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        )
+        return y.view(T, H * D)
         z = self.o_proj(y)
         return z
 
