@@ -35,11 +35,11 @@ if args.bs is None: # cài đặt mặc định bs cho 4090
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 680m
-    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=8, head_dim=128,
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 elif args.M: # (M)edium ~ 480m => siêu tham số ~= qwen 0.6b
-    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=8, head_dim=128,
+    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 else:        # (S)mall  ~ 250m vram params
