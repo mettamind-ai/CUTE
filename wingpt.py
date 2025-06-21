@@ -144,9 +144,9 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, s): # sử dụng parallel transformer
         if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else:return s[0]*x + s[1]*self.mlp(x) + s[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
@@ -166,6 +166,8 @@ class WinGPT(nn.Module):
         self.tok_dim = dim
         self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
+
+        self.scalars = nn.Parameter(torch.cat([torch.tensor([1.0, 1.0, 1.0])]*n_layers).view(-1, 3))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
         self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -187,9 +189,9 @@ class WinGPT(nn.Module):
             v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
-        # print(">>> emb", x.shape) # DEBUG
+        # print(">>> scalars", self.scalars, self.scalars.shape) # DEBUG
         for i, blk in enumerate(self.blocks):
-            x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
+            x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
             if i == self.n_layers//2: xe = x # early exit
         return x, xe, x0
 
@@ -239,8 +241,8 @@ if __name__ == "__main__":
     seed = 1981
     seq_len = 256
     vocab_size = 32*1024
-    dim, n_layers = 1028, 8
-    num_heads, num_kv_heads = 16, 4
+    dim, n_layers = 128, 8
+    num_heads, num_kv_heads = 4, 1
     print(f"win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)

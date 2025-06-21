@@ -29,13 +29,13 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs = 32#k tok / batch
-    elif args.M:   args.bs = 48#k tok / batch
+    if   args.L:   args.bs = 48#k tok / batch => 36k tok/s; 22.9G vram
+    elif args.M:   args.bs = 48#k tok / batch => 54k tok/s; 21.6G vram
     else:          args.bs = 96#k tok / batch => 88k tok/s; 22.6G vram
 tokens_per_batch = args.bs*1024
 
-if   args.L: # (L)arge  ~ 680m
-    model = WinGPT(dim=2048, n_layers=12, num_heads=16, num_kv_heads=8, head_dim=128,
+if   args.L: # (L)arge  ~ 720m
+    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=8, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 elif args.M: # (M)edium ~ 405m => siêu tham số ~= qwen 0.6b
@@ -94,7 +94,8 @@ lr_schedule   = LRSchedule(args.steps, **args.schedule)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=[*model.embeds.parameters() ],  lr=0.1   ), 
+    dict(params=[*model.embeds.parameters()  ], lr=0.1   ), 
+    dict(params=[ model.scalars              ], lr=0.015 ), 
     dict(params=[*model.unembeds.parameters()], lr=1/300 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
@@ -171,6 +172,7 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
+        if step % (5*log_interval): print(model.scalars)
 
 model.update_async_weight()
 logger.finish()

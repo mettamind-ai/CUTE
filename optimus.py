@@ -219,6 +219,15 @@ class FusedCE(torch.autograd.Function):
 ##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
+# _cfgs = [ 
+#     triton.Config({'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'GROUP_SIZE_M': 8}, num_stages=s, num_warps=w)
+#     for m in [32, 64, 128] for k in [32, 64] for s in [2, 3, 4] for w in [4, 8]
+# ]
+# _grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(M, META['BLOCK_SIZE_M']), )
+# @triton.autotune(configs=_cfgs, key=['M', 'K', 'stride_xk'])
+# @triton.jit
+# def mmt_kernel(
+
 
 @torch.compile()
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
