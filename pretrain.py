@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=None)         # 64k tokens/batch works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
-parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
+parser.add_argument("--ohmai", type=int, default=2304)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
 parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
 for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
@@ -29,9 +29,9 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs = 56#k tok / batch
-    elif args.M:   args.bs = 80#k tok / batch
-    else:          args.bs = 96#k tok / batch => 98k tok/s; 22.4G vram
+    if   args.L:   args.bs =  64#k tok / batch
+    elif args.M:   args.bs =  96#k tok / batch
+    else:          args.bs = 112#k tok / batch => 98k tok/s; 22.4G vram
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 680m
