@@ -300,23 +300,21 @@ def mmt_kernel(
         resultT = tl.permute(result, (1,0))
         tl.store(trans_ptrs, resultT, mask=trans_mask)
 
-
 # _grid = lambda META: (triton.cdiv(META['M'], META['BLOCK_SIZE_M']) * triton.cdiv(META['M'], META['BLOCK_SIZE_M']), )
-lib.define("mmt(Tensor x) -> Tensor")
-def mmt(x: Tensor) -> Tensor:
-    return lib_ops.mmt(x)
+# lib.define("mmt(Tensor x) -> Tensor")
+# def mmt(x: Tensor) -> Tensor:
+#     return lib_ops.mmt(x)
 
-@torch.library.impl(lib, "scaled_mm", "Meta")
-def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None):
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=dtype)
+# @torch.library.impl(lib, "scaled_mm", "Meta")
+# def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None):
+#     return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=dtype)
 
-@torch.library.impl(lib, "scaled_mm", "CUDA")
-def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None):
-    M, K = A.shape; _, N = B.shape
-    C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
-    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
-    return C
-
+# @torch.library.impl(lib, "scaled_mm", "CUDA")
+# def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None):
+#     M, K = A.shape; _, N = B.shape
+#     C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
+#     _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
+#     return C
 
 
 @torch.compile()
