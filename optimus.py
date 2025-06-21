@@ -219,14 +219,104 @@ class FusedCE(torch.autograd.Function):
 ##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
-# _cfgs = [ 
-#     triton.Config({'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'GROUP_SIZE_M': 8}, num_stages=s, num_warps=w)
-#     for m in [32, 64, 128] for k in [32, 64] for s in [2, 3, 4] for w in [4, 8]
-# ]
-# _grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(M, META['BLOCK_SIZE_M']), )
-# @triton.autotune(configs=_cfgs, key=['M', 'K', 'stride_xk'])
-# @triton.jit
-# def mmt_kernel(
+_cfgs = [ 
+    triton.Config({'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'GROUP_SIZE_M': 8}, num_stages=s, num_warps=w)
+    for m in [32, 64, 128, 256] for k in [32, 64, 128] for s in [2, 3, 4] for w in [4, 8]
+]
+@triton.autotune(configs=_cfgs, key=['M', 'K', 'stride_xk'])
+@triton.jit
+def mmt_kernel(
+    x, y, M, K,  # input: x[M, K], output: y[M, M]
+    stride_xm, stride_xk,
+    stride_ym, stride_yn,
+    BLOCK_SIZE_M: tl.constexpr,
+    BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE_M: tl.constexpr,  # số blocks trong một group
+):
+    pid = tl.program_id(axis=0)
+
+    # Tính số lượng và vị trí của blocks
+    blks_per_row = tl.cdiv(M, BLOCK_SIZE_M)               
+    total_blks_per_group = GROUP_SIZE_M * blks_per_row  
+    current_group = pid // total_blks_per_group           
+
+    # Tính vị trí block trong group
+    first_blk_in_group = current_group * GROUP_SIZE_M                              
+    blks_in_this_group = min(blks_per_row - first_blk_in_group, GROUP_SIZE_M)  
+
+    # Tính tọa độ block (hàng, cột)
+    blk_row = first_blk_in_group + ((pid % total_blks_per_group) % blks_in_this_group)
+    blk_col = (pid % total_blks_per_group) // blks_in_this_group
+
+    # Chỉ tính nửa trên của ma trận (vì đối xứng)
+    if blk_row > blk_col: 
+        return
+
+    # Tính offset cho truy cập ma trận
+    row_indices = (blk_row * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
+    col_indices = (blk_col * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
+    k_indices = tl.arange(0, BLOCK_SIZE_K)
+
+    # Tính địa chỉ cho các phần tử của ma trận
+    row_ptrs = x + (row_indices[:, None] * stride_xm + k_indices[None, :] * stride_xk)
+    col_ptrs = x + (col_indices[:, None] * stride_xm + k_indices[None, :] * stride_xk)
+
+    # Khởi tạo ma trận kết quả
+    result = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_M), dtype=tl.float32)
+
+    # Thực hiện phép nhân ma trận theo từng block
+    for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
+        # Load dữ liệu từ ma trận x
+        mask = k_indices[None, :] < K - k * BLOCK_SIZE_K
+        blk_a = tl.load(row_ptrs, mask=mask, other=0.0)
+        blk_b = tl.load(col_ptrs, mask=mask, other=0.0)
+        
+        # Nhân ma trận và cộng vào kết quả
+        blk_bT = tl.permute(blk_b, (1, 0))
+        result = tl.dot(blk_a, blk_bT, result)
+        
+        # Cập nhật con trỏ cho block tiếp theo
+        row_ptrs += BLOCK_SIZE_K * stride_xk
+        col_ptrs += BLOCK_SIZE_K * stride_xk
+
+    # Chuyển kết quả về đúng kiểu dữ liệu
+    result = result.to(x.dtype.element_ty)
+
+    # Tính vị trí lưu kết quả
+    out_row_indices = blk_row * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    out_col_indices = blk_col * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    
+    # Con trỏ đến vị trí lưu kết quả
+    result_ptrs = y + stride_ym * out_row_indices[:, None] + stride_yn * out_col_indices[None, :]
+    result_mask = (out_row_indices[:, None] < M) & (out_col_indices[None, :] < M)
+    
+    # Lưu kết quả
+    tl.store(result_ptrs, result, mask=result_mask)
+
+    # Lưu phần đối xứng (transpose)
+    if blk_row < blk_col:
+        trans_ptrs = y + stride_ym * out_col_indices[:, None] + stride_yn * out_row_indices[None, :]
+        trans_mask = (out_col_indices[:, None] < M) & (out_row_indices[None, :] < M)
+        resultT = tl.permute(result, (1,0))
+        tl.store(trans_ptrs, resultT, mask=trans_mask)
+
+
+# _grid = lambda META: (triton.cdiv(META['M'], META['BLOCK_SIZE_M']) * triton.cdiv(META['M'], META['BLOCK_SIZE_M']), )
+lib.define("mmt(Tensor x) -> Tensor")
+def mmt(x: Tensor) -> Tensor:
+    return lib_ops.mmt(x)
+
+@torch.library.impl(lib, "scaled_mm", "Meta")
+def _(A: Tensor, B: Tensor, scale_A: Tensor, scale_B: Tensor, dtype=None):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=dtype)
+
+@torch.library.impl(lib, "scaled_mm", "CUDA")
+def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None):
+    M, K = A.shape; _, N = B.shape
+    C = torch.empty(M, N, device=A.device, dtype=( row_scale_A.dtype if dtype is None else dtype ))
+    _scaled_mm_kernel[_grid](A, B, C, row_scale_A, col_scale_B, M, N, K, *A.stride(), *B.stride(), *C.stride(),)
+    return C
+
 
 
 @torch.compile()

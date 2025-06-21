@@ -172,7 +172,7 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
-        if step % (5*log_interval): print(model.scalars)
+        if step % (10*log_interval): print(model.scalars)
 
 model.update_async_weight()
 logger.finish()
