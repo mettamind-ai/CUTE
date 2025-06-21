@@ -128,7 +128,7 @@ class CausalSelfAttention(nn.Module):
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         )
-        return y.view(T, H * D)
+        y = y.view(T, H * D)
         z = self.o_proj(y)
         return z
 
@@ -187,7 +187,7 @@ class WinGPT(nn.Module):
             v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
-        
+        # print(">>> emb", x.shape) # DEBUG
         for i, blk in enumerate(self.blocks):
             x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
             if i == self.n_layers//2: xe = x # early exit
@@ -239,8 +239,8 @@ if __name__ == "__main__":
     seed = 1981
     seq_len = 256
     vocab_size = 32*1024
-    dim, n_layers = 128, 8
-    num_heads, num_kv_heads = 16, 1
+    dim, n_layers = 1028, 8
+    num_heads, num_kv_heads = 16, 4
     print(f"win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)

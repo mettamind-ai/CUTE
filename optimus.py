@@ -219,6 +219,7 @@ class FusedCE(torch.autograd.Function):
 ##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
+
 @torch.compile()
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
