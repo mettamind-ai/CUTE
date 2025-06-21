@@ -145,9 +145,9 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        if self.mlp is None: return x + 2*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        # else:  return x + self.mlp(x) + 2*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else:  return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else: return  x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        # else:  return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
