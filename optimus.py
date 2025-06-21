@@ -320,9 +320,10 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên
     Y = torch.empty((M, M), device=X.device, dtype=X.dtype)
     Z = torch.empty((M, M), device=X.device, dtype=X.dtype)
     for _ in range(5):
+        X = X.contiguous()          # trước khi xài mmt phải contiguous
         mmt(X, Y)
         mmt(Y, Z)
-        X = a*X + (b*Y + c*Z) @ X
+        X = a*X + (b*Y + c*Z) @ X   # vì bước này làm X mất contiguous
     return X.mT if need_invert else X
 '''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
