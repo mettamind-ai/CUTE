@@ -122,8 +122,6 @@ logger = wandb.init(dir="/tmp", config=args,)
 eot = 6399 if args.vocab < 32000 else 31999
 
 started_at = time.time()
-pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
-
 for step in range(args.steps):  # training loop
 
     tokens, targets = batch[:-1], batch[1:]
@@ -155,8 +153,11 @@ for step in range(args.steps):  # training loop
     muon_optim.step()
     adam_optim.step()
     model.zero_grad(set_to_none=True)
- 
-    if   step == 1:
+    
+    if   step == 0:
+        time0 = time.time() # cần time0 asap để tính tokens_per_second
+        pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
+    elif step == 1:
         print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time1 = time.time()
     elif step == 2:
