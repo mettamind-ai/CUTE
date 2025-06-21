@@ -300,25 +300,15 @@ def mmt_kernel(
         resultT = tl.permute(result, (1,0))
         tl.store(trans_ptrs, resultT, mask=trans_mask)
 
-lib.define("mmt(Tensor x) -> Tensor")
-def mmt(x: Tensor) -> Tensor:
-    return lib_ops.mmt(x)
 
-@torch.library.impl(lib, "mmt", "Meta")
-def _(x: Tensor):
-    return torch.empty((x.shape[0], x.shape[0]), device=x.device, dtype=x.dtype)
-
-@torch.library.impl(lib, "mmt", "CUDA")
-def _(x: Tensor):
+def mmt(x: Tensor, y: Tensor):
     M, K = x.shape
-    y = torch.empty((M, M), device=x.device, dtype=x.dtype)
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(M, META['BLOCK_SIZE_M']), )
     mmt_kernel[grid](
         x, y, M, K,
         x.stride(0), x.stride(1),
         y.stride(0), y.stride(1)
     )
-    return y
 
 @torch.compile()
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên bản need4speed
@@ -326,10 +316,13 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên
     if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
     a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
+    M = X.shape[0]
+    Y = torch.empty((M, M), device=X.device, dtype=X.dtype)
+    Z = torch.empty((M, M), device=X.device, dtype=X.dtype)
     for _ in range(5):
-        Y = mmt(X)
-        Z = b*Y + c*mmt(Y)
-        X = a*X + Z @ X
+        mmt(X, Y)
+        mmt(Y, Z)
+        X = a*X + (b*Y + c*Z) @ X
     return X.mT if need_invert else X
 '''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
@@ -357,14 +350,13 @@ class Muon1GPU(torch.optim.Optimizer):
 
                 g, st = p.grad, self.state[p]               # lấy gradient và optim state và ...
                 if 'mm' not in st:                          # ... khởi tạo momentum nếu chưa có
-                    st['mm'] = \
-                        torch.zeros_like(g, dtype=g.dtype)
+                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
 
                 st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
 
                 assert g.dim() == 2, "Muon only supports 2D weight matrices"
-                g = zeropower_newtonschulz5(g)              # Trực giao hoá g
+                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao hoá g
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])         # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
