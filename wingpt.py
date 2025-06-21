@@ -146,8 +146,8 @@ class Block(nn.Module):
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
         if self.mlp is None: return x + 2*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else:  return x + self.mlp(x) + 2*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        #else: return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        # else:  return x + self.mlp(x) + 2*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else:  return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):

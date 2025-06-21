@@ -42,7 +42,7 @@ elif args.M: # (M)edium ~ 405m => siêu tham số ~= qwen 0.6b
     model = WinGPT(dim=1024, n_layers=25, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
-else:        # (S)mall  ~ 250m vram params
+else:        # (S)mall  ~ 250m active params
     model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
@@ -172,7 +172,7 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
-        if step % (10*log_interval): print(model.scalars)
+        if step % (10*log_interval) == 0: print(model.scalars)
 
 model.update_async_weight()
 logger.finish()
