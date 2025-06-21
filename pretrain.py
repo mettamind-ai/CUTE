@@ -29,17 +29,17 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs = 48#k tok / batch
-    elif args.M:   args.bs = 64#k tok / batch
+    if   args.L:   args.bs = 32#k tok / batch
+    elif args.M:   args.bs = 48#k tok / batch
     else:          args.bs = 96#k tok / batch => 88k tok/s; 22.6G vram
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 680m
-    model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
+    model = WinGPT(dim=2048, n_layers=12, num_heads=16, num_kv_heads=8, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
-elif args.M: # (M)edium ~ 480m => siêu tham số ~= qwen 0.6b
-    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=128,
+elif args.M: # (M)edium ~ 405m => siêu tham số ~= qwen 0.6b
+    model = WinGPT(dim=1024, n_layers=25, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 else:        # (S)mall  ~ 250m vram params
