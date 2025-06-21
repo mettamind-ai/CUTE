@@ -144,9 +144,9 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
-        if self.mlp is not None: x = x + self.mlp(x)
-        return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
+        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
