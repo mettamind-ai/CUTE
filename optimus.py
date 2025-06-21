@@ -360,7 +360,7 @@ def mmt_kernel_(
         
         # Nhân ma trận và cộng vào kết quả
         blk_bT  = tl.permute(blk_b, (1, 0))
-        result += 2.0315 * tl.dot(blk_a, blk_bT)
+        result  = tl.dot(blk_a, blk_bT, result)
 
         # Cập nhật con trỏ cho block tiếp theo
         row_ptrs += BLOCK_SIZE_K * stride_xk
@@ -371,12 +371,15 @@ def mmt_kernel_(
     out_col_indices = blk_col * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     
     # Con trỏ đến vị trí lưu kết quả
-    result_ptrs = y + stride_ym * out_row_indices[:, None] + stride_yn * out_col_indices[None, :]
-    result_mask = (out_row_indices[:, None] < M) & (out_col_indices[None, :] < M)
-    # -4.7750*Y + 
+    mask = (out_row_indices[:, None] < M) & (out_col_indices[None, :] < M)
+
+    inp_ptrs = x + stride_ym * out_row_indices[:, None] + stride_yn * out_col_indices[None, :]
+    inp = tl.load(inp_ptrs, mask=mask, other=0.0)
+    result = -4.7750 * inp + 2.0315 * result  # b * Y + c * Z
 
     # Lưu kết quả
-    tl.store(result_ptrs, result, mask=result_mask)
+    result_ptrs = y + stride_ym * out_row_indices[:, None] + stride_yn * out_col_indices[None, :]
+    tl.store(result_ptrs, result, mask=mask)
 
     # Lưu phần đối xứng (transpose)
     if blk_row < blk_col:
@@ -406,7 +409,7 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên
     for _ in range(5):
         X = X.contiguous()
         mmt(X, Y); mmt_(Y, Z)
-        X = 3.4445*X + (-4.7750*Y + Z) @ X
+        X = 3.4445*X + Z @ X
     return X.mT if need_invert else X
 '''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
