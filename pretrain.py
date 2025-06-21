@@ -122,6 +122,8 @@ logger = wandb.init(dir="/tmp", config=args,)
 eot = 6399 if args.vocab < 32000 else 31999
 
 started_at = time.time()
+pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
+
 for step in range(args.steps):  # training loop
 
     tokens, targets = batch[:-1], batch[1:]
@@ -154,17 +156,20 @@ for step in range(args.steps):  # training loop
     adam_optim.step()
     model.zero_grad(set_to_none=True)
  
-    if step == 0:            # sau khi compile và chạy model forward & backward 1 lần ...
-        time0 = time.time()  # ... thì mới record time0 và khởi tạo pbar 
-        pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
-    elif step == 1:
+    if   step == 1:
         print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
-        time0 -= time.time() - time0 # điều chỉnh lại time0
+        time1 = time.time()
+    elif step == 2:
+        step_time = time.time() - time1
+        time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
     pbar.update()
 
     if step % log_interval == 0:
-        logger.log(dict(max_memory_allocated=torch.cuda.max_memory_allocated(), num_tokens_seen_millions=tokens_per_batch*step,
-                        tokens_per_second=tokens_per_batch*log_interval / (time.time() - time0),), step=step)
+        logger.log(dict(
+            max_memory_allocated     = torch.cuda.max_memory_allocated(), 
+            num_tokens_seen_millions = tokens_per_batch*step,
+            tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
+        ), step=step)
 
 model.update_async_weight()
 logger.finish()

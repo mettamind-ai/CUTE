@@ -168,15 +168,12 @@ class WinGPT(nn.Module):
         self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
-        self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
-        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim) # head2 to predict next of next token (MTP)
+        self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
+        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # head2 to predict next of next token (MTP)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.unembeds.weight.zero_()
-
-        self.skip_from = { (n_layers-i): i for i in range(2, (n_layers-1) // 2, 2) }
-        print("WinGPT.skip_from", self.skip_from)
 
 
     def update_async_weight(self):
@@ -208,9 +205,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        re    = (xx + x0) * 0.5 # residual
-        y     = re + model.head2_mlp(xx_x0)
-        xe    = xe + model.head1_mlp(xe)
+        y     = model.head2_mlp(xx_x0)
+        xe    = model.head1_mlp(xe)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x), norm(xe)
     y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
