@@ -38,7 +38,7 @@ if   args.L: # (L)arge  ~ 720m
     model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=8, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
-elif args.M: # (M)edium ~ 405m => siêu tham số ~= qwen 0.6b
+elif args.M: # (M)edium ~ 405m với cấu hình gần tương đương qwen 0.6b
     model = WinGPT(dim=1024, n_layers=25, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 

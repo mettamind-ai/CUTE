@@ -306,7 +306,7 @@ def mmt(x: Tensor) -> Tensor:
 
 @torch.library.impl(lib, "mmt", "Meta")
 def _(x: Tensor):
-    return torch.empty((x.shape[0], x.shape[0]), device=A.device, dtype=dtype)
+    return torch.empty((x.shape[0], x.shape[0]), device=x.device, dtype=x.dtype)
 
 @torch.library.impl(lib, "mmt", "CUDA")
 def _(x: Tensor):
@@ -314,16 +314,24 @@ def _(x: Tensor):
     y = torch.empty((M, M), device=x.device, dtype=x.dtype)
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(M, META['BLOCK_SIZE_M']), )
     mmt_kernel[grid](
-        x, y,
-        M, K,
-        x.stride(0), 
-        x.stride(1),
-        y.stride(0), 
-        y.stride(1)
+        x, y, M, K,
+        x.stride(0), x.stride(1),
+        y.stride(0), y.stride(1)
     )
-
+    return y
 
 @torch.compile()
+def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên bản need4speed
+    need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
+    if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
+    X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
+    a, b, c = ( 3.4445, -4.7750, 2.0315 )       # Hằng số tối ưu hóa cho NS iteration, tối ưu sau 5 iters
+    for _ in range(5):
+        Y = mmt(X)
+        Z = b*Y + c*mmt(Y)
+        X = a*X + Z @ X
+    return X.mT if need_invert else X
+'''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
     if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
@@ -335,7 +343,7 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa l
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ? ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
     return X.mT if need_invert else X
-
+# '''
 class Muon1GPU(torch.optim.Optimizer):
     def __init__(self, params, lr=0.025, weight_decay=0.008, momentum=0.95, **args):
         super().__init__(list(params), dict(lr=lr, wd=weight_decay, mm=momentum))
@@ -349,13 +357,14 @@ class Muon1GPU(torch.optim.Optimizer):
 
                 g, st = p.grad, self.state[p]               # lấy gradient và optim state và ...
                 if 'mm' not in st:                          # ... khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16) # bfloat16 là đủ cho muon
+                    st['mm'] = \
+                        torch.zeros_like(g, dtype=g.dtype)
 
                 st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
                 g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
 
                 assert g.dim() == 2, "Muon only supports 2D weight matrices"
-                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao hoá g, bfloat16 to speedup matmul
+                g = zeropower_newtonschulz5(g)              # Trực giao hoá g
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd'])         # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
