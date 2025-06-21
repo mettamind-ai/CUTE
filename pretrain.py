@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=None)         # 64k tokens/batch works best in most cases
-parser.add_argument("--steps", type=int, default=1000)
+parser.add_argument("--steps", type=int, default=500)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2304)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
