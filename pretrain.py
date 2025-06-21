@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs", type=int, default=None)         # 64k tokens/step works best in most cases
+parser.add_argument("--bs", type=int, default=None)         # 64k tokens/batch works best in most cases
 parser.add_argument("--steps", type=int, default=1000)
 parser.add_argument("--vocab", type=int, default=6400)      # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
 parser.add_argument("--ohmai", type=int, default=2048)      # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
@@ -29,17 +29,17 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs = 48
-    elif args.M:   args.bs = 72
-    else:          args.bs = 88
+    if   args.L:   args.bs = 56#k tok / batch
+    elif args.M:   args.bs = 80#k tok / batch
+    else:          args.bs = 96#k tok / batch => 98k tok/s; 22.4G vram
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 680m
     model = WinGPT(dim=2048, n_layers=14, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
-elif args.M: # (M)edium ~ 460m
-    model = WinGPT(dim=2048, n_layers=10, num_heads=16, num_kv_heads=4, head_dim=64,
+elif args.M: # (M)edium ~ 420m => siêu tham số ~= qwen 0.6b
+    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 else:        # (S)mall  ~ 250m vram params
