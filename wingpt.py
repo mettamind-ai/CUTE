@@ -23,7 +23,7 @@ def init_linear(w: Tensor, scale=1):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, zero_out=True):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=2, zero_out=True):
         super().__init__()
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
@@ -36,14 +36,15 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
 
         with torch.no_grad():
-            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
         def prepare(x):
-            x = self.fc1_proj(norm(x))
-            return F.relu(x).square()
+            x = norm(x)
+            x, gate = self.fc1_proj(x).chunk(2, dim=-1)
+            return F.relu(y).square() * gate
         x = checkpoint(prepare, x, use_reentrant=False)
         return self.fc2_proj(x)
 
@@ -141,13 +142,12 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if self.layer_id != 0 else None
+        self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else: return  x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        # else:  return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
@@ -164,10 +164,7 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
         
-        self.tok_dim = dim
-        self.embeds  = Embedding(vocab_size, self.tok_dim + self.kv_dim*n_layers, active_vocab)
-        self.tok_mlp = ReLuSquareMLP(self.tok_dim, hdim=2*self.tok_dim, odim=dim, zero_out=False)
-
+        self.embeds  = Embedding(vocab_size, dim + self.kv_dim*n_layers, active_vocab)
         self.scalars = nn.Parameter(torch.cat([torch.tensor([1.0, 1.0, 1.0])]*n_layers).view(-1, 3))
 
         ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
@@ -186,8 +183,8 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare(embs):
-            x = x0 = self.tok_mlp(embs[..., : self.tok_dim ]) # thu tok_dim về dim
-            v_embs = list(embs[..., self.tok_dim : ].chunk(self.n_layers, dim=-1))
+            x = x0 = embs[..., : self.dim]
+            v_embs = list(embs[..., self.dim : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
         # print(">>> scalars", self.scalars, self.scalars.shape) # DEBUG
