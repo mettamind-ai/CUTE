@@ -229,10 +229,10 @@ def mmt_kernel(
     x, y, M, K,  # input: x[M, K], output: y[M, M]
     stride_xm, stride_xk,
     stride_ym, stride_yn,
+    second_step,
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr,  # số blocks trong một group
-    second_step,
 ):
     pid = tl.program_id(axis=0)
 
