@@ -138,15 +138,16 @@ class CausalSelfAttention(nn.Module):
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id=0):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim)
+        self.mlp = ReLuSquareMLP(dim) if layer_id < n_layers - 1 else None  # bỏ MLP ở layer cuối
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
         # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
@@ -160,7 +161,7 @@ class WinGPT(nn.Module):
         print(f"Using {Embedding.__name__} and {Unembedding.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id=i) for i in range(n_layers) ]
+        blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, i, n_layers) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
         
