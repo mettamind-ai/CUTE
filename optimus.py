@@ -326,7 +326,7 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên
         mmt(Y, Z, True)         # Z = b * Y + c * Y @ Y
         X = 3.4445 * X + Z @ X  # X = a * X + (b * Y + c * Y @ Y) @ X
     return X.mT if need_invert else X
-'''
+# '''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
     if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
