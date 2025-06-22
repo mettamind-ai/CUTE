@@ -142,7 +142,7 @@ class Block(nn.Module):
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
         self.mlp_expansion = layer_id % 3
-        self.mlp = ReLuSquareMLP(dim, expansion_factor=self.mlp_expansion*2 if self.mlp_expansion != 0 else None
+        self.mlp = ReLuSquareMLP(dim, expansion_factor=self.mlp_expansion*2) if self.mlp_expansion != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
