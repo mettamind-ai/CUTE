@@ -49,7 +49,7 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-# 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Flex Text Token/Super Token + Multi-Modals + Đa Mục Tiêu Học?
+# 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Flex TKNZ/Super Token + Multi-Modals + Đa Mục Tiêu Học?
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
@@ -72,7 +72,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
     Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
 
-- LINH TOK (flexible tokenization & token usage)
+- LLM-BASED TOK (flexible tokenization & token usage)
   - Token được TỰ DO LỰA CHỌN:
     - cách nó attn (chính là query trong self-attn)
     - cách nó chọn số computing / hidden dim để biểu diễn chính nó (MoE)
@@ -114,5 +114,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 
-- [ ] fast inference
+- [ ] fast inference + TTT Done Right?
   - https://scalingintelligence.stanford.edu/blogs/tokasaurus
+  - https://hazyresearch.stanford.edu/blog/2025-06-08-cartridges

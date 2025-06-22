@@ -300,12 +300,6 @@ Bài báo cho thấy TTT-Linear ĐẠT HIỆU SUẤT TƯƠNG ĐƯƠNG TRANSFORME
 
 ---
 
-Learning to (Learn at Test Time)
---------------------------------
-https://www.alphaxiv.org/abs/2407.04620
-
----
-
 TTT DONE RIGHT
 --------------
 - https://www.alphaxiv.org/abs/2505.23884
@@ -316,12 +310,138 @@ TTT DONE RIGHT
 ![](https://pbs.twimg.com/media/GuBGLtSXIAA6SQ9?format=jpg)
 ![](https://pbs.twimg.com/media/GuBHkvNWIAEMXWr?format=jpg)
 
+Tác giả giải thích TTT nói chung dưới sự diễn đạt của attn để sử dụng 1 ngôn ngữ chung (có thể dễ hiểu cho nhiều người vì transformers đã quá phổ biến).
+
+**Chuỗi đầu vào:**
+Chuỗi x gồm các token x₁, x₂,..., xₜ, mỗi token là vector d chiều. Đây là dữ liệu text đã được mã hóa thành số mà mô hình sẽ xử lý.
+
+**Tách thành Q, K, V:**
+Mỗi token xᵢ được biến đổi thành ba phần - query (q), key (k), và value (v).
+
+**Fast weight function fw(.):**
+Đây là hàm ánh xạ từ Rᵈ sang Rᵈ với tham số `w`. Hàm này chính là **"mô hình nhỏ" mà TTT liên tục cập nhật**. Nó có thể đơn giản như hàm tuyến tính hoặc phức tạp như MLP hay Transformer.
+
+**`w` như bộ nhớ thích ứng:**
+Tham số `w` đóng vai trò như "bộ nhớ" của hệ thống. Nó được cập nhật liên tục khi xử lý chuỗi, lưu trữ thông tin từ các token đã thấy. Đây là điểm khác biệt chính với Transformer thông thường.
+
+**cập nhật tham số:** `W = W - delta_W L(f_W(k), v)`, the loss is function between value `v` and `f_w(k)` => KEY-VALUE RECONSTRUCTION LOSS!
+
 |![](https://pbs.twimg.com/media/GuBIc64XcAADFXx?format=jpg)|![](https://pbs.twimg.com/media/GuBJZX6WcAA3XEu?format=jpg)|
 |-|-|
-|![]()|![]()|
-|![]()|![]()|
-|![]()|![]()|
 
+**Giới thiệu về Memory Module:**
+
+- **Giả sử bạn có KV cache** - có thể bạn muốn đọc một cuốn sách và KV cache này là "sách KV cache". Điều bạn làm là mỗi token sẽ được tách thành key và value - đó là ký hiệu của attention. Bạn có key và value tương ứng được ghép cặp.
+
+- **Điều bạn muốn làm** là nén cặp key-value, nén các liên kết key-value vào memory module. Ở đây bạn không cần nghĩ memory module là gì - chúng ta sẽ nói về điều đó sau. Bạn chỉ muốn nén cặp key-value vào memory module này.
+
+- **Khi token mới đến** - khi bạn muốn trả lời câu hỏi trong tương lai, khi token tương lai nào đó đến, query token này sẽ không attend trực tiếp với K và V, nó sẽ attend với memory module và nhận output.
+
+
+**Framework này có hai thao tác cơ bản:**
+
+1. **Memory Update** - Bạn muốn cập nhật memory module để lưu trữ thông tin quá khứ
+
+2. **Memory Query** - Khi token mới đến, bạn không chỉ cập nhật memory mà còn muốn truy vấn memory để lấy output
+
+**Tôi nghĩ Test-Time Training đưa ra cách đơn giản hoặc có nguyên tắc để định nghĩa các thao tác memory update và memory query mới.**
+
+
+**Ký hiệu và Định nghĩa:**
+
+Giả sử bạn muốn xử lý một chuỗi token gồm n token. Mỗi token x₁, x₂, xᵢ là vector d chiều. Giả sử nó là causal theo thời gian.
+
+Theo ký hiệu của attention, bạn muốn tách mỗi token x thành query, key, value - chúng được ghép cặp.
+
+**Test-Time Training giới thiệu ký hiệu mới:** Bạn muốn điều chỉnh một phần mô hình với test. Những trọng số này thường được gọi là **fast weight** - thường là một phần của mạng nơ-ron, có thể là một lớp hoặc một MLP riêng biệt bên trong mạng.
+
+Chúng ta thường gọi nó là **fast function** hay **fast weight function**. Fast function này có thể là linear layer hoặc MLP layer - chỉ là một hàm có tham số. Tham số là W, nhận đầu vào d chiều và xuất ra vector d chiều khác.
+
+**Trọng số W của fast weight chỉ được điều chỉnh trong chuỗi hiện tại.** Chúng ta sẽ điều chỉnh trọng số này cho chuỗi đầu vào X, và trọng số đã điều chỉnh sẽ lưu trữ bộ nhớ của chuỗi đầu vào.
+
+Fast weight này có thể là bất cứ thứ gì - có thể là mạng tuyến tính, MLP, hoặc thậm chí transformer nếu bạn muốn.
+
+---
+
+**Test-Time Training định nghĩa:**
+
+**Memory Update như online gradient descent dưới các mục tiêu nhất định.** Bạn muốn điều chỉnh fast weight W thông qua gradient descent, và gradient descent cố gắng tối thiểu hóa hàm loss L.
+
+Hàm loss L là hàm giữa value và f(K). Phần lớn công trình dùng ký hiệu này - loss được định nghĩa trên K và V.
+
+**Hàm loss phổ biến là key-value associations:**
+- L có thể là dot product âm giữa f(K) và V
+- Hoặc L2 loss giữa f(K) và V
+
+Tất cả những loss này được gọi là **key-value association loss** hoặc **key-value reconstruction loss**. Ý nghĩa là bạn muốn buộc mô hình (fast weight function) ghi nhớ ánh xạ từ K sang V - về cơ bản là ghi nhớ liên kết giữa key và value.
+
+
+## Test-Time Training mở ra không gian thiết kế rộng lớn
+
+Framework TTT tạo ra một không gian thiết kế cực kỳ phong phú - đây là một trong những đóng góp quan trọng nhất của bài báo TTT.
+
+### Các chiều không gian thiết kế:
+
+**1. Fast Function (Hàm nhanh):**
+Bạn có thể sử dụng bất kỳ kiến trúc nào - từ đơn giản như linear layer đến phức tạp như mạng nơ-ron phi tuyến, thậm chí cả transformer. Miễn là nó có tham số có thể học được, bạn đều có thể dùng làm fast weight function.
+
+**2. Hàm mục tiêu huấn luyện:**
+TTT cho phép đa dạng hóa hàm loss:
+- Dot product loss hoặc L2 loss cho key-value association
+- Next token prediction loss 
+- Denoising loss như trong các mô hình khử nhiễu
+- Bất kỳ hàm loss tự giám sát nào khác
+
+**3. Bộ tối ưu (Optimizer):**
+Từ vanilla SGD đơn giản đến các phương pháp tinh vi hơn như gradient descent với momentum. Trong bài nói này, tác giả còn thử nghiệm với Muon optimizer - một bộ tối ưu mới.
+
+### Về gradient bậc hai
+
+Nhiều người thắc mắc liệu TTT có tính gradient bậc hai không. Thực tế, đây chỉ là một chuỗi chain rule dài hơn bình thường:
+
+**Quy trình forward:**
+1. Weight update: Cập nhật trọng số W
+2. Memory query: Truy vấn để lấy output
+
+**Quy trình backward:**
+Gradient lan truyền ngược từ output → W và Q → fast weight ban đầu → K và V
+
+Đây chỉ là chuỗi backpropagation dài hơn với nhiều phép nhân ma trận. Không có vector-Jacobian product hay các phép tính phức tạp của gradient bậc hai. Về bản chất, nó chỉ làm mô hình "sâu hơn" theo một nghĩa nào đó.
+
+### Tối ưu phần cứng - Yếu tố then chốt
+
+**Tensor Cores và hiệu năng:**
+GPU H100 có khả năng xử lý lý thuyết khoảng 2,000 teraflops với BFloat16 tensor cores, tương đương 1,000 nghìn tỷ phép tính dấu phẩy động mỗi giây cho phép nhân ma trận dày đặc.
+
+**Điểm quan trọng:** Con số này chỉ đạt được với phép nhân ma trận-ma trận, không phải ma trận-vector. Kích thước tối thiểu của ma trận là 16×16.
+
+**Hệ quả thực tế:**
+- Nếu chỉ làm phép nhân ma trận-vector, bạn phải padding vector lên 16 lần
+- Điều này dẫn đến hiệu suất GPU chỉ đạt dưới 8%
+
+**Nguyên tắc thiết kế:**
+Khi triển khai TTT, cần đảm bảo mọi phép tính đều là nhân ma trận-ma trận càng nhiều càng tốt. Tránh xử lý từng token riêng lẻ với phép nhân ma trận-vector.
+
+[Tensor cores: lõi tính toán chuyên biệt cho phép nhân ma trận; Teraflops: nghìn tỷ phép tính dấu phẩy động/giây; Chain rule: quy tắc dây chuyền trong tính đạo hàm]
+
+|![](https://pbs.twimg.com/media/GuBSEhDaoAAUy62?format=jpg)|![](https://pbs.twimg.com/media/GuBS2-CWcAExuTC?format=jpg)|
+|-|-|
+
+![](https://pbs.twimg.com/media/GuBTF2QW8AAk_MI?format=jpg)
 
 ## Storing long contexts in tiny caches with self-study
-https://github.com/HazyResearch/cartridges
+- https://hazyresearch.stanford.edu/blog/2025-06-08-cartridges
+
+|![]()|![]()|
+|-|-|
+|![]()|![]()|
+
+
+---
+
+Learning to (Learn at Test Time)
+--------------------------------
+https://www.alphaxiv.org/abs/2407.04620
+
+...
+
