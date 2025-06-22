@@ -53,11 +53,6 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-- FLASH INFER + HIỆU CHỈNH LOGITS
-  - [ ] save/quant params + inference <= `nanovllm`
-  - https://github.com/pytorch-labs/gpt-fast
-  - top-nơ https://www.alphaxiv.org/abs/2411.07641
-  - Hiệu chỉnh logits của closed LLM để thiên vị domain https://www.alphaxiv.org/abs/2502.06806
 
 - LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
   - giảm dataset phải chuẩn bị cho nó học?
@@ -98,6 +93,8 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 ---
 
 - [x] chậm, chưa gain? <= ~~Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py~~
+- [x] ~~stablemax~~ hoặc fp32 unembeddings + fp64 softmax, ortho optim đã có muon
+
 - [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
   Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
@@ -113,4 +110,7 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
   - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
   - cách nhanh và rẻ nhất là masking ở **block level** với block là processing unit của FA
-  - [ ] sửa FA2 để nó luôn attn vào first block of seq bất kể SWA là bao nhiêu
+  - [ ] sửa FA để nó luôn attn vào first block of seq bất kể SWA là bao nhiêu
+  - [ ] sửa FA để hỗ trợ prefix LLM (GLM paper, UL2 paper ...)
+
+- [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
