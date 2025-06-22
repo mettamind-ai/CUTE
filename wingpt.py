@@ -138,7 +138,7 @@ class CausalSelfAttention(nn.Module):
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim=128, layer_id, n_layers):
+    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
