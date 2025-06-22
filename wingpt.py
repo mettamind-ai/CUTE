@@ -141,7 +141,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4  # 4 ngắn + 1 dài
-        self.mlp_expansion = (layer_id % 3) + 2 # => 2, 3, 4 
+        self.mlp_expansion = [1, 2, 4][layer_id % 3] # => 1, 2, 4 
         self.mlp = ReLuSquareMLP(dim, expansion_factor=self.mlp_expansion) if self.layer_id != 0 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 

@@ -114,7 +114,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 
-- [ ] fast inference + TTT Done Right?
+- [ ] fast inference + hiệu chỉnh logits
   - https://pytorch.org/blog/accelerating-generative-ai-2
-  - https://scalingintelligence.stanford.edu/blogs/tokasaurus
-  - https://hazyresearch.stanford.edu/blog/2025-06-08-cartridges
+  - top-nơ https://www.alphaxiv.org/abs/2411.07641
