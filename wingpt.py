@@ -28,7 +28,7 @@ class ReLuSquareMLP(nn.Module):
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
 
-        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
+        self.fc1_proj = nn.Linear(dim, 2*hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
@@ -36,7 +36,7 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
 
         with torch.no_grad():
-            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.             fc1_proj.weight.copy_(init_linear(torch.empty(2*hdim, dim)))
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
