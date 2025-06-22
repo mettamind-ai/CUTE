@@ -50,7 +50,7 @@ class ReLuSquareMLP(nn.Module):
         def prepare(x):
             x = norm(x)
             y, gate = self.fc1_proj(x).chunk(2, dim=-1)
-            return F.relu(Y).square() * gate
+            return F.relu(y).square() * gate
         x = checkpoint(prepare, x, use_reentrant=False)
         return self.fc2_proj(x)
 
