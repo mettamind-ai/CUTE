@@ -36,21 +36,13 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
 
         with torch.no_grad():
-            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-
-            if zero_out:
-                # self.fc1_proj.weight[hdim:, :].fill_(0.0)
-                self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
-            else:
-                # self.fc1_proj.weight[hdim:, :].fill_(1.0 / dim)
-                self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
+            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
+            else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
 
     def forward(self, x):
-        def prepare(x):
-            x = norm(x)
-            # y, gate = self.fc1_proj(x).chunk(2, dim=-1)
-            return F.relu(self.fc1_proj(x)).square()
+        def prepare(x): return F.relu(self.fc1_proj(norm(x))).square()
         x = checkpoint(prepare, x, use_reentrant=False)
         return self.fc2_proj(x)
 
