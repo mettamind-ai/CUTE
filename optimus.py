@@ -219,11 +219,10 @@ class FusedCE(torch.autograd.Function):
 ##  MUON optimizer - MomentUm Orthogonalized by Newton-schulz  ##
 #################################################################
 
-_cfgs = [ 
+@triton.autotune(configs=[ 
     triton.Config({'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'GROUP_SIZE_M': 8}, num_stages=s, num_warps=w)
     for m in [32, 64, 128, 256] for k in [32, 64, 128] for s in [2, 3, 4] for w in [4, 8]
-]
-@triton.autotune(configs=_cfgs, key=['M', 'K', 'stride_xk', 'second_step'])
+], key=['M', 'K', 'stride_xk', 'second_step'])
 @triton.jit
 def mmt_kernel(
     x, y, M, K,  # input: x[M, K], output: y[M, M]
@@ -250,8 +249,7 @@ def mmt_kernel(
     blk_col = (pid % total_blks_per_group) // blks_in_this_group
 
     # Chỉ tính nửa trên của ma trận (vì đối xứng)
-    if blk_row > blk_col: 
-        return
+    if blk_row > blk_col: return
 
     # Tính offset cho truy cập ma trận
     row_indices = (blk_row * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
@@ -280,7 +278,6 @@ def mmt_kernel(
         row_ptrs += BLOCK_SIZE_K * stride_xk
         col_ptrs += BLOCK_SIZE_K * stride_xk
 
-
     # Tính vị trí lưu kết quả
     out_row_indices = blk_row * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     out_col_indices = blk_col * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
@@ -289,7 +286,7 @@ def mmt_kernel(
     result_ptrs  = y + stride_ym * out_row_indices[:, None] + stride_yn * out_col_indices[None, :]
     result_mask  = (out_row_indices[:, None] < M) & (out_col_indices[None, :] < M)
 
-    if second_step == 1:
+    if second_step == 1 and M == K: # chỉ áp dụng step 2 cho ma trận vuông
         inp_ptrs = x + stride_xm * out_row_indices[:, None] + stride_xk * out_col_indices[None, :]
         inp      = tl.load(inp_ptrs, mask=result_mask, other=0.0)
         result   = -4.7750 * inp + 2.0315 * result  # b * Y + c * Z
@@ -325,9 +322,9 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zeropower_newtonschulz5 phiên
     Z = torch.empty((M, M), device=X.device, dtype=X.dtype)
     for _ in range(5):
         X = X.contiguous()
-        mmt(X, Y, False)
-        mmt(Y, Z, True)
-        X = 3.4445*X + Z @ X
+        mmt(X, Y, False)        # Y = X @ X.mT
+        mmt(Y, Z, True)         # Z = b * Y + c * Y @ Y
+        X = 3.4445 * X + Z @ X  # X = a * X + (b * Y + c * Y @ Y) @ X
     return X.mT if need_invert else X
 '''
 def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
