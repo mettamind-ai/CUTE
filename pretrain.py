@@ -108,7 +108,7 @@ for opt in [muon_optim, adam_optim]:
 ##############
 ## TRANING  ##
 ##############
-lossf = torch.compile(lossf, mode="reduce-overhead", fullgraph=True)
+lossf = torch.compile(lossf, mode="reduce-overhead")
 # model = torch.compile(model)
 # for x in model.blocks: x.compile()
 
