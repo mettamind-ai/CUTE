@@ -43,7 +43,7 @@ class ReLuSquareMLP(nn.Module):
     def forward(self, x):
         def prepare(x):
             x = norm(x)
-            x, gate = self.fc1_proj(x).chunk(2, dim=-1)
+            y, gate = self.fc1_proj(x).chunk(2, dim=-1)
             return F.relu(y).square() * gate
         x = checkpoint(prepare, x, use_reentrant=False)
         return self.fc2_proj(x)
