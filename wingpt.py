@@ -23,7 +23,7 @@ def init_linear(w: Tensor, scale=1):
     return w.uniform_(-bound, bound)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=2, zero_out=True):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, zero_out=True):
         super().__init__()
         if not hdim: hdim = int(dim*expansion_factor)
         if not odim: odim = dim
