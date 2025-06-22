@@ -43,7 +43,7 @@ elif args.M: # (M)edium ~ 405m với cấu hình gần tương đương qwen 0.6
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 else:        # (S)mall  ~ 250m active params
-    model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
+    model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 ## Load data, sooner better
@@ -108,7 +108,7 @@ for opt in [muon_optim, adam_optim]:
 ##############
 ## TRANING  ##
 ##############
-lossf = torch.compile(lossf)
+lossf = torch.compile(lossf, mode="reduce-overhead", fullgraph=True)
 # model = torch.compile(model)
 # for x in model.blocks: x.compile()
 
