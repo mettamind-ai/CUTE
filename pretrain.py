@@ -42,7 +42,7 @@ elif args.M: # (M)edium ~ 405m với cấu hình gần tương đương qwen 0.6
     model = WinGPT(dim=1024, n_layers=25, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
-else:        # (S)mall  ~ 230m active params
+else:        # (S)mall  ~ 220m active params
     model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
