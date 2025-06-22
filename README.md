@@ -53,7 +53,6 @@
 Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
 linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
 
-
 - LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
   - giảm dataset phải chuẩn bị cho nó học?
   - học cách phân bổ dữ liệu nhanh hơn?
@@ -114,3 +113,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - [ ] sửa FA để hỗ trợ prefix LLM (GLM paper, UL2 paper ...)
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
+
+- [ ] fast inference
+  - https://scalingintelligence.stanford.edu/blogs/tokasaurus

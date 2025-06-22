@@ -1,3 +1,5 @@
+Đầu tiên hãy đọc qua bài viết sau để dẫn nhập vào TTT (test time training)
+
 # Lịch sử ngắn về chú ý tuyến tính: Từ bắt chước, đổi mới đến phản hồi ngược
 - Tô Kiếm Lâm | 20-06-2025
 - https://kexue.fm/archives/11033
@@ -251,3 +253,75 @@ Bài viết này đã lược thuật quá trình phát triển của Attention 
 Từ những mô hình đơn giản ban đầu, qua việc thêm cổng quên, đến các kỹ thuật nghịch đảo ma trận tinh vi, rồi đến việc phản hồi ngược cải tiến Softmax Attention - hành trình của Attention tuyến tính minh họa rõ ràng cách một ý tưởng có thể tiến hóa và trưởng thành trong nghiên cứu khoa học. Điều quan trọng là không ngừng đổi mới trong khi vẫn giữ được những nguyên lý cốt lõi.
 
 Với sự phát triển mạnh mẽ của các mô hình ngôn ngữ lớn và nhu cầu xử lý chuỗi ngày càng dài, **Attention tuyến tính chắc chắn sẽ còn tiếp tục phát triển**. Có thể trong tương lai không xa, **ranh giới giữa Attention tuyến tính và Softmax Attention sẽ càng mờ nhạt**, và chúng ta sẽ chứng kiến **sự ra đời của những kiến trúc lai ghép mạnh mẽ hơn nữa**.
+
+---
+
+Vậy TTT là gì?
+--------------
+
+Test-Time Training (TTT) là một cách tiếp cận độc đáo để xây dựng mô hình xử lý chuỗi. Thay vì phải tự thiết kế các cơ chế phức tạp, TTT cho phép chúng ta sử dụng các thuật toán tối ưu quen thuộc như SGD để tự động xây dựng mô hình.
+
+Cách TTT hoạt động khá đơn giản. Khi nhận được một chuỗi dữ liệu mới, nó coi các cặp (K, V) như một bộ dữ liệu huấn luyện nhỏ. Sau đó, nó dùng SGD để cập nhật tham số của mô hình dựa trên dữ liệu này. Cuối cùng, mô hình đã được cập nhật sẽ đưa ra dự đoán cho câu hỏi hiện tại.
+
+**TTT nhìn nhận vấn đề từ góc độ nén dữ liệu**. Mô hình đóng vai trò như bộ giải nén, tham số của nó là file nén, còn SGD chính là thuật toán nén. Cách nhìn này giúp chúng ta hiểu rõ hơn **bản chất của việc xử lý chuỗi - lưu trữ thông tin quan trọng trong không gian hạn chế**.
+
+TTT ĐẶC BIỆT PHÙ HỢP VỚI HỌC TRONG NGỮ CẢNH VÌ NÓ LIÊN TỤC HỌC TỪ DỮ LIỆU ĐANG XỬ LÝ. Các biến thể khác nhau của Attention tuyến tính như DeltaNet hay RetNet thực chất chỉ khác nhau ở hàm mất mát được sử dụng trong quá trình tối ưu.
+
+[TTT: Test-Time Training - huấn luyện tại thời điểm kiểm tra; SGD: Stochastic Gradient Descent - giảm gradient ngẫu nhiên; RNN: Recurrent Neural Network - mạng nơ-ron hồi quy; ICL: In-Context Learning - học trong ngữ cảnh]
+
+TTT đã có một số tiến bộ quan trọng theo từng giai đoạn phát triển:
+
+**Giai đoạn đầu - TTT gốc:**
+TTT ban đầu chỉ sử dụng SGD đơn giản với mini-batch nhỏ. Mặc dù đã chứng minh được ý tưởng cốt lõi, nhưng hiệu suất còn hạn chế và chưa thể cạnh tranh với các phương pháp truyền thống.
+
+**Cải tiến với Titans:**
+Titans đã thêm momentum vào SGD, giúp quá trình tối ưu ổn định hơn và hội tụ nhanh hơn. Đây là bước tiến quan trọng vì momentum giúp vượt qua các điểm cực tiểu cục bộ trong quá trình học.
+
+**Đột phá với TTT Done Right:**
+Đây là cải tiến lớn nhất, với hai điểm chính. Thứ nhất, họ khám phá cách sử dụng large-batch hiệu quả, giúp tận dụng tốt hơn sức mạnh tính toán song song của GPU. Thứ hai, họ kết hợp với Muon optimizer - một bộ tối ưu mới mạnh mẽ hơn SGD truyền thống.
+
+**Kết quả thực tế:**
+Các cải tiến này đã giúp TTT từ một ý tưởng thú vị trở thành phương pháp thực sự cạnh tranh. TTT Done Right đã cho thấy hiệu suất tương đương hoặc vượt trội so với Transformer truyền thống trên nhiều tác vụ, đặc biệt là các tác vụ đòi hỏi khả năng học từ ngữ cảnh.
+
+[Momentum: động lượng - kỹ thuật giúp tăng tốc độ hội tụ; Mini-batch: nhóm nhỏ dữ liệu; Large-batch: nhóm lớn dữ liệu; Muon: một thuật toán tối ưu mới]
+
+Bài báo có tên là **"Learning to (Learn at Test Time)"** được công bố vào năm 2024. Tiêu đề bài báo rất khéo léo với cấu trúc "Learning to (Learn at Test Time)" - vừa nhấn mạnh việc học tại thời điểm test, vừa gợi ý đến **meta-learning**. Dấu ngoặc đơn trong tiêu đề tạo ra hai cách đọc: "Learning to Learn at Test Time" và "Learning at Test Time". Bài báo có ba đóng góp chính rất quan trọng:
+
+**1. Khung lý thuyết mới:**
+Lần đầu tiên, họ chứng minh rằng các bộ tối ưu như SGD thực chất là RNN. Khi cập nhật tham số qua nhiều bước, SGD tạo ra một chuỗi trạng thái - đây chính là bản chất của RNN. Phát hiện này mở ra cách nhìn hoàn toàn mới về mối quan hệ giữa tối ưu hóa và mô hình chuỗi.
+
+**2. Thiết kế kiến trúc TTT-Linear:**
+Họ đề xuất một kiến trúc cụ thể với hai thành phần chính. Phần "inner loop" sử dụng self-supervised learning để cập nhật tham số dựa trên dữ liệu hiện tại. Phần "outer loop" là mô hình chính sử dụng các tham số đã cập nhật để đưa ra dự đoán. Thiết kế này vừa đơn giản vừa hiệu quả.
+
+**3. Chứng minh thực nghiệm:**
+Bài báo cho thấy TTT-Linear ĐẠT HIỆU SUẤT TƯƠNG ĐƯƠNG TRANSFORMER TRÊN NHIỀU TÁC VỤ NGÔN NGỮ. Đặc biệt ấn tượng là khả năng **xử lý chuỗi dài** và **HỌC TỪ NGỮ CẢNH** - hai điểm yếu của RNN truyền thống.
+
+[Self-supervised learning: học tự giám sát; Inner/Outer loop: vòng lặp trong/ngoài; RNN: Recurrent Neural Network - mạng nơron hồi quy]
+
+---
+
+Learning to (Learn at Test Time)
+--------------------------------
+https://www.alphaxiv.org/abs/2407.04620
+
+---
+
+TTT DONE RIGHT
+--------------
+- https://www.alphaxiv.org/abs/2505.23884
+- https://youtu.be/5QxQUr-m_2w
+- https://asap-seminar.github.io/assets/slides/Test-Time%20Training%20Done%20Right.pdf
+- https://tianyuanzhang.com/projects/ttt-done-right
+
+![](https://pbs.twimg.com/media/GuBGLtSXIAA6SQ9?format=jpg)
+![](https://pbs.twimg.com/media/GuBHkvNWIAEMXWr?format=jpg)
+
+|![](https://pbs.twimg.com/media/GuBIc64XcAADFXx?format=jpg)|![](https://pbs.twimg.com/media/GuBJZX6WcAA3XEu?format=jpg)|
+|-|-|
+|![]()|![]()|
+|![]()|![]()|
+|![]()|![]()|
+
+
+## Storing long contexts in tiny caches with self-study
+https://github.com/HazyResearch/cartridges
