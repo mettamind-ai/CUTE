@@ -29,9 +29,9 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs = 48#k tok / batch => 36k tok/s; 22.9G vram
-    elif args.M:   args.bs = 48#k tok / batch => 54k tok/s; 21.6G vram
-    else:          args.bs = 96#k tok / batch => 88k tok/s; 22.6G vram
+    if   args.L:   args.bs =  56#k tok / batch => 36k tok/s; 22.9G vram
+    elif args.M:   args.bs =  64#k tok / batch => 54k tok/s; 21.6G vram
+    else:          args.bs = 112#k tok / batch => 88k tok/s; 22.6G vram
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 685m

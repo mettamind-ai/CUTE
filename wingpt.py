@@ -42,9 +42,10 @@ class ReLuSquareMLP(nn.Module):
 
 
     def forward(self, x):
-        def prepare(x): return F.relu(self.fc1_proj(norm(x))).square()
-        x = checkpoint(prepare, x, use_reentrant=False)
-        return self.fc2_proj(x)
+        def prepare(): return F.relu(self.fc1_proj(norm(x))).square()
+        # y = checkpoint(prepare, x, use_reentrant=False)
+        y = prepare()
+        return self.fc2_proj(y)
 
 ##########################
 ## CausalSelfAttention  ##
@@ -111,7 +112,7 @@ class CausalSelfAttention(nn.Module):
         D, T    =  self.head_dim, self.seq_len
 
         def prepare():
-            qk = self.qk_proj(norm(x))
+            qk = self.qk_proj(norm(x)) # prenorm
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
@@ -119,19 +120,18 @@ class CausalSelfAttention(nn.Module):
             k = k    .view(T, Hkv, D)
             v = v_emb.view(T, Hkv, D)
 
-            # q, k, v = norm(q), norm(k), norm(v)
+            # q, k, v = norm(q), norm(k), norm(v) # RNoPE said that qk norm hurt long ctx, warmup carefully and use prenorm
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
     
-        q, k, v = checkpoint(prepare, use_reentrant=False)
-        y = flash_attn_varlen_func(q, k, v,
+        # q, k, v = checkpoint(prepare, use_reentrant=False)
+        q, k, v = prepare()
+        o = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         )
-        y = y.view(T, H * D)
-        z = self.o_proj(y)
-        return z
-
+        o = y.view(T, H * D)
+        return self.o_proj(o)
 
 ##############################
 ## Transformer for the WIN  ##
