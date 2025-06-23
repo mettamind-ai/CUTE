@@ -21,7 +21,7 @@ torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
 model = WinGPT( dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=64,
-                vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 160m
+                vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 230m; config ~= qwen3 0.6b
 
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
@@ -150,8 +150,8 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         if step % (10 * log_interval) == 0:
-            print(f"""{model.scalars}
-         ATTN___ MLP___""")
+            print(f"""{model.scalars.view(-1, 4)}
+         ATTN___ MLP___ ATTN___ MLP___""")
 
 model.update_async_weight()
 logger.finish()
