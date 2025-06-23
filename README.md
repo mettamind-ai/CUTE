@@ -91,9 +91,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 ---
 
-- [x] chậm, chưa gain? <= ~~Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py~~
-- [x] ~~stablemax~~ hoặc fp32 unembeddings + fp64 softmax, ortho optim đã có muon
-
 - [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
   Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
@@ -101,18 +98,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] impl longce hiệu quả "only less than 10% tokens are highly influenced by long context"
 - [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd.
   => có thể pre-filter hoặc sample intelligently.
-
-- [ ] diffusion LLM từ Bert https://huggingface.co/HPLT/hplt_bert_base_2_0_vie-Latn/blob/main/config.json
-  - https://huggingface.co/HPLT/translate-vi-en-v2.0-hplt
-  - https://huggingface.co/HPLT/translate-en-vi-v2.0-hplt
-
-- [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
-  - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
-  - cách nhanh và rẻ nhất là masking ở **block level** với block là processing unit của FA
-  - infllmv2_cuda_impl requires `query_head_num / key_head_num == 16`
-    - https://github.com/OpenBMB/infllmv2_cuda_impl/issues/1#issuecomment-2961106768
-    - https://github.com/OpenBMB/infllmv2_cuda_impl/blob/feature_infer/csrc/flash_attn/flash_api.cpp#L787
-  - kết hợp cách chọn top-k blocks của infllmv2 và flashmask sẽ được top-k SPARSE ATTN!
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 

@@ -69,22 +69,26 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
-    def forward(self, x):
-        return self.fc2_proj(checkpoint(lambda: F.relu(self.fc1_proj(norm(x))).square(), use_reentrant=False))
+    def forward(self, x, g_embs=None, layer_id=None):
+        prepare = lambda: F.relu(self.fc1_proj(norm(x))).square()
+        y = checkpoint(prepare, use_reentrant=False)
+        z = self.fc2_proj(y)
+        if g_embs is None:  return z
+        else:               return z * g_embs[layer_id] # gate
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
         super().__init__() # dim = hidden_size = embedding = feature = representation
 
-        self.num_heads = num_heads
+        self.num_heads    = num_heads
         self.num_kv_heads = num_kv_heads
-        self.head_dim = head_dim
-        self.layer_id = layer_id
-        self.seq_len = seq_len
+        self.head_dim     = head_dim
+        self.layer_id     = layer_id
+        self.seq_len      = seq_len
         if odim == None: odim = dim
 
-        self.qo_dim = num_heads * head_dim
-        self.kv_dim = num_kv_heads * head_dim
+        self.qo_dim = head_dim * num_heads
+        self.kv_dim = head_dim * num_kv_heads
 
         self.qk_proj = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
         self. o_proj = nn.Linear(self.qo_dim, odim, bias=False)
@@ -100,20 +104,21 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_embs, layer_id, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
-        D, T    = self.head_dim, self.seq_len
+        D, T    = self.head_dim,  self.seq_len
 
         def prepare():
             qk = self.qk_proj(norm(x))
+
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
+            v  = v_embs[layer_id]
 
-            q = q    .view(T, H,   D)
-            k = k    .view(T, Hkv, D)
-            v = v_emb.view(T, Hkv, D)
+            q = q.view(T, H,   D)
+            k = k.view(T, Hkv, D)
+            v = v.view(T, Hkv, D)
 
-            # q, k = norm(q), norm(k) # RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, norm(v)
 
@@ -131,13 +136,11 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if layer_id > 0 and layer_id < n_layers - 1 else None  # bỏ MLP ở layer đầu và cuối
+        self.mlp = ReLuSquareMLP(dim)
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+    def forward(self, x, v_embs, g_embs, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
+        return x + self.mlp(x, g_embs, self.layer_id) + self.attn(x, v_embs, self.layer_id, cu_seqlens, max_seqlen, rotary)
 
 
 class WinGPT(nn.Module):
@@ -154,12 +157,12 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
         
-        self.embeds  = Embedding(vocab_size, dim + self.kv_dim*n_layers, active_vocab)
-        self.scalars = nn.Parameter(torch.cat([torch.tensor([1.0, 1.0, 1.0])]*n_layers).view(-1, 3))
+        self.embeds  = Embedding(vocab_size, self.dim*(self.n_layers+1) + self.kv_dim*self.n_layers, active_vocab)
+        with torch.no_grad(): self.embeds.weight[..., self.dim : self.dim*(self.n_layers+1)].fill_(1.0)
 
-        ##   head0 chính là trunk (thân chính của model) to predict next token (NTP)
-        self.head1_mlp  = ReLuSquareMLP(  dim, hdim=2*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
-        self.head2_mlp  = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # head2 to predict next of next token (MTP)
+        ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
+        #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
+        self .head2_mlp = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # head2 to predict next of next token (MTP)
 
         self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
@@ -170,43 +173,40 @@ class WinGPT(nn.Module):
         if isinstance(self.embeds, OhMaiEmbedding): self.embeds.update_async_weight()
         if isinstance(self.unembeds, OhMaiHead):  self.unembeds.update_async_weight()
 
-
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        def prepare(embs):
+        embs = self.embeds(input_seq.long())
+        def prepare():
             x = x0 = embs[..., : self.dim]
-            v_embs = list(embs[..., self.dim : ].chunk(self.n_layers, dim=-1))
-            return x, x0, v_embs
-        x, x0, v_embs = checkpoint(prepare, self.embeds(input_seq.long()), use_reentrant=False)
-        # print(">>> scalars", self.scalars, self.scalars.shape) # DEBUG
+            g_embs = list(embs[..., self.dim : self.dim*(self.n_layers+1) ].chunk(self.n_layers, dim=-1))
+            v_embs = list(embs[..., -self.kv_dim*self.n_layers :          ].chunk(self.n_layers, dim=-1))
+            return x, x0, g_embs, v_embs
+        x, x0, g_embs, v_embs = checkpoint(prepare, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
-            if i == self.n_layers//2: xe = x # early exit
-        return x, xe, x0
+            x = blk(x, v_embs, g_embs, cu_seqlens, max_seqlen, self.rotary)
+        return x, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, xe, x0 = model(input_seq, cu_seqlens, max_seqlen)    # tất cả chưa norm
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)        # tất cả chưa norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
  
     ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
-    def prepare(x, x0, target, xe):
+    def prepare():
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.head2_mlp(xx_x0)
-        xe    = model.head1_mlp(xe)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
-        return norm(y), ty, norm(x), norm(xe)
-    y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
+        return norm(y), ty, norm(x)
+    y, ty, x = checkpoint(prepare, use_reentrant=False)
 
-    ## Tính loss cho early exit (x_half), NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
+    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     w     = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
-    hloss = FusedCE.apply(xe, w, target, n_ignore, ignore, 0.1)  # NTP: Early exit
-    xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.6)  # NTP: Next token prediction
+    xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
     yloss = FusedCE.apply(y,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
-    return xloss + yloss + hloss
+    return xloss + yloss
 
 
 def get_cu_max_seqlens_from(input_seq, eot=6399):

@@ -183,14 +183,20 @@
     - Cả hai đều có thể sử dụng TopK selection để tạo binary mask cuối cùng. SeerAttention mô tả: "users can adjust the TopK ratio or threshold at test time to achieve various trade-offs," tương tự NSA với "Top-n Block Selection."
     - Phương pháp training khác biệt. SeerAttention sử dụng self-distillation với "2DMaxPooled attention map from full attention as ground truth," trong khi NSA được pretrain end-to-end như một architecture hoàn chỉnh: "We enable end-to-end training, reducing pretraining computation without sacrificing model performance."
 
-20250618
+
+20250623
 --------
+
+- [x] chậm, chưa gain? <= ~~Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py~~
+- [x] ~~stablemax~~ hoặc fp32 unembeddings + fp64 softmax, ortho optim đã có muon
+- [ ] diffusion LLM từ Bert https://huggingface.co/HPLT/hplt_bert_base_2_0_vie-Latn/blob/main/config.json
+  - https://huggingface.co/HPLT/translate-vi-en-v2.0-hplt
+  - https://huggingface.co/HPLT/translate-en-vi-v2.0-hplt
 
 - [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
   - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
-    https://github.com/PaddlePaddle/Paddle/blob/develop/python/paddle/nn/functional/flash_attention.py#L1535
-  - kho kernels: Paddle HIgh reusability operator library (PHI): 1dconv, adam, CE2/LSE, beam, embed, FA3, MoE, swiglu, 
-    https://github.com/PaddlePaddle/Paddle/tree/develop/paddle/phi/kernels/gpu
-  [ ] Trích xuất flashmask kernel code để dùng lại trong pytorch !?!
-
-  
+  - cách nhanh và rẻ nhất là masking ở **block level** với block là processing unit của FA
+  - infllmv2_cuda_impl requires `query_head_num / key_head_num == 16`
+    - https://github.com/OpenBMB/infllmv2_cuda_impl/issues/1#issuecomment-2961106768
+    - https://github.com/OpenBMB/infllmv2_cuda_impl/blob/feature_infer/csrc/flash_attn/flash_api.cpp#L787
+  - kết hợp cách chọn top-k blocks của infllmv2 và flashmask sẽ được top-k SPARSE ATTN!

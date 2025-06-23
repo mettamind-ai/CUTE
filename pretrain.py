@@ -12,38 +12,16 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=None)     # 64k tokens/batch works best in most cases
+parser.add_argument("--bs",     type=int, default=64)   # 64k tokens/batch works best in most cases
 parser.add_argument("--steps",  type=int, default=500)
-parser.add_argument("--vocab",  type=int, default=6400)     # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
-parser.add_argument("--ohmai",  type=int, default=2304)     # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
-parser.add_argument("--int8ig", type=str, default="emb")    # int8 ignore params (for wingpt, 'proj|emb' => all Linear) 
-parser.add_argument("--schedule", type=json.loads, default={"warmup": 0.05, "decay": 0.15})
-for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
+parser.add_argument("--vocab",  type=int, default=6400) # nên là luỹ thừa của 2 (1k, 2k, 4k, 8k, 16k, 32k, 64k ..) ...
+parser.add_argument("--ohmai",  type=int, default=2048) # ... để dùng hết cache line mỗi lần triton đọc dữ liệu
 args = parser.parse_args()
 
-rank, world_size, is_master = 0, 1, True # 1 GPU
-torch.manual_seed(1981 + rank)
-def print0(msg): is_master and print(msg)
-
-##################
-##  Init Model  ##
-##################
-if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs =  48#k tok / batch => 36k tok/s; 22.9G vram
-    elif args.M:   args.bs =  56#k tok / batch => 54k tok/s; 21.6G vram
-    else:          args.bs = 112#k tok / batch => 88k tok/s; 22.9G vram
+torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-if   args.L: # (L)arge  ~ 685m
-    model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=128,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-
-elif args.M: # (M)edium ~ 410m với cấu hình gần tương đương qwen 0.6b
-    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=128,
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
-
-else:        # (S)mall  ~ 235m active params
-    model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64,
+model = WinGPT(dim=1024, n_layers=20, num_heads=16, num_kv_heads=4, head_dim=64, # 230m
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 ## Load data, sooner better
@@ -59,14 +37,14 @@ def get_batch():
 batch = get_batch()
 
 ## INT8 hoá
-names, params = convert_int8_mixed_precision(model, ignore=args.int8ig)
+names, params = convert_int8_mixed_precision(model)
 def find_key(s):
     m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
 total_params = sum(p.numel() for p in model.parameters())
 short_names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
-print0(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
+print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(names)} INT8 Mixeds {percent:.1f}% {params:,}
 * {len(list(model.parameters())) - len(names)} BF16 Weights {100-percent:.1f}% {total_params - params:,}
 INT8: {short_names}""")
@@ -90,7 +68,7 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-lr_schedule   = LRSchedule(args.steps, **args.schedule)
+lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
@@ -115,7 +93,7 @@ lossf = torch.compile(lossf)
 model = model.cuda()
 model.train()
 
-print0(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* GPU(s) {world_size}\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
+print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
@@ -157,9 +135,9 @@ for step in range(args.steps):  # training loop
     
     if   step == 0:
         time0 = time.time() # cần time0 asap để tính tokens_per_second
-        pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=not is_master)
+        pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=False)
     elif step == 1:
-        print0(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
+        print(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time1 = time.time()
     elif step == 2:
         step_time = time.time() - time1

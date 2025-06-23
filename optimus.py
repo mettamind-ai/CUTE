@@ -400,12 +400,12 @@ class Int8MixedLWeight(Tensor):
         else: return out                                    # new unwrapped object
 
 
-def convert_int8_mixed_precision(module:nn.Module, ignore='head'):
+def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):
     ignore = re.compile(rf'{ignore}')
     names, params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
-            names.append(n)            
+            names.append(n)
             params  += m.weight.numel()
             m.weight = nn.Parameter(                    # Tạo đối tượng param mới và làm 2 việc: 
                 Int8MixedLWeight(m.weight.detach()),    # 1) đón Tensor gốc sau khi tháo rời khỏi graph
