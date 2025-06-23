@@ -100,21 +100,25 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
         qk = self.qk_proj(norm(x))
         q  = qk[..., : self.qo_dim ]
         k  = qk[..., self.qo_dim : ]
+        v  = v_emb(input_seq)
 
-        q = q    .view(T, H,   D)
-        k = k    .view(T, Hkv, D)
-        v = v_emb.view(T, Hkv, D)
+        q = q.view(T, H,   D)
+        k = k.view(T, Hkv, D)
+        v = v.view(T, Hkv, D)
 
-        if self.rope: q, k = rotary(q), rotary(k)
-        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
-            causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+        if self.rope:
+            q, k = rotary(q), rotary(k)
+
+        o = flash_attn_varlen_func(
+            q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+            softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
         return self.o_proj(o)
 
@@ -129,9 +133,9 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if 5 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
+    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
-        attn = self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
+        attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
         if self.mlp is None: return x + attn
         else:                return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
@@ -145,7 +149,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
-        self.embeds  = nn.Embedding(vocab_size, dim + self.kv_dim * n_layers)
+        self.embeds  = nn.Embedding(vocab_size, dim)
+        self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
         self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
@@ -157,14 +162,9 @@ class WinGPT(nn.Module):
             with torch.no_grad(): self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        def prepare():
-            embs = self.embeds(input_seq.long())
-            x = x0 = embs[..., : self.dim]
-            v_embs = list(embs[..., -self.kv_dim*self.n_layers : ].chunk(self.n_layers, dim=-1))
-            return x, x0, v_embs
-        x, x0, v_embs = checkpoint(prepare, use_reentrant=False)
+        x = x0 = self.embeds(input_seq)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
+            f = lambda x, i, blk: blk(x, self.v_embs[i], input_seq, cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x, x0
 

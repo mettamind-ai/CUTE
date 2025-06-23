@@ -85,7 +85,11 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
 
 - [ ] Nghĩ ra biến thể ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
-  Cần nhiều token để đoán => quan trọng?
+  Cần nhiều token để đoán => quan trọng? https://chatgpt.com/share/68595fcc-b4b0-8003-b9e3-881f4498be01
+  - https://www.alphaxiv.org/abs/2405.03869 đánh giá ảnh hưởng từng mẫu dữ liệu tới hiệu suất mô hình
+  - https://www.alphaxiv.org/abs/2505.19653 TI-DPO gradient-based token-importance weights
+  - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
+  - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
 
 - [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và 2-gram
 
