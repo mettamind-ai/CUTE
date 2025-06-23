@@ -166,7 +166,7 @@ class WinGPT(nn.Module):
         for i, blk in enumerate(self.blocks):
             f = lambda x, i, blk: blk(x, self.v_embs[i], input_seq, cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
             x = checkpoint(f, x, i, blk, use_reentrant=False)
-        return x, x0
+        return x
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
