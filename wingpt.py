@@ -110,9 +110,9 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
+        qk      = self.qk_proj(norm(x)) # prenorm
 
         def prepare():
-            qk = self.qk_proj(norm(x)) # prenorm
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
@@ -123,12 +123,11 @@ class CausalSelfAttention(nn.Module):
             # q, k, v = norm(q), norm(k), norm(v) # RNoPE said that qk norm hurt long ctx, warmup carefully and use prenorm
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
-    
-        # q, k, v = checkpoint(prepare, use_reentrant=False)
-        q, k, v = prepare()
-        o = flash_attn_varlen_func(q, k, v,
-            cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
-            dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
+
+        q, k, v = checkpoint(prepare, use_reentrant=False)
+
+        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+            causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
         return self.o_proj(o)
 
