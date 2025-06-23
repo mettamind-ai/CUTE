@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=128)
+parser.add_argument("--bs",     type=int, default=112)
 parser.add_argument("--steps",  type=int, default=500)
 parser.add_argument("--vocab",  type=int, default=6400)
 parser.add_argument("--ohmai",  type=int, default=2304)
