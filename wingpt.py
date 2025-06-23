@@ -22,32 +22,6 @@ def init_linear(w: Tensor, scale=1):
     bound = (3 ** 0.5) * std * scale # ... than default 1/sqrt(3)
     return w.uniform_(-bound, bound)
 
-class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, zero_out=True):
-        super().__init__()
-        if not hdim: hdim = int(dim*expansion_factor)
-        if not odim: odim = dim
-
-        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
-        self.fc2_proj = nn.Linear(hdim, odim, bias=False)
-
-        # Add weight decay multiplier attribute to the weights
-        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
-
-        with torch.no_grad():
-            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
-            else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
-
-
-    def forward(self, x):
-        y = F.relu(self.fc1_proj(x)).square()
-        return self.fc2_proj(y)
-
-##########################
-## CausalSelfAttention  ##
-##########################
 class Rotary(nn.Module):
     def __init__(self, dim: int, max_seq_len: int):
         super().__init__()
@@ -75,6 +49,30 @@ class Rotary(nn.Module):
         y1 = x1 * (+cos) + x2 * sin
         y2 = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), -1).type_as(x_THD)
+
+
+class ReLuSquareMLP(nn.Module):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=4, zero_out=True):
+        super().__init__()
+        if not hdim: hdim = int(dim*expansion_factor)
+        if not odim: odim = dim
+
+        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
+        self.fc2_proj = nn.Linear(hdim, odim, bias=False)
+
+        # Add weight decay multiplier attribute to the weights
+        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
+
+        with torch.no_grad():
+            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
+            else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
+
+
+    def forward(self, x):
+        y = F.relu(self.fc1_proj(x)).square()
+        return self.fc2_proj(y)
 
 
 class CausalSelfAttention(nn.Module):
@@ -108,23 +106,25 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
-        qk      = self.qk_proj(x) # prenorm
+        qk      = self.qk_proj(x) # x đã được norm
 
-        q  = qk[..., : self.qo_dim ]
-        k  = qk[..., self.qo_dim : ]
+        def prepare():
+            q  = qk[..., : self.qo_dim ]
+            k  = qk[..., self.qo_dim : ]
 
-        q = q    .view(T, H,   D)
-        k = k    .view(T, Hkv, D)
-        v = v_emb.view(T, Hkv, D)
+            q = q    .view(T, H,   D)
+            k = k    .view(T, Hkv, D)
+            v = v_emb.view(T, Hkv, D)
 
-        ## RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
-        # q, k, v = norm(q), norm(k), norm(v)
-        if self.rope: q, k = rotary(q), rotary(k)
+            ## RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
+            # q, k, v = norm(q), norm(k), norm(v)
+            if self.rope: q, k = rotary(q), rotary(k)
+            return q, k, v
 
+        q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
-
         return self.o_proj(o)
 
 ##############################
