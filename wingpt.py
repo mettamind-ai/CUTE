@@ -127,7 +127,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if layer_id >= 6 else None # bỏ mlp ở 6 layers đầu
+        self.mlp = ReLuSquareMLP(dim) if 7 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
@@ -151,7 +151,7 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
         self.embeds  = Embedding(vocab_size, dim + self.kv_dim * n_layers, active_vocab)
-        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 1.0]*n_layers).view(-1, 3))
+        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 0.0]*n_layers).view(-1, 3))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
