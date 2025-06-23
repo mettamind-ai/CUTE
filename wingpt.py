@@ -71,8 +71,10 @@ class ReLuSquareMLP(nn.Module):
 
 
     def forward(self, x):
-        y = F.relu(self.fc1_proj(x)).square()
-        return self.fc2_proj(y)
+        y = self.fc1_proj(x)
+        def prepare(): return F.relu(y).square() 
+        z = checkpoint(prepare, use_reentrant=False)
+        return self.fc2_proj(z)
 
 
 class CausalSelfAttention(nn.Module):
