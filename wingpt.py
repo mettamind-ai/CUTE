@@ -25,7 +25,7 @@ def init_linear(w: Tensor, scale=1):
 class Rotary(nn.Module):
     def __init__(self, dim: int, max_seq_len: int):
         super().__init__()
-        base, half, dtype = (1/1024), (dim//4), torch.float32
+        base, half, dtype = (1/10000), (dim//4), torch.float32
         angular_freq = base  **  torch.linspace(0, 1, steps=half, dtype=dtype)
         angular_freq = torch.cat([angular_freq, torch.zeros(half, dtype=dtype)])
         # Tần số góc, nửa đầu giảm dần từ 1 tới base và nửa còn lại là zeros
