@@ -150,8 +150,5 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         if step % (10 * log_interval) == 0:
-            print(f"""{model.scalars.view(-1, 4)}
-         ATTN___ MLP___ ATTN___ MLP___""")
-
-model.update_async_weight()
+            print(f"""         ATTN___ MLP___  ATTN___ MLP___\n{model.scalars.view(-1, 4)}""")
 logger.finish()

@@ -156,11 +156,6 @@ class WinGPT(nn.Module):
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.unembeds.weight.zero_()
 
-
-    def update_async_weight(self):
-        if isinstance(self.embeds, OhMaiEmbedding): self.embeds.update_async_weight()
-        if isinstance(self.unembeds, OhMaiHead):  self.unembeds.update_async_weight()
-
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         def prepare():
             embs = self.embeds(input_seq.long())
