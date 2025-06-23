@@ -70,8 +70,7 @@ class ReLuSquareMLP(nn.Module):
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
-        prepare = lambda: F.relu(self.fc1_proj(norm(x))).square()
-        y = checkpoint(prepare, use_reentrant=False)
+        y = F.relu(self.fc1_proj(x)).square()
         return self.fc2_proj(y)
 
 class CausalSelfAttention(nn.Module):
@@ -106,19 +105,15 @@ class CausalSelfAttention(nn.Module):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
-        def prepare():
-            qk = self.qk_proj(norm(x))
-            q  = qk[..., : self.qo_dim ]
-            k  = qk[..., self.qo_dim : ]
+        qk = self.qk_proj(norm(x))
+        q  = qk[..., : self.qo_dim ]
+        k  = qk[..., self.qo_dim : ]
 
-            q = q    .view(T, H,   D)
-            k = k    .view(T, Hkv, D)
-            v = v_emb.view(T, Hkv, D)
+        q = q    .view(T, H,   D)
+        k = k    .view(T, Hkv, D)
+        v = v_emb.view(T, Hkv, D)
 
-            if self.rope: q, k = rotary(q), rotary(k)
-            return q, k, norm(v)
-
-        q, k, v = checkpoint(prepare, use_reentrant=False)
+        if self.rope: q, k = rotary(q), rotary(k)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
@@ -136,9 +131,10 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
-        attn = self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        xn = norm(x)
+        attn = self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
         if self.mlp is None: return x + attn
-        else:                return x + attn + self.mlp(x)
+        else:                return x + attn + self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -178,7 +174,8 @@ class WinGPT(nn.Module):
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            x = blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
+            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
+            x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x, x0
 
 
@@ -193,7 +190,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(xx_x0)
+        y     = model.head2_mlp(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x)
     y, ty, x = checkpoint(prepare, use_reentrant=False)
