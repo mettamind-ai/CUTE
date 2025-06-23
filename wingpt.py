@@ -129,8 +129,7 @@ class CausalSelfAttention(nn.Module):
         o = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
-        )
-        o = y.view(T, H * D)
+        ).view(T, H * D)
         return self.o_proj(o)
 
 ##############################
