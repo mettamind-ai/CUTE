@@ -333,3 +333,154 @@ Cuối cùng, model cần sinh ra từng ký tự như ban đầu, nên nó sẽ
 
 Dynamic pooling giống như cách con người đọc - chúng ta **không đọc từng chữ cái riêng lẻ mà nhận diện từ, cụm từ rồi hiểu nghĩa**. Model học được cách chia văn bản theo đơn vị ý nghĩa tự nhiên thay vì cắt máy móc, giúp vừa tiết kiệm tài nguyên tính toán vừa hiểu ngôn ngữ tốt hơn. Kết quả là model chạy nhanh hơn 2-3 lần mà độ chính xác còn cao hơn so với các phương pháp truyền thống.
 
+---
+
+# Understand Transformer from Perspective of Associative Memory
+https://www.alphaxiv.org/abs/2505.19488
+
+Nghiên cứu này từ ByteDance Seed mang đến góc nhìn mới về kiến trúc Transformer thông qua lăng kính bộ nhớ liên kết, một khái niệm tâm lý học lấy cảm hứng từ nhận thức con người. Thay vì chỉ phân tích lý thuyết, nghiên cứu còn đưa ra những đóng góp thực tiễn quan trọng để cải tiến kiến trúc Transformer.
+
+Đóng góp chính đầu tiên là việc thống nhất hai thành phần cốt lõi của Transformer dưới một khung lý thuyết chung về bộ nhớ liên kết. Cơ chế Attention hoạt động như bộ nhớ ngắn hạn động để xử lý thông tin ngữ cảnh hiện tại, trong khi mạng Feed-Forward đóng vai trò như bộ nhớ dài hạn lưu trữ kiến thức từ quá trình huấn luyện. Khung nhìn thống nhất này giúp hiểu rõ hơn về cách thức hoạt động của Transformer và mở ra hướng nghiên cứu mới cho việc cải tiến kiến trúc.
+
+Nghiên cứu giới thiệu metric Signal-to-Noise Ratio để đo lường chất lượng truy xuất thông tin từ bộ nhớ liên kết. Phân tích cho thấy Softmax Attention với exponential kernel vượt trội đáng kể so với Linear Attention về khả năng truy xuất chính xác và dung lượng bộ nhớ. Với exponential kernel, kích thước đặc trưng cần thiết giảm từ mức tuyến tính xuống logarithmic, thể hiện hiệu quả vượt trội trong xử lý ngữ cảnh dài.
+
+Về cơ chế cập nhật bộ nhớ, tác giả phân tích các chiến lược khác nhau và **đề xuất DeltaFormer** - mô hình mới kết hợp ưu điểm của Softmax Attention và delta-rule update mechanism từ DeltaNet. Mô hình này đạt được khả năng truy xuất chính xác cao đồng thời có cơ chế quản lý bộ nhớ hiệu quả.
+
+Nghiên cứu giải đáp hai câu hỏi sâu sắc về Transformer. Về khả năng biểu đạt, thông qua circuit complexity, DeltaFormer được chứng minh có khả năng biểu đạt vượt trội hơn Transformer tiêu chuẩn. Về giới hạn ngữ cảnh vô hạn, nghiên cứu chỉ ra rằng bộ nhớ có thể dần hội tụ khi ngữ cảnh tăng, dẫn đến suy giảm khả năng học trong ngữ cảnh, cho thấy những thách thức lý thuyết trong việc xây dựng Transformer hỗ trợ ngữ cảnh vô hạn.
+
+Cuối cùng, nghiên cứu không chỉ dừng lại ở phân tích lý thuyết mà còn đưa ra gợi ý thực tiễn để cải tiến kiến trúc. Việc hiểu rõ sự khác biệt giữa Attention và FFN mở ra khả năng thiết kế các thành phần tối ưu hơn thông qua lựa chọn kernel, cơ chế multihead, sparsity và gating functions, tạo nền tảng cho việc phát triển các mô hình AI tiên tiến hơn.
+
+![](https://pbs.twimg.com/media/GuDBsXPWkAAk0wz?format=jpg&name=medium)
+![](https://pbs.twimg.com/media/GuDn8nrXIAA4rj5?format=jpg&name=medium)
+
+Việc đề xuất DeltaFormer xuất phát từ một quan sát sâu sắc về những hạn chế cơ bản của các kiến trúc Transformer hiện tại. Khi phân tích từ góc độ associative memory, các tác giả nhận ra rằng mỗi thành phần đều có những điểm mạnh và điểm yếu riêng biệt.
+
+**Softmax Attention tỏ ra vượt trội trong khả năng truy xuất thông tin với độ chính xác cao** nhờ việc sử dụng exponential kernel. Tỷ lệ tín hiệu trên nhiễu nghịch đảo của nó chỉ xấp xỉ N chia cho một hàm mũ, cho phép nó lưu trữ và truy xuất thông tin hiệu quả hơn Linear Attention rất nhiều lần. Tuy nhiên, **cơ chế cập nhật bộ nhớ của Softmax Attention lại khá thô sơ** - nó chỉ **đơn giản cộng thêm thông tin mới vào ma trận bộ nhớ mà không có cơ chế nào để loại bỏ thông tin cũ hoặc trùng lặp**. Điều này dẫn đến việc tích lũy thông tin dư thừa và có thể gây bất ổn số học khi norm của ma trận bộ nhớ tăng vô hạn.
+
+Ngược lại, DeltaNet lại sử dụng một cơ chế cập nhật bộ nhớ tinh vi hơn nhiều thông qua delta rule. **Trước khi ghi thông tin mới, DeltaNet sẽ kiểm tra xem đã có thông tin tương tự trong bộ nhớ chưa, sau đó xóa bỏ phần trùng lặp trước khi thêm thông tin mới**. Cách tiếp cận này giúp quản lý bộ nhớ hiệu quả và tránh được vấn đề bất ổn số học. Tuy nhiên, DeltaNet lại sử dụng linear kernel nên khả năng truy xuất thông tin không cao, đặc biệt khi số lượng thông tin được lưu trữ tăng lên.
+
+Từ những quan sát này, các tác giả đặt ra câu hỏi liệu có thể kết hợp được điểm mạnh của cả hai phương pháp hay không. Ý tưởng của DeltaFormer chính là tận dụng độ chính xác truy xuất cao của Softmax Attention thông qua exponential kernel, đồng thời áp dụng cơ chế cập nhật bộ nhớ thông minh của DeltaNet thông qua delta rule. Kết quả là một kiến trúc có thể vừa truy xuất thông tin chính xác, vừa quản lý bộ nhớ một cách hiệu quả.
+
+Về mặt lý thuyết, DeltaFormer thể hiện khả năng biểu đạt vượt trội so với Transformer chuẩn. Trong khi Transformer thông thường chỉ đạt được độ phức tạp mạch TC không, DeltaFormer có thể đạt tới NC một, cho phép nó giải quyết các bài toán phức tạp hơn. Điều này được chứng minh qua khả năng thực hiện state tracking - theo dõi trạng thái của nhiều phần tử qua các phép hoán vị, một nhiệm vụ mà Transformer chuẩn thường gặp khó khăn.
+
+Các thí nghiệm thực tế cũng xác nhận hiệu quả của DeltaFormer. Trong bài toán theo dõi hoán vị của năm phần tử qua mười sáu lần trao đổi, DeltaFormer đạt được độ chính xác gần như tuyệt đối, trong khi Transformer nhiều tầng vẫn không thể hoàn thành tốt nhiệm vụ này. Tương tự, trong bài toán xác định khả năng kết nối trong đồ thị có hướng, DeltaFormer cũng cho thấy hiệu suất vượt trội.
+
+Hơn thế nữa, DeltaFormer không chỉ là một cải tiến kỹ thuật mà còn mở ra một hướng tiếp cận mới trong thiết kế kiến trúc mạng nơ-ron. Thay vì dựa vào thử nghiệm và kinh nghiệm, framework associative memory cung cấp một nền tảng lý thuyết vững chắc để hiểu và phát triển các kiến trúc mới. Điều này có thể dẫn đến những đột phá quan trọng trong việc xây dựng các mô hình AI hiệu quả và mạnh mẽ hơn trong tương lai.
+
+
+--
+
+Tác giả có quan điểm cân bằng và sâu sắc về Mixture-of-Experts, không chỉ phân tích khía cạnh kỹ thuật mà còn đặt MoE trong bối cảnh của khung lý thuyết bộ nhớ liên kết.
+
+Về quan điểm chính, tác giả coi MoE là phản ứng tự nhiên đối với yêu cầu sparsity trong hệ thống quy mô lớn. Họ nhận xét rằng khi số lượng keys và values trở nên lớn, các keys liên quan đến mỗi query sẽ chắc chắn trở nên thưa thớt, và cách tiếp cận đơn giản nhất để tích hợp sparsity vào Feed-Forward Network chính là thông qua cơ chế MoE. Điều này cho thấy MoE không phải là lựa chọn thiết kế tùy ý mà là phản ứng logic đối với yêu cầu sparsity.
+
+Điều thú vị là tác giả gợi ý rằng ý tưởng MoE có thể áp dụng cho cơ chế Attention. Họ phân tích sự khác biệt cốt lõi giữa Attention và FFN trong cơ chế MoE: trong Attention, keys và values là động, trong khi các tham số expert trong FFN là tĩnh. Điều này tạo ra thách thức cho việc áp dụng MoE vào Attention vì hàm gating cần phụ thuộc vào tập hợp các key vectors động.
+
+Tác giả đưa ra góc nhìn rộng hơn về **tính đối xứng giữa Attention và FFN** trong Transformer. Họ nhận xét rằng tính đối xứng này rất thú vị vì về nguyên tắc, **bất kỳ thiết kế nào cho một module đều có thể được triển khai chính xác trong module kia**. Điều này gợi ý rằng thành công của MoE trong FFN cho thấy tiềm năng của các cơ chế sparsity trong Attention.
+
+Về đánh giá phê phán, tác giả thừa nhận những điểm mạnh của MoE như hiệu quả tính toán thông qua sparsity, khả năng mở rộng bằng cách thêm experts, và sự phù hợp tự nhiên cho truy xuất thông tin thưa thớt. Tuy nhiên, họ cũng xác định những thách thức như độ phức tạp của **dynamic routing** cho attention và sự **đánh đổi giữa chuyên môn hóa expert và tổng quát hóa**.
+
+Cuối cùng, tác giả đề xuất các hướng nghiên cứu tương lai bao gồm việc áp dụng các thiết kế thành công theo cả hai hướng, hiểu cả hai thông qua lăng kính bộ nhớ liên kết, và tìm giải pháp tốt hơn cho dynamic expert routing trong attention-style MoE. Nhìn chung, họ coi MoE là cột mốc quan trọng trong sparse computation nhưng tin rằng vẫn còn chỗ để cải thiện, đặc biệt trong việc lựa chọn expert động, chuyển giao thiết kế hai chiều giữa Attention và FFN, và hiểu biết lý thuyết sâu hơn thông qua khung bộ nhớ liên kết.
+
+![](https://pbs.twimg.com/media/GuDrKznWgAA7ab3?format=jpg&name=4096x4096)
+
+Đây là những điểm thú vị nhất mà tôi thấy trong bài báo này:
+
+## 🧠 **Cái nhìn hoàn toàn mới về Transformer**
+
+**Transformer = Bộ não nhân tạo?** Ý tưởng so sánh Attention với cách não bộ nhớ Paris-Eiffel Tower thực sự rất hay. Khi bạn nghe "Paris", não tự động liên tưởng đến "Eiffel Tower" - chính xác như cách Attention hoạt động với key-value pairs. Điều này khiến ta hiểu Transformer không chỉ là công thức toán học mà giống cách con người tư duy.
+
+## 🔍 **Phát hiện ngược đời về Linear vs Softmax Attention**
+
+**Đa đầu vs Đơn đầu:** Thí nghiệm cho thấy Linear Attention hoạt động tốt hơn với ít head (để tăng chiều), còn Softmax Attention cần nhiều head (để tăng khả năng biểu đạt). Điều này hoàn toàn ngược với intuition thông thường và giải thích tại sao Linear Attention chưa bao giờ thật sự "thắng" được Softmax.
+
+## 🎭 **FFN = Bộ nhớ ngầm**
+
+**Phát hiện ẩn:** FFN không chỉ là "feed-forward network" đơn thuần mà thực chất là một dạng associative memory với ReLU kernel! Điều này có nghĩa mỗi neuron trong FFN đang "nhớ" một mẩu kiến thức nào đó. Cái nhìn này có thể thay đổi cách ta thiết kế và tối ưu FFN.
+
+## 🌊 **Paradox của vô hạn context**
+
+**Câu hỏi triết học:** "Nếu Transformer có context vô hạn, liệu nó có thông minh vô hạn?" Câu trả lời là **KHÔNG** - memory sẽ dần hội tụ và khả năng học in-context bị suy giảm. Điều này thách thức niềm tin phổ biến rằng "context càng dài = model càng thông minh".
+
+## 🔢 **Toán học đẹp đẽ đằng sau SNR**
+
+**Exponential magic:** Công thức SNR⁻¹ ≈ N/exp(...) cho Softmax vs N/dk cho Linear thực sự elegent. Nó giải thích tại sao Softmax có thể nhớ exponentially nhiều thông tin hơn - điều mà trực giác khó lý giải.
+
+## 🎪 **State tracking như ảo thuật**
+
+**Ma thuật toán học:** DeltaFormer có thể theo dõi 5 quân bài được xáo trộn qua 16 lượt với độ chính xác 100%. Transformer thông thường thậm chí không làm được việc này với nhiều layer. Giống như xem một màn ảo thuật toán học!
+
+## 🔄 **Delta rule = Tẩy não thông minh**
+
+**Cơ chế "quên để nhớ":** Thay vì chỉ cộng thêm thông tin mới (như Transformer), delta rule sẽ "tẩy" thông tin cũ tương tự trước khi ghi mới. Giống như não bộ cập nhật kiến thức thay vì chỉ chồng chất.
+
+## 🎨 **Kernel = Personality của model**
+
+**ReLU khuyến khích "đa nghĩa":** ReLU kernel có SNR thấp nhưng lại cho phép superposition - nhiều thông tin nén trong cùng một vector. Ngược lại, Exp kernel "khắt khe" hơn, muốn mỗi thứ một chỗ riêng biệt. Giống như người tối giản vs người tích trữ!
+
+## 🏗️ **Framework thống nhất**
+
+**Rosetta Stone của AI:** Bài báo tạo ra một "ngôn ngữ chung" để hiểu mọi biến thể Transformer (DeltaNet, Linear Attention, Gated Attention...) dưới một góc nhìn duy nhất. Giống như phát hiện ra DNA chung của các loài khác nhau.
+
+## 🎯 **Circuit complexity breakthrough**
+
+**Từ TC⁰ lên NC¹:** DeltaFormer phá vỡ rào cản biểu đạt cơ bản của Transformer. Điều này giống như nâng cấp từ máy tính bỏ túi lên siêu máy tính - về mặt lý thuyết có thể giải quyết các bài toán phức tạp hơn hẳn.
+
+## 🔮 **Triết lý thiết kế mới**
+
+**Từ "thử-sai" đến "nguyên lý":** Thay vì thiết kế kiến trúc bằng intuition và thử nghiệm, framework này cho phép thiết kế dựa trên nguyên lý khoa học - giống như chuyển từ alchemy sang chemistry.
+
+Điểm thú vị nhất là bài báo không chỉ đưa ra công thức mới mà thay đổi cách ta **tư duy** về AI - từ "black box" thành "bộ não có thể hiểu được"! 🤯
+
+![](https://pbs.twimg.com/media/GuDsYdmXMAAl-Wv?format=jpg&name=4096x4096)
+
+The Missing Link: Tại sao Attention cần normalization mà FFN thì không? Bài báo chỉ nói "for training stability" nhưng không giải thích sâu. Đây có thể là một fundamental difference chưa được hiểu!
+
+Gating Mystery: Tại sao gating trong Attention là "forgetting mechanism" (cumulative product 0→1) còn FFN lại là "amplifying mechanism"? Hai cách tiếp cận hoàn toàn ngược nhau!
+
+![](https://pbs.twimg.com/media/GuDt-WvXoAAJ6mf?format=jpg&name=large)
+
+**Multihead Attention và Mixture-of-Experts trong Feed-Forward Networks thực sự phục vụ mục đích tương tự nhưng triển khai ở các mức độ chi tiết khác nhau**, tạo nên một so sánh cực kỳ thú vị mà nghiên cứu phân tích rất sâu sắc.
+
+Về bản chất, cả hai cơ chế đều nhằm tạo ra khả năng tính toán thích ứng và có chọn lọc. Multihead Attention hoạt động bằng cách chia nhỏ không gian representation thành nhiều đầu, mỗi đầu tính toán các pattern tương tự khác nhau cho cùng một cặp query-key. Trong khi đó, MoE sử dụng nhiều mạng con chuyên biệt và định tuyến động để chỉ kích hoạt một phần nhỏ các experts cho mỗi input.
+
+Sự khác biệt chính nằm ở granularity và computation pattern. Multihead sử dụng dense computation với tất cả các heads hoạt động song song, trong khi MoE áp dụng sparse computation chỉ với một vài experts được kích hoạt. Multihead thường có 8-32 heads với static splitting, còn MoE có thể có 64+ experts với dynamic routing based trên input content.
+
+Nghiên cứu chỉ ra một insight quan trọng về trade-off mechanism. Multihead có thể đánh đổi giữa retrieval precision và expressivity khi sử dụng stronger kernels, hoặc tăng cường superposition để cải thiện knowledge capacity. Đặc biệt, trong Multi-Query Attention, việc averaging qua multiple heads có thể giảm variance của noise term xuống một factor bằng số lượng heads, tạo ra hiệu ứng noise reduction mạnh mẽ.
+
+Về computational efficiency, mỗi approach có ưu điểm riêng. Multihead được tối ưu hóa tốt trên GPU hiện đại với parallel head computation và predictable memory access patterns. MoE mang lại lợi ích về sparse activation với lower FLOPs và scalable capacity - có thể thêm experts mà không tăng per-token cost.
+
+Điểm nóng nhất của nghiên cứu là đề xuất cross-pollination opportunity. Tác giả gợi ý rằng việc **introducing multihead mechanisms vào FFNs đáng được xem xét lại, tạo ra khả năng hybrid approaches kết hợp ưu điểm của both worlds**. Họ thậm chí còn đề xuất multihead MoE - một architecture có thể process đầu vào qua multiple heads trước rồi route đến specialized experts.
+
+Từ góc độ lý thuyết, cả hai đều có thể hiểu qua associative memory framework. **Multihead tạo ra multiple similarity patterns để retrieve information, trong khi MoE tạo specialized memory modules cho different types of knowledge**. SNR analysis cho thấy multihead có thể reduce noise through averaging, còn MoE achieve higher SNR through reduced cross-expert interference.
+
+Kết luận quan trọng là Multihead vs MoE không phải competition mà là complementary strategies representing different manifestations của cùng underlying principle - adaptive, selective computation. Future architectures có khả năng sẽ intelligently combine cả hai approaches dựa trên task requirements và computational constraints, mở ra direction cho những innovation architecture tiếp theo.
+
+--
+
+Thực sự, việc chỉ nhìn Transformer qua góc độ bộ nhớ liên kết có thể hạn chế hiểu biết toàn diện. Có rất nhiều cách tiếp cận khác nhau đã được nghiên cứu, mỗi cách đều mang lại những hiểu biết độc đáo.
+
+Một trong những góc nhìn quan trọng là lý thuyết thông tin. Ở đây, cơ chế attention được coi như hệ thống nén thông tin, trong đó việc tính toán độ tương tự giữa query và key chính là quá trình chọn lọc thông tin. Việc chuẩn hóa softmax tạo ra phân phối xác suất trên các nguồn thông tin. Insight chính là attention học được cách nén tối ưu của chuỗi đầu vào, multi-head hoạt động như nhiều phương pháp nén song song.
+
+Góc nhìn cơ sở dữ liệu khác biệt coi attention như cơ sở dữ liệu có thể vi phân. Keys là chỉ mục cơ sở dữ liệu, values là nội dung được lưu trữ, queries là yêu cầu tìm kiếm, và attention weights là xác suất truy xuất mềm. Quá trình huấn luyện Transformer chính là học cách tổ chức cơ sở dữ liệu tối ưu.
+
+Lý thuyết hệ thống động học coi mỗi layer Transformer như một bước thời gian của hệ thống động học rời rạc. Kết nối residual là sự tiến hóa trạng thái theo thời gian, attention là chuyển đổi phụ thuộc vào trạng thái. Mạng sâu tương ứng với động học dài hạn.
+
+Phương pháp kernel coi attention weights như đánh giá kernel, các đầu attention khác nhau sử dụng các hàm kernel khác nhau, softmax là kernel được chuẩn hóa với độ tương tự mũ. Linear attention chính là ánh xạ kernel tường minh.
+
+Góc nhìn mạng neural đồ thị coi chuỗi như đồ thị, trong đó tokens là các nút, attention weights là trọng số cạnh, self-attention là truyền thông điệp trên đồ thị đầy đủ. Sparse attention chính là làm thưa đồ thị.
+
+Hình học thông tin coi token embeddings như các điểm trên đa tạp, attention như khoảng cách geodesic trên đa tạp. Quá trình huấn luyện chính là học đa tạp.
+
+Vật lý thống kê coi attention weights như phân phối Boltzmann, tham số nhiệt độ như năng lượng nhiệt. Nhiệt độ thấp tạo attention sắc nét, nhiệt độ cao tạo attention khuếch tán.
+
+Các mô hình lấy cảm hứng từ khoa học thần kinh coi attention như phóng đại vỏ não, query/key/value như các đường dẫn thần kinh khác nhau, multi-head như các luồng xử lý song song.
+
+Mỗi framework có điểm mạnh và hạn chế riêng. Bộ nhớ liên kết trực quan và thực tế nhưng giới hạn ở các ẩn dụ bộ nhớ. Lý thuyết thông tin có các phép đo định lượng nhưng toán học phức tạp. Phương pháp kernel có lý thuyết được thiết lập tốt nhưng phân tích khả năng biểu đạt hạn chế.
+
+Góc nhìn bộ nhớ liên kết thiếu sót trong việc nắm bắt xử lý tuần tự, không giải thích được ngữ nghĩa kết hợp, các hành vi nổi lên từ việc xếp chồng layer, động học tối ưu trong quá trình huấn luyện, và tính chất tổng quát hóa qua các miền.
+
+Không có framework đơn lẻ nào nắm bắt được mọi thứ - mỗi cái làm sáng tỏ các khía cạnh khác nhau của hành vi Transformer phức tạp. Hiểu biết tối ưu cần nhiều framework bổ sung: bộ nhớ liên kết cho trực giác lưu trữ/truy xuất, lý thuyết thông tin cho phân tích định lượng, phương pháp kernel cho tính toán độ tương tự, lý thuyết đồ thị cho tính chất cấu trúc, hệ thống động học cho tiến hóa thời gian.
+
+Xu hướng nghiên cứu hiện tại ngày càng hướng đến các phương pháp tích hợp kết hợp nhiều framework lý thuyết để đạt được hiểu biết hoàn chỉnh hơn về Transformer.
+

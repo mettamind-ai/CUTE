@@ -118,7 +118,7 @@ class CausalSelfAttention(nn.Module):
             k = k    .view(T, Hkv, D)
             v = v_emb.view(T, Hkv, D)
 
-            q, k, v = norm(q), norm(k), norm(v)
+            # q, k, v = norm(q), norm(k), norm(v)
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
     
