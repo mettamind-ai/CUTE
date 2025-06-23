@@ -152,7 +152,7 @@ for step in range(args.steps):  # training loop
         ), step=step)
         if step % (10 * log_interval) == 0:
             print(f"""{model.scalars}
-         INPUT__ ATTN___ MLP___""")
+         ATTN___ MLP___""")
 
 model.update_async_weight()
 logger.finish()

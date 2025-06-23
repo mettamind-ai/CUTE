@@ -133,8 +133,8 @@ class Block(nn.Module):
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
         attn = self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
-        if self.mlp is None: return scalars[0]*x + scalars[1]*attn
-        else:                return scalars[0]*x + scalars[1]*attn + scalars[2]*self.mlp(xn)
+        if self.mlp is None: return x + attn
+        else:                return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -151,7 +151,7 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
         self.embeds  = Embedding(vocab_size, dim + self.kv_dim * n_layers, active_vocab)
-        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 1.0]*n_layers).view(-1, 3))
+        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
