@@ -130,11 +130,11 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim) if layer_id > 0 and layer_id < n_layers - 1 else None # bỏ mlp ở đầu và cuối
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
+    def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
         attn = self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
-        if self.mlp is None: return x + attn
-        else:                return x + attn + self.mlp(xn)
+        if self.mlp is None: return scalars[0]*x + scalars[1]*attn
+        else:                return scalars[0]*x + scalars[1]*attn + scalars[2]*self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
@@ -150,8 +150,8 @@ class WinGPT(nn.Module):
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
-        self.embeds  = Embedding(vocab_size, self.dim + self.kv_dim*self.n_layers, active_vocab)
-        with torch.no_grad(): self.embeds.weight[..., self.dim : self.dim*(self.n_layers+1)].fill_(1.0)
+        self.embeds  = Embedding(vocab_size, dim + self.kv_dim * n_layers, active_vocab)
+        self.scalars = nn.Parameter(torch.cat([torch.tensor[1.0, 1.0, 1.0]]*n_layers).view(-1, 3))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -174,7 +174,7 @@ class WinGPT(nn.Module):
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary)
+            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, scalars[i])
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x, x0
 

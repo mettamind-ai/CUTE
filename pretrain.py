@@ -12,10 +12,10 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=112)
+parser.add_argument("--bs",     type=int, default=128)
 parser.add_argument("--steps",  type=int, default=500)
 parser.add_argument("--vocab",  type=int, default=6400)
-parser.add_argument("--ohmai",  type=int, default=2048)
+parser.add_argument("--ohmai",  type=int, default=2304)
 args = parser.parse_args()
 
 torch.manual_seed(1981)
@@ -73,6 +73,7 @@ muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
     dict(params=[*model.embeds.parameters()  ], lr=0.1   ), 
+    dict(params=[ model.scalars              ], lr=0.015 ),
     dict(params=[*model.unembeds.parameters()], lr=1/300 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
@@ -149,6 +150,8 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
+        if step % (10 * log_interval) == 0:
+            print(model.scalars)
 
 model.update_async_weight()
 logger.finish()
