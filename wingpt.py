@@ -132,12 +132,13 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim)
+        self.mlp = ReLuSquareMLP(dim) if layer_id > 0 and layer_id < n_layers - 1 else None # bỏ mlp ở đầu và cuối
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary): # sử dụng parallel transformer
-        return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-
+        attn = self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        if self.mlp is None: return x + attn
+        else:                return x + attn + self.mlp(x)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
