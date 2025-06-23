@@ -110,7 +110,8 @@ class CausalSelfAttention(nn.Module):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
 
-        def prepare(qk, v_emb):
+        def prepare():
+            qk = self.qk_proj(norm(x))
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
@@ -122,7 +123,7 @@ class CausalSelfAttention(nn.Module):
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, v
     
-        q, k, v = checkpoint(prepare, self.qk_proj(x), v_emb, use_reentrant=False)
+        q, k, v = checkpoint(prepare, use_reentrant=False)
         y = flash_attn_varlen_func(q, k, v,
             cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True, 
             dropout_p=0.0, softmax_scale=self.attn_scale, window_size=(self.window, 0),
