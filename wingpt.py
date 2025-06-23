@@ -162,7 +162,7 @@ class WinGPT(nn.Module):
             with torch.no_grad(): self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = x0 = self.embeds(input_seq)
+        x = checkpoint(self.embeds, input_seq, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
             f = lambda x, i, blk: blk(x, self.v_embs[i], input_seq, cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
             x = checkpoint(f, x, i, blk, use_reentrant=False)
@@ -170,20 +170,25 @@ class WinGPT(nn.Module):
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen) # tất cả chưa norm 
+    x = model(input_seq, cu_seqlens, max_seqlen) 
     def prepare():
+
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
+
+        x0    = model.embeds(input_seq)
         xx_x0 = torch.cat([xx, x0], dim=-1)
+
         y     = model.head2_mlp(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
-        return norm(y), ty, norm(x)
-    y, ty, x = checkpoint(prepare, use_reentrant=False)
+
+        return norm(x), norm(y), ty
+    xn, yn, ty = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     w     = model.unembeds.weight
-    xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
-    yloss = FusedCE.apply(y,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
+    xloss = FusedCE.apply(xn,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
     return xloss + yloss
 
 
