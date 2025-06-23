@@ -15,14 +15,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=96)
 parser.add_argument("--steps",  type=int, default=500)
 parser.add_argument("--vocab",  type=int, default=6400)
-parser.add_argument("--ohmai",  type=int, default=2304)
 args = parser.parse_args()
 
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-model = WinGPT(dim=1024, n_layers=24, num_heads=16, num_kv_heads=4, head_dim=64, # 160m
-        vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
+model = WinGPT( dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=64,
+                vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 160m
 
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")

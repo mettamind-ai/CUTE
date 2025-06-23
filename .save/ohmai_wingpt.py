@@ -3,7 +3,8 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, FusedCE
+from optimus import Int8MixedLinear, quantize_int8, FusedCE
+from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -126,7 +127,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if 5 <= layer_id and layer_id < n_layers - 1 else None
+        self.mlp = ReLuSquareMLP(dim) if 6 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
@@ -136,23 +137,27 @@ class Block(nn.Module):
         else:                return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128):
+    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128, active_vocab=None):
         super().__init__()
         self.n_layers = n_layers
+
+        Embedding = OhMaiEmbedding if active_vocab else nn.Embedding
+        Unembedding = OhMaiHead    if active_vocab and vocab_size >= 32*1024 else nn.Linear
+        print(f"Using {Embedding.__name__} and {Unembedding.__name__}")
         self.rotary = Rotary(head_dim, max_seq_len)
 
         blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, i, n_layers) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
-        self.embeds  = nn.Embedding(vocab_size, dim + self.kv_dim * n_layers)
+        self.embeds  = Embedding(vocab_size, dim + self.kv_dim * n_layers, active_vocab)
         self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
         self .head2_mlp = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # head2 to predict next of next token (MTP)
 
-        self.unembeds = nn.Linear(dim, vocab_size, bias=False)
+        self.unembeds = Unembedding(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
             with torch.no_grad(): self.unembeds.weight.zero_()
 
@@ -162,8 +167,8 @@ class WinGPT(nn.Module):
         if isinstance(self.unembeds, OhMaiHead):  self.unembeds.update_async_weight()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
+        embs = self.embeds(input_seq.long())
         def prepare():
-            embs = self.embeds(input_seq.long())
             x = x0 = embs[..., : self.dim]
             v_embs = list(embs[..., -self.kv_dim*self.n_layers : ].chunk(self.n_layers, dim=-1))
             return x, x0, v_embs
@@ -175,7 +180,12 @@ class WinGPT(nn.Module):
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen) # tất cả chưa norm 
+    ohmaihead = isinstance(model.unembeds, OhMaiHead)
+    if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)        # tất cả chưa norm
+    if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
+ 
+    ## Prepare to predict next tokens, không sử dụng head riêng cho NTP vì sẽ làm giảm perf
     def prepare():
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
@@ -186,7 +196,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     y, ty, x = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    w     = model.unembeds.weight
+    w     = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
     xloss = FusedCE.apply(x,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
     yloss = FusedCE.apply(y,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
     return xloss + yloss
@@ -219,6 +229,32 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len).cuda()
     
+    # Khởi tạo model 2 dùng OhMaiEmbedding và OhMaiHead
+    torch.manual_seed(seed)
+    ohmai = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len, active_vocab=vocab_size//2).cuda()
+
+    # Đảm bảo toàn bộ tham số của 2 model là như nhau
+    def check_params():
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ohmai.named_parameters()):
+            if n2 == "embeds.active_weight":
+                n2 = "embeds.weight"
+                p2 = ohmai.embeds.weight.cuda()
+            if n2 == "unembeds.active_weight":
+                n2 = "unembeds.weight"
+                p2 = ohmai.unembeds.weight.cuda()
+            assert n1 == n2, f"{n1} != {n2}"
+            assert torch.allclose(p1, p2), f"{n1} values are different"
+        print("Params của 2 model đã được khởi tạo giống hệt nhau")
+    check_params()
+
+    # Đảm bảo toàn bộ 2 models đều là bf16
+    for m in [model, ohmai]:
+        for n, p in m.named_parameters(): assert p.dtype == torch.bfloat16, f"{n} is not bf16"
+        print(f"All {'ohmai' if m == ohmai else 'model'} params are in bfloat16.")
+
+    convert_int8_mixed_precision(model)
+    convert_int8_mixed_precision(ohmai)
+    # model = torch.compile(model) # chậm !!!
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]
@@ -226,13 +262,22 @@ if __name__ == "__main__":
     print("\nAdam:", apara.keys())
     apara = list(apara.values())
 
+    # Bổ xung thêm ohmai params vào adam và muon
+    for n, p in ohmai.named_parameters():
+        if "proj" not in n: apara.append(p)
+        else:  opara.append(p)
+
     aptim = torch.optim.Adam(apara)
     optim = Muon(opara)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
 
+    tok_emb_before = ohmai.embeds.weight.data.clone()
+    head_before = ohmai.unembeds.weight.data.clone()
+
     model.train()
+    ohmai.train()
 
     for step in range(10):
         ## Generate sequences with batch dimension
@@ -244,13 +289,35 @@ if __name__ == "__main__":
         optim.zero_grad()
         aptim.zero_grad()
 
+        ## Đảm bảo 2 cách lấy embedding là giống nhau
+        a = ohmai.embeds(input_seq).cpu()
+        b = ohmai.embeds.weight[input_seq.cpu().long()]
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy embeddings không trùng khớp\n{a}\n{b}"
+
         loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss_ohmai = fused_loss_fn(ohmai, input_seq, target, cu_seqlens, max_seqlen)
+
+        ## Đảm bảo 2 cách lấy head là giống nhau
+        a = ohmai.unembeds.weight.cuda()[target]
+        inverse = ohmai.unembeds.activate(target)
+        b = ohmai.unembeds.active_weight[inverse]
+        assert torch.allclose(a, b, atol=1e-5), f"2 cách lấy head không trùng khớp\n{a}\n{b}"
  
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss_model {loss_model.item():.4f}, ", end="")
+        print(f"step {step}, loss_model {loss_model.item():.4f}, loss_ohmai {loss_ohmai.item():.4f}, ", end="")
 
+        loss_ohmai.backward()
         loss_model.backward()
         optim.step()
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
+        ohmai.update_async_weight() # đảm bảo async weights (embeddings/head) đã được cập nhật
+
+    tok_emb_after = ohmai.embeds.weight.data.clone()
+    diff = (tok_emb_before != tok_emb_after).sum().item()
+    assert diff > 0, f"Số lượng embedding thay đổi {diff}"
+
+    head_after = ohmai.unembeds.weight.data.clone()
+    diff = (head_before != head_after).sum().item()
+    assert diff > 0, f"Số lượng head thay đổi {diff}"
