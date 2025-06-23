@@ -109,8 +109,10 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 - [ ] flash-attn đang viết lại = cute dsl => đọc hiểu để impl
   - flashmask ![](https://pbs.twimg.com/media/GtqLLRsbAAEXNTq?format=jpg&name=4096x4096)
   - cách nhanh và rẻ nhất là masking ở **block level** với block là processing unit của FA
-  - [ ] sửa FA để nó luôn attn vào first block of seq bất kể SWA là bao nhiêu
-  - [ ] sửa FA để hỗ trợ prefix LLM (GLM paper, UL2 paper ...)
+  - infllmv2_cuda_impl requires `query_head_num / key_head_num == 16`
+    - https://github.com/OpenBMB/infllmv2_cuda_impl/issues/1#issuecomment-2961106768
+    - https://github.com/OpenBMB/infllmv2_cuda_impl/blob/feature_infer/csrc/flash_attn/flash_api.cpp#L787
+  - kết hợp cách chọn top-k blocks của infllmv2 và flashmask sẽ được top-k SPARSE ATTN!
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 

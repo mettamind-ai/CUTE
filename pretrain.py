@@ -29,17 +29,17 @@ def print0(msg): is_master and print(msg)
 ##  Init Model  ##
 ##################
 if args.bs is None: # cài đặt mặc định bs cho 4090
-    if   args.L:   args.bs =  56#k tok / batch => 36k tok/s; 22.9G vram
-    elif args.M:   args.bs =  64#k tok / batch => 54k tok/s; 21.6G vram
-    else:          args.bs = 112#k tok / batch => 88k tok/s; 22.6G vram
+    if   args.L:   args.bs =  48#k tok / batch => 36k tok/s; 22.9G vram
+    elif args.M:   args.bs =  56#k tok / batch => 54k tok/s; 21.6G vram
+    else:          args.bs = 112#k tok / batch => 88k tok/s; 22.9G vram
 tokens_per_batch = args.bs*1024
 
 if   args.L: # (L)arge  ~ 685m
-    model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=8, head_dim=128,
+    model = WinGPT(dim=2048, n_layers=16, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 elif args.M: # (M)edium ~ 410m với cấu hình gần tương đương qwen 0.6b
-    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=8, head_dim=128,
+    model = WinGPT(dim=1024, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=128,
         vocab_size=args.vocab, max_seq_len=tokens_per_batch, active_vocab=args.ohmai,)
 
 else:        # (S)mall  ~ 235m active params
