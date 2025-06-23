@@ -72,8 +72,7 @@ class ReLuSquareMLP(nn.Module):
 
     def forward(self, x):
         y = self.fc1_proj(x)
-        def prepare(): return F.relu(y).square() 
-        z = checkpoint(prepare, use_reentrant=False)
+        z = checkpoint(lambda: F.relu(y).square(), use_reentrant=False)
         return self.fc2_proj(z)
 
 
