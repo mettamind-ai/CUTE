@@ -139,7 +139,8 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        xn = norm(x)
+        # xn = norm(x)
+        xn = checkpoint(norm, x, use_reentrant=False)
         if self.mlp is None: return x + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
         else: return x + self.mlp(xn) + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
         # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
