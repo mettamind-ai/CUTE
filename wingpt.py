@@ -71,8 +71,7 @@ class ReLuSquareMLP(nn.Module):
 
 
     def forward(self, x):
-        y = self.fc1_proj(x)
-        z = checkpoint(lambda: F.relu(y).square(), use_reentrant=False)
+        z = checkpoint(lambda: F.relu(self.fc1_proj(x)).square(), use_reentrant=False)
         return self.fc2_proj(z)
 
 
@@ -118,9 +117,9 @@ class CausalSelfAttention(nn.Module):
             v = v_emb.view(T, Hkv, D)
 
             ## RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
-            # q, k, v = norm(q), norm(k), norm(v)
+            ## q, k = norm(q), norm(k)
             if self.rope: q, k = rotary(q), rotary(k)
-            return q, k, v
+            return q, k, norm(v)
 
         q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
