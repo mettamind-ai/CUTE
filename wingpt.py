@@ -151,7 +151,7 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
         self.embeds  = Embedding(vocab_size, dim + self.kv_dim * n_layers, active_vocab)
-        self.scalars = nn.Parameter(torch.cat([torch.tensor[1.0, 1.0, 1.0]]*n_layers).view(-1, 3))
+        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 1.0]*n_layers).view(-1, 3))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -174,7 +174,7 @@ class WinGPT(nn.Module):
             return x, x0, v_embs
         x, x0, v_embs = checkpoint(prepare, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, scalars[i])
+            f = lambda x, i, blk: blk(x, v_embs[i], cu_seqlens, max_seqlen, self.rotary, self.scalars[i])
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x, x0
 
