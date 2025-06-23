@@ -127,7 +127,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if layer_id > 0 and layer_id < n_layers - 1 else None # bỏ mlp ở đầu và cuối
+        self.mlp = ReLuSquareMLP(dim) if layer_id >= 6 else None # bỏ mlp ở 6 layers đầu
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars):
