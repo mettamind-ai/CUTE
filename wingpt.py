@@ -42,9 +42,7 @@ class ReLuSquareMLP(nn.Module):
 
 
     def forward(self, x):
-        def prepare(): return F.relu(self.fc1_proj(norm(x))).square()
-        # y = checkpoint(prepare, x, use_reentrant=False)
-        y = prepare()
+        y = F.relu(self.fc1_proj(x)).square()
         return self.fc2_proj(y)
 
 ##########################
@@ -110,25 +108,23 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    =  self.head_dim, self.seq_len
-        qk      = self.qk_proj(norm(x)) # prenorm
+        qk      = self.qk_proj(x) # prenorm
 
-        def prepare():
-            q  = qk[..., : self.qo_dim ]
-            k  = qk[..., self.qo_dim : ]
+        q  = qk[..., : self.qo_dim ]
+        k  = qk[..., self.qo_dim : ]
 
-            q = q    .view(T, H,   D)
-            k = k    .view(T, Hkv, D)
-            v = v_emb.view(T, Hkv, D)
+        q = q    .view(T, H,   D)
+        k = k    .view(T, Hkv, D)
+        v = v_emb.view(T, Hkv, D)
 
-            # q, k, v = norm(q), norm(k), norm(v) # RNoPE said that qk norm hurt long ctx, warmup carefully and use prenorm
-            if self.rope: q, k = rotary(q), rotary(k)
-            return q, k, v
-
-        q, k, v = checkpoint(prepare, use_reentrant=False)
+        ## RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
+        # q, k, v = norm(q), norm(k), norm(v)
+        if self.rope: q, k = rotary(q), rotary(k)
 
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             causal=True, softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
+
         return self.o_proj(o)
 
 ##############################
@@ -143,8 +139,9 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
-        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        xn = norm(x)
+        if self.mlp is None: return x + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
+        else: return x + self.mlp(xn) + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
         # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
@@ -203,8 +200,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(xx_x0)
-        xe    = model.head1_mlp(xe)
+        y     = model.head2_mlp(norm(xx_x0))
+        xe    = model.head1_mlp(norm(xe))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x), norm(xe)
     y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
