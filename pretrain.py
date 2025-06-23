@@ -14,7 +14,7 @@ from torch import Tensor, nn
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=96)
 parser.add_argument("--steps",  type=int, default=500)
-parser.add_argument("--vocab",  type=int, default=6400)
+parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
 
 torch.manual_seed(1981)
