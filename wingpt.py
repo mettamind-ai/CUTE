@@ -69,11 +69,8 @@ class ReLuSquareMLP(nn.Module):
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
-
     def forward(self, x):
-        z = checkpoint(lambda: F.relu(self.fc1_proj(x)).square(), use_reentrant=False)
-        return self.fc2_proj(z)
-
+        return self.fc2_proj(checkpoint(lambda: F.relu(self.fc1_proj(norm(x))).square(), use_reentrant=False))
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
@@ -105,10 +102,10 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
-        D, T    =  self.head_dim, self.seq_len
-        qk      = self.qk_proj(x) # x đã được norm
+        D, T    = self.head_dim, self.seq_len
 
         def prepare():
+            qk = self.qk_proj(norm(x))
             q  = qk[..., : self.qo_dim ]
             k  = qk[..., self.qo_dim : ]
 
@@ -116,8 +113,7 @@ class CausalSelfAttention(nn.Module):
             k = k    .view(T, Hkv, D)
             v = v_emb.view(T, Hkv, D)
 
-            ## RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
-            ## q, k = norm(q), norm(k)
+            # q, k = norm(q), norm(k) # RNoPE: qk norm hurt long ctx; warmup carefully and use prenorm
             if self.rope: q, k = rotary(q), rotary(k)
             return q, k, norm(v)
 
@@ -139,10 +135,8 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, cu_seqlens, max_seqlen, rotary, scalars): # sử dụng parallel transformer
-        # xn = norm(x)
-        xn = checkpoint(norm, x, use_reentrant=False)
-        if self.mlp is None: return x + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
-        else: return x + self.mlp(xn) + self.attn(xn, v_emb, cu_seqlens, max_seqlen, rotary)
+        if self.mlp is None: return x + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
+        else:  return x + self.mlp(x) + self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
         # return scalars[0]*x + scalars[1]*self.mlp(x) + scalars[2]*self.attn(x, v_emb, cu_seqlens, max_seqlen, rotary)
 
 
@@ -201,8 +195,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(norm(xx_x0))
-        xe    = model.head1_mlp(norm(xe))
+        y     = model.head2_mlp(xx_x0)
+        xe    = model.head1_mlp(xe)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(y), ty, norm(x), norm(xe)
     y, ty, x, xe = checkpoint(prepare, x, x0, target, xe, use_reentrant=False)
