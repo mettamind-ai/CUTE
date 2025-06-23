@@ -200,3 +200,14 @@
     - https://github.com/OpenBMB/infllmv2_cuda_impl/issues/1#issuecomment-2961106768
     - https://github.com/OpenBMB/infllmv2_cuda_impl/blob/feature_infer/csrc/flash_attn/flash_api.cpp#L787
   - kết hợp cách chọn top-k blocks của infllmv2 và flashmask sẽ được top-k SPARSE ATTN!
+
+- LEARNING OBJECTIVES
+  - [x] MTP rất hiệu quả với 1 future head
+  - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
+    - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
+      Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.
+    - => INT8 Linear + INT8 SageFwd + Early Exit to maximum speedup! 
+  - [ ] Hạn chế tác hại của Causual Attn => GLM and other learning objectives?
+  - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
+    Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+

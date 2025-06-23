@@ -62,16 +62,6 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
   - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
     - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
 
-- LEARNING OBJECTIVES
-  - [x] MTP rất hiệu quả với 1 future head
-  - [ ] LongCE => WEIGHTED LOSS một cách thông minh (dùng chính model để đo độ quan trọng của token)
-    - Cần 1 phương pháp load training data vào context nhanh để tìm ra những tokens khó dự đoán.
-      Chỉ cần nắm tương quan tokens nào khó dự đoán, tokens nào dễ dự đoán ko cần ra xác xuất chính xác.
-    - => INT8 Linear + INT8 SageFwd + Early Exit to maximum speedup! 
-  - [ ] Hạn chế tác hại của Causual Attn => GLM and other learning objectives?
-  - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
-    Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
-
 - LLM-BASED TOK (flexible tokenization & token usage)
   - Token được TỰ DO LỰA CHỌN:
     - cách nó attn (chính là query trong self-attn)
@@ -91,13 +81,13 @@ linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả 
 
 ---
 
-- [ ] Thống kê 2-gram và map 2-gram vào token_id từ data/6400.bin
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
-  Lý do: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
-- [ ] impl weighted LCE hiệu quả
-- [ ] impl longce hiệu quả "only less than 10% tokens are highly influenced by long context"
-- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd.
-  => có thể pre-filter hoặc sample intelligently.
+  `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+
+- [ ] Nghĩ ra biến thể ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
+  Cần nhiều token để đoán => quan trọng?
+
+- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và 2-gram
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 
