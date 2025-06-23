@@ -73,7 +73,6 @@ muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
     dict(params=[*model.embeds.parameters()  ], lr=0.1   ), 
-    dict(params=[ model.scalars              ], lr=0.015 ), 
     dict(params=[*model.unembeds.parameters()], lr=1/300 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
@@ -150,7 +149,6 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
-        # if step % (10*log_interval) == 0: print(model.scalars)
 
 model.update_async_weight()
 logger.finish()
