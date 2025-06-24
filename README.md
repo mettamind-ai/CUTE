@@ -1,7 +1,7 @@
 ## 🌸`CUTE`🌸 Center for Upgrading Training Efficient
-- `ONE_` gamming GPUs can train ~1b models
-- `TWO_` gamming GPUs can train ~2b models
-- `FOUR` gamming GPUs can train ~4b models
+- `ONE_` gamming GPUs can train < 1b models
+- `TWO_` gamming GPUs can train < 2b models
+- `FOUR` gamming GPUs can train < 4b models
 ```
                              BF16        INT8
 3090      350W  24G     71 TFLOPS    284 TOPS
