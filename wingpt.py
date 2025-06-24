@@ -138,7 +138,7 @@ class Block(nn.Module):
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
         attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars)
-        # if self.mlp is None: return x + attn
+        if self.mlp is None: return x + attn
         return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
 class WinGPT(nn.Module):
