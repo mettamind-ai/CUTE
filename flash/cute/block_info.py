@@ -7,7 +7,27 @@ from seqlen_info import SeqlenInfo
 
 
 class BlockInfo:
+'''
+Attention matrix được chia thành blocks
+Query blocks (M): [Q0][Q1][Q2]...
+Key   blocks (N): [K0][K1][K2]...
 
+Full-attention matrix:
+     K0  K1  K2  K3
+Q0  [x] [x] [x] [x]
+Q1  [x] [x] [x] [x]  
+Q2  [x] [x] [x] [x]
+
+Với causal mask - chỉ tính blocks "hợp lệ":
+     K0  K1  K2  K3
+Q0  [✓] [-] [-] [-]  (Q0 chỉ nhìn K0)
+Q1  [✓] [✓] [-] [-]  (Q1 nhìn K0, K1)
+Q2  [✓] [✓] [✓] [-]  (Q2 nhìn K0, K1, K2)
+
+Function trả về:
+- `n_block_min`: Block K đầu tiên cần xử lý (thường = 0)
+- `n_block_max`: Block K cuối cùng cần xử lý
+'''
     def __init__(
         self,
         m_block_size: cutlass.Constexpr[int],   # Kích thước block theo chiều M (query)
@@ -21,24 +41,25 @@ class BlockInfo:
     ):
         self.m_block_size: cutlass.Constexpr[int] = m_block_size
         self.n_block_size: cutlass.Constexpr[int] = n_block_size
-        self.is_causal: cutlass.Constexpr[bool] = is_causal
+        self.is_causal:   cutlass.Constexpr[bool] = is_causal
         self.qhead_per_kvhead_packgqa: cutlass.Constexpr[int] = qhead_per_kvhead_packgqa
         self._loc = loc
 
     @cute.jit
-    def get_n_block_min_max(
-        self, seqlen_info: SeqlenInfo, m_block: cutlass.Int32
-    ) -> Tuple[cutlass.Int32, cutlass.Int32]:
-        n_block_max = cute.ceil_div(seqlen_info.seqlen_k, self.n_block_size)
+    def get_n_block_min_max(self, seqlen_info: SeqlenInfo, m_block: cutlass.Int32,) -> Tuple[cutlass.Int32, cutlass.Int32]:
+
         n_block_min = 0
-        if cutlass.const_expr(self.is_causal):
-            m_idx_max = (m_block + 1) * self.m_block_size
-            if cutlass.const_expr(self.qhead_per_kvhead_packgqa > 1):
-                m_idx_max = (m_idx_max - 1) // self.qhead_per_kvhead_packgqa + 1
-            n_idx = m_idx_max + seqlen_info.seqlen_k - seqlen_info.seqlen_q
-            n_idx_right = n_idx
-            n_block_max = min(cute.ceil_div(n_idx_right, self.n_block_size), n_block_max)
-        return n_block_min, n_block_max
+        n_block_max = cute.ceil_div(seqlen_info.seqlen_k, self.n_block_size)
+
+        if not cutlass.const_expr(self.is_causal): return n_block_min, n_block_max
+
+        m_idx_max = (m_block + 1) * self.m_block_size
+        if cutlass.const_expr(self.qhead_per_kvhead_packgqa > 1):
+            m_idx_max = (m_idx_max - 1) // self.qhead_per_kvhead_packgqa + 1
+
+        n_idx_right = m_idx_max + seqlen_info.seqlen_k - seqlen_info.seqlen_q
+        n_block_max = min(cute.ceil_div(n_idx_right, self.n_block_size), n_block_max)
+
 
     @cute.jit
     def get_n_block_min_causal_local_mask(
