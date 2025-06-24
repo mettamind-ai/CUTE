@@ -49,35 +49,8 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-# 🌸LINH HOẠT🌸
-
-- LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
-  - giảm dataset phải chuẩn bị cho nó học?
-  - học cách phân bổ dữ liệu nhanh hơn?
-  - nhìn data dist dưới góc nhìn của logits (2D: seq x vocab)
-  - tknz là cách cân bằng giữa `hidden dim` vs `seq_len` vs `vocab_size`
-    hdim cố định, vocab tăng giúp giảm seq len nhưng làm tăng vocab size nhanh chóng
-  - Logits distill: chỉ có top-5 tokens là quan trọng ... => tính thưa rất cao!
-    - BiLD loss với chỉ top-8 logits https://www.alphaxiv.org/abs/2406.13555
-
-- LLM-BASED TOK (flexible tokenization & token usage)
-  - Token được TỰ DO LỰA CHỌN:
-    - cách nó attn (chính là query trong self-attn)
-    - cách nó chọn số computing / hidden dim để biểu diễn chính nó (MoE)
-      https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mixture-of-experts
-
-  - Input là 2-gram nhưng output là gram (NTP) + gram (MTP với 1 prediction head) để giữ head bé
-    - trong lúc tknz có tỉ lệ nhỏ 1-2% tự động phân mảnh token hoặc gộp 2 token liền nhau (dùng model để chọn)
-      nhằm huấn luyện model thích ứng với nhiều cách tknz khác nhau và build embeddings của n-grams (n > 2)
-
-  - Tận dụng loss/logits/gradient per token từ step trước để quyết định phân tách / gộp chính xác hơn.
-    **Cách nhóm tokens thế nào sẽ do model tính điểm 1 lần trên based tokens trước rồi mới quyết**
-
-  - Bắt đầu bằng bất kỳ khởi tạo vocab nào và sắp xếp lại thứ tự quan trọng của các tokens trong vocab dựa vào grad score / logits score / loss score ..., từ đó bình chọn lại, sẽ có những unit tokens luôn được giữ nhưng chỉ là số lượng nhỏ (2k/total 8k chẳng hạn)
-
-  - **Nếu liên tục promote những tokens mới thì model tự nhiên sẽ tạo ra SUPER TOKENS của riêng nó.**
-
 ---
+# V1.0 TODO
 
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
   `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
@@ -96,3 +69,6 @@
 - [ ] fast inference + hiệu chỉnh logits
   - https://pytorch.org/blog/accelerating-generative-ai-2
   - top-nơ https://www.alphaxiv.org/abs/2411.07641
+
+- [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa gamming GPUs)
+  - 2 GPUs => trao đổi `1:1`; 3 GPUs => `1:1 x 3`; 4 GPUs => `1:1 x 6`
