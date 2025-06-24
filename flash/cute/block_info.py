@@ -39,10 +39,10 @@ Function trả về:
         loc=None,   # MLIR source location for debugging compiled kernels ?
         ip=None,    # MLIR insertion point for code generation ?
     ):
-        self.m_block_size: cutlass.Constexpr[int] = m_block_size
-        self.n_block_size: cutlass.Constexpr[int] = n_block_size
-        self.is_causal:   cutlass.Constexpr[bool] = is_causal
-        self.qhead_per_kvhead_packgqa: cutlass.Constexpr[int] = qhead_per_kvhead_packgqa
+        self.m_block_size = m_block_size
+        self.n_block_size = n_block_size
+        self.is_causal = is_causal
+        self.qhead_per_kvhead_packgqa = qhead_per_kvhead_packgqa
         self._loc = loc
 
     @cute.jit

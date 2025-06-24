@@ -108,48 +108,56 @@ def warp_reduce(
     return val
 
 
-def convert_layout_acc_mn(acc_layout: cute.Layout) -> cute.Layout:
+def convert_layout_acc_mn(layout: cute.Layout) -> cute.Layout:
     """
-    For Sm80, convert ((2, 2), MMA_M, MMA_N, ...) to ((2, MMA_M), (2, MMA_N), ...).
+    For Sm80, convert ((2, 2),    MMA_M, MMA_N, ...) to ((2, MMA_M), (2, MMA_N), ...).
     For Sm90, convert ((2, 2, V), MMA_M, MMA_N, ...) to ((2, MMA_M), (2, V, MMA_N), ...).
     """
-    acc_layout_col_major = cute.make_layout(acc_layout.shape)
-    acc_layout_mn = cute.make_layout(
-        (
-            (acc_layout_col_major.shape[0][1], acc_layout_col_major.shape[1]),  # MMA_M
-            (acc_layout_col_major.shape[0][0], *acc_layout_col_major.shape[0][2:], acc_layout_col_major.shape[2]),  # MMA_N
-            *acc_layout_col_major.shape[3:],
+    layout_col_major = cute.make_layout(layout.shape)
+
+    layout_mn = cute.make_layout(
+        shape=(
+            (layout_col_major.shape[0][1],  layout_col_major.shape[1]),                                   # MMA_M
+            (layout_col_major.shape[0][0], *layout_col_major.shape[0][2:], layout_col_major.shape[2]),    # MMA_N
+            *layout_col_major.shape[3:],                                                                  # ...
         ),
         stride=(
-            (acc_layout_col_major.stride[0][1], acc_layout_col_major.stride[1]),  # MMA_M
-            (acc_layout_col_major.stride[0][0], *acc_layout_col_major.stride[0][2:], acc_layout_col_major.stride[2]),  # MMA_N
-            *acc_layout_col_major.stride[3:],
+            (layout_col_major.stride[0][1],  layout_col_major.stride[1]),                                 # MMA_M
+            (layout_col_major.stride[0][0], *layout_col_major.stride[0][2:], layout_col_major.stride[2]), # MMA_N
+            *layout_col_major.stride[3:],                                                                 # ...
         ),
     )
-    return cute.composition(acc_layout, acc_layout_mn)
+    return cute.composition(layout, layout_mn)
 
 
 def make_acc_tensor_mn_view(acc: cute.Tensor) -> cute.Tensor:
-    return cute.make_tensor(acc.iterator, convert_layout_acc_mn(acc.layout))
+    return cute.make_tensor(
+        acc.iterator,                        # Giữ nguyên data pointer
+        convert_layout_acc_mn(acc.layout)    # Đổi layout thành 2D để truy cập theo row/column
+    )
 
 
-def convert_layout_acc_frgA(acc_layout: cute.Layout) -> cute.Layout:
+def convert_layout_acc_frgA(layout: cute.Layout) -> cute.Layout:
     # For back to back gemm, convert layout of acc0 to gemm 1 accept layout.
-    # Due to the mma instruction shape is 16x8x16, we need to convert from (4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
-    # (4, MMA_M, MMA_N) -> (4, MMA_M, (2, MMA_N / 2))
-    acc_layout_divided = cute.logical_divide(acc_layout, (None, None, 2))
+    # Due to the mma instruction shape is 16x8x16, we need to convert
+    # from (4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
+    #      (4, MMA_M, MMA_N) -> ( 4, MMA_M, (2, MMA_N / 2))
+
+    layout_divided = cute.logical_divide(layout, (None, None, 2))
+
     rA_mma_view = cute.make_layout(
-        (
-            (acc_layout_divided.shape[0], acc_layout_divided.shape[2][0]),
-            acc_layout_divided.shape[1],
-            acc_layout_divided.shape[2][1],
+        shape=(
+            (layout_divided.shape[0], layout_divided.shape[2][0]),
+             layout_divided.shape[1],
+             layout_divided.shape[2][1],
         ),
         stride=(
-            (acc_layout_divided.stride[0], acc_layout_divided.stride[2][0]),
-            acc_layout_divided.stride[1],
-            acc_layout_divided.stride[2][1],
+            (layout_divided.stride[0], layout_divided.stride[2][0]),
+             layout_divided.stride[1],
+             layout_divided.stride[2][1],
         ),
     )
+
     return rA_mma_view
 
 
@@ -163,20 +171,17 @@ def transpose_view(a: cute.Tensor) -> cute.Tensor:
 
 def exp2f(x: cute.TensorSSA | cutlass.Float32) -> cute.TensorSSA | cutlass.Float32:
     """exp2f calculation for both vector and scalar.
-
     :param x: input value
-    :type x: cute.TensorSSA or cutlass.Float32
-    :return: exp2 value
-    :rtype: cute.TensorSSA or cutlass.Float32
+    :type  x: cute.TensorSSA or cutlass.Float32
+    :return:  exp2 value
+    :rtype:   cute.TensorSSA or cutlass.Float32
     """
     if isinstance(x, cute.TensorSSA):
-        res = cute.make_fragment(x.shape, cutlass.Float32)
-        res.store(x)
-        for i in range(cute.size(x.shape)):
-            res[i] = cute.arch.exp2(res[i])
-        return res.load()
-    else:
-        return cute.arch.exp2(x)
+            res = cute.make_fragment(x.shape, cutlass.Float32)
+            res.store(x)
+            for i in range(cute.size(x.shape)): res[i] = cute.arch.exp2(res[i])
+            return res.load()
+    else:   return cute.arch.exp2(x)
 
 
 @dsl_user_op

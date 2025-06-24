@@ -20,7 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-model = WinGPT( dim=1024, expansion=3, n_layers=28, num_heads=16, num_kv_heads=8, head_dim=128,
+model = WinGPT( dim=1024, expansion=2, n_layers=28, num_heads=16, num_kv_heads=8, head_dim=64,
                 vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 570m; config ~= qwen3 0.6b
 
 ## Load data, sooner better
@@ -71,12 +71,12 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=[*model.embeds.parameters(), *model.v_embs.parameters() ], lr=0.01  ), 
+    dict(params=[*model.embeds.parameters(), *model.v_embs.parameters() ], lr=0.006 ), 
     dict(params=[ model.scalars                                         ], lr=0.01  ),
-    dict(params=[*model.unembeds.parameters()                           ], lr=1/300 ),
+    dict(params=[*model.unembeds.parameters()                           ], lr=0.003 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
-muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
@@ -149,6 +149,5 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         # if step % (5 * log_interval) == 0:
-        #     print(f"""         MLP____ value_\n{model.scalars}""")
         #     print(f"""         ATTN___ MLP___  value__ vemb__\n{model.scalars}""")
 logger.finish()
