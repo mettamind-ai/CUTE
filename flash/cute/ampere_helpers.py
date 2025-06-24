@@ -40,6 +40,7 @@ def get_smem_layout_atom(dtype: Type[cutlass.Numeric], k_dim: int) -> cute.Compo
     )
 
 
+# MMA: Matrix Multiply-Accumulate (Nhân Ma trận và Tích lũy)
 def gemm(
     tiled_mma: cute.TiledMma,
     acc: cute.Tensor,

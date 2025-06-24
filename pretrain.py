@@ -20,7 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-model = WinGPT( dim=1024, expansion=3, n_layers=20, num_heads=16, num_kv_heads=8, head_dim=64,
+model = WinGPT( dim=1024, expansion=2, n_layers=18, num_heads=8, num_kv_heads=4, head_dim=64,
                 vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 300m; config ~= qwen3 0.6b
 
 ## Load data, sooner better

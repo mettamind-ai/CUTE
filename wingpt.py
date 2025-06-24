@@ -157,7 +157,7 @@ class WinGPT(nn.Module):
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
-        self .head2_mlp = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # head2 to predict next of next token (MTP)
+        self .head2_mlp = ReLuSquareMLP(2*dim, hdim=expansion*dim, odim=dim, zero_out=False) # predict next of next token (MTP)
 
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
