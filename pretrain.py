@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=128)
-parser.add_argument("--steps",  type=int, default=1000)
+parser.add_argument("--steps",  type=int, default=20000)
 parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
 
@@ -124,7 +124,7 @@ for step in range(args.steps):  # training loop
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
-                frac = min(step / 50, 1) # momentum warmup for muon
+                frac = min(lr_schedule.t1,  1) # momentum warmup for muon
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()

@@ -1,29 +1,27 @@
 
 ## Có ba thứ cần tìm hiểu về gamming gpus
 
-1. có thể train fp8 weights được không? => ĐƯỢC! nếu dùng fp4 kernel trên 50xx
+1. có thể train fp8 weights được không? => 
+   Khó, 8/4-bit chỉ nên dùng cho mixed precision. weight / main activations vẫn nên giữ ở 16/32 bits
 
 2. Full (fwd+bwd) attention kernels nào phù hợp?
-- flash-attn_3 hỗ trợ FP16 / BF16 fwd & bwd, FP8 fwd, chưa compiled đc trên 4090.
-- Có kernels nào nhanh hơn flash_attn không?
+- Có kernels nào nhanh hơn flash_attn không? => Có nhưng chỉ cho finetune
   - https://www.alphaxiv.org/overview/2505.11594 INT8 SageBwd tốt cho finetune, pretrain yếu
+  - => customized flash attn để hỗ trợ masking tốt hơn và sparse vẫn là lựa chọn hàng đầu.
 
 3. Kỹ thuật nào hiệu quả nhất (tốc độ cao + chính xác) fp4/fp8/int8/int4/mixed matmul?
-
-=> !!! Chờ 1 attention kernel tốt hơn, có thể là SageBwd cho finetune / LoRA !!!
 
 **TODO**
 - [x] ~~Áp dụng HT trong fwd và SR trong bwd trong INT8 Mixed~~
   int8 mm row scale hiện đã đủ tốt và nhanh, áp dụng thêm HT sẽ làm giảm tốc
 
 - [x] Activations đang chiếm nhiều vram nhất ~~=> nên quant~~ (phức tạp hoá code)
-  => Nếu cần giảm thì fuse 2 blocks làm 1 để giảm 1/2 số lượng activations
 
-- [x] Dùng block quant để tăng độ chính xác và tái sử dụng được
+- [x] Dùng block quant để ~~tăng độ chính xác và~~ tái sử dụng và có thể lưu activation ở 8/4 bit
   - DeepSeek quant cho fp8 https://github.com/pytorch/ao/tree/main/torchao/prototype/blockwise_fp8
     - Activations are quantized in blocks of size 128x1 using the FP8 format
     - Weights are quantized in blocks of size 128x128 using the FP8 format
-    - **Tốc độ đang chậm**, có lẽ chỉ hợp để giảm vram khi train ở fp8
+    - **Tốc độ đang chậm**, có lẽ chỉ hợp để giảm comm cost khi train đa nodes
 
 |    m |     k |     n | block_size | dtype         | fp16_latency (ms) | blockwise_latency (ms) | blockwise_speedup |
 |-----:|------:|------:|-----------:|:--------------|------------------:|-----------------------:|------------------:|

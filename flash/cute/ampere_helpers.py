@@ -5,15 +5,32 @@ import cutlass
 import cutlass.cute as cute
 
 
+# Tạo layout tối ưu cho shared memory (bộ nhớ chia sẻ) trên GPU để tránh bank conflicts.
 def get_smem_layout_atom(dtype: Type[cutlass.Numeric], k_dim: int) -> cute.ComposedLayout:
-    dtype_byte = dtype.width // 8
+
+    dtype_byte    = dtype.width // 8
     bytes_per_row = k_dim * dtype_byte
-    smem_k_block_size = (128 if bytes_per_row % 128 == 0 else (64 if bytes_per_row % 64 == 0 else (32 if bytes_per_row % 32 == 0 else 16))) // dtype_byte
-    swizzle_bits = 4 if smem_k_block_size == 128 else (3 if smem_k_block_size == 64 else (2 if smem_k_block_size == 32 else 1))
-    swizzle_base = 2 if dtype_byte == 4 else (3 if dtype_byte == 2 else 4)
+
+    smem_k_block_size = (
+              128 if bytes_per_row % 128 == 0
+         else (64 if bytes_per_row %  64 == 0
+         else (32 if bytes_per_row %  32 == 0
+         else  16))) // dtype_byte
+
+    swizzle_bits = (
+              4 if smem_k_block_size == 128
+        else (3 if smem_k_block_size ==  64 
+        else (2 if smem_k_block_size ==  32 
+        else  1)))
+
+    swizzle_base = (
+              2 if dtype_byte == 4 
+        else (3 if dtype_byte == 2 
+        else  4))
+
     return cute.make_composed_layout(
         cute.make_swizzle(swizzle_bits, swizzle_base, swizzle_base),
-        0,
+        0, # offset
         cute.make_ordered_layout((8 if k_dim % 32 == 0 else 16, smem_k_block_size), order=(1, 0)),
     )
 

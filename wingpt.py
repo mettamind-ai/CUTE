@@ -86,12 +86,12 @@ class CausalSelfAttention(nn.Module):
         self.qo_dim = head_dim * num_heads
         self.kv_dim = head_dim * num_kv_heads
 
-        self.qk_proj = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
-        self. o_proj = nn.Linear(self.qo_dim, odim, bias=False)
+        self.qkv_proj = nn.Linear(dim, self.qo_dim + 2*self.kv_dim, bias=False)
+        self.  o_proj = nn.Linear(self.qo_dim, odim, bias=False)
 
         with torch.no_grad():
-            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
-            self. o_proj.weight.zero_() # zero init
+            self.qkv_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + 2*self.kv_dim, dim)))
+            self.  o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -100,18 +100,20 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
-        qk = self.qk_proj(norm(x))
-        q  = qk[..., : self.qo_dim ]
-        k  = qk[..., self.qo_dim : ]
-        v  = v_emb(input_seq)
+        qkv = self.qkv_proj(norm(x))
+        q   = qkv[...,                 :  self.qo_dim ]
+        k   = qkv[...,  -self.kv_dim*2 : -self.kv_dim ]
+        v   = qkv[...,  -self.kv_dim   :              ]
+        v   = scalars[2] * v + scalars[3] * v_emb(input_seq)
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
         v = v.view(T, Hkv, D)
+        v = norm(v)
 
         if self.rope:
             q, k = rotary(q), rotary(k)
@@ -130,14 +132,14 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim, dim*expansion) if 5 <= layer_id and layer_id < n_layers - 1 else None
+        self.mlp = ReLuSquareMLP(dim, dim*expansion)# if 5 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
-        attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
-        if self.mlp is None: return x + attn
-        else:                return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
+        attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars)
+        # if self.mlp is None: return x + attn
+        return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, expansion=2):
@@ -151,7 +153,7 @@ class WinGPT(nn.Module):
 
         self.embeds  = nn.Embedding(vocab_size, dim)
         self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
-        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
+        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 0.5, 0.5]*n_layers).view(-1, 4))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
