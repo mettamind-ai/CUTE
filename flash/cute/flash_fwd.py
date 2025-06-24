@@ -24,7 +24,16 @@ from softmax import Softmax
 from seqlen_info import SeqlenInfo
 from block_info import BlockInfo
 from pack_gqa import PackGQA
-from named_barrier import NamedBarrierFwd
+
+
+import enum
+class NamedBarrierFwd(enum.IntEnum):
+    Epilogue = enum.auto()  # starts from 1 as barrier 0 is reserved for sync_threads()
+    WarpSchedulerWG1 = enum.auto()
+    WarpSchedulerWG2 = enum.auto()
+    WarpSchedulerWG3 = enum.auto()
+    PFull = enum.auto()
+    PEmpty = enum.auto()
 
 
 class FlashAttentionForwardBase:
