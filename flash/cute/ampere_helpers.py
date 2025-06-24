@@ -42,7 +42,7 @@ def get_smem_layout_atom(dtype: Type[cutlass.Numeric], k_dim: int) -> cute.Compo
 
 
 def gemm(                                       # MMA: Matrix Multiply-Accumulate (Nhân Ma trận và Tích lũy)
-    tiled_mma: cute.TiledMma,                   # Đối tượng thực hiện phép nhân ma trận theo tiles
+    tiled_mma: cute.TiledMma,                   # Bộ thực hiện phép nhân ma trận theo tiles
     acc:  cute.Tensor,                          # Tensor tích lũy kết quả
     tCrA: cute.Tensor, tCrB: cute.Tensor,       # Tensor A và B trong thanh ghi (register)
     tCsA: cute.Tensor, tCsB: cute.Tensor,       # Tensor A và B trong bộ nhớ chia sẻ (shared memory)
@@ -74,19 +74,23 @@ def gemm(                                       # MMA: Matrix Multiply-Accumulat
 
 
 def gemm_rs(
-    tiled_mma: cute.TiledMma,
-    acc: cute.Tensor,
-    tCrA: cute.Tensor,
-    tCrB: cute.Tensor,
-    tCsB: cute.Tensor,
+    tiled_mma: cute.TiledMma,   # bộ thực thi phép nhân
+    acc: cute.Tensor,           # nơi tích luỹ kết quả
+    tCrA: cute.Tensor,          # A hoàn toàn in register
+    tCrB: cute.Tensor,          # B in register
+    tCsB: cute.Tensor,          # B in share memory
     smem_thr_copy_B: cute.TiledCopy,
     hook_fn: Optional[Callable] = None,
 ) -> None:
+
     tCrB_copy_view = smem_thr_copy_B.retile(tCrB)
     cute.copy(smem_thr_copy_B, tCsB[None, None, 0], tCrB_copy_view[None, None, 0])
+
     for k in range(cute.size(tCrA.shape[2])):
-        if k < cute.size(tCrA.shape[2]) - 1:
+        if k <     cute.size(tCrA.shape[2]) - 1:
+            # Ẩn độ trễ, copy dữ liệu cho bước mma sau ...
             cute.copy(smem_thr_copy_B, tCsB[None, None, k + 1], tCrB_copy_view[None, None, k + 1])
+
+        # ... rồi mới thực hiện mma của bước này
         cute.gemm(tiled_mma, acc, tCrA[None, None, k], tCrB[None, None, k], acc)
-        if cutlass.const_expr(k == 0 and hook_fn is not None):
-            hook_fn()
+        if cutlass.const_expr(k == 0 and hook_fn is not None): hook_fn()
