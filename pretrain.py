@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=64)
+parser.add_argument("--bs",     type=int, default=96)
 parser.add_argument("--steps",  type=int, default=50000)
 parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
@@ -149,5 +149,6 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         if step % (5 * log_interval) == 0:
-            print(f"""         ATTN___ MLP___  value__ vemb__\n{model.scalars}""")
+            print(f"""         MLP____ value_\n{model.scalars}""")
+            # print(f"""         ATTN___ MLP___  value__ vemb__\n{model.scalars}""")
 logger.finish()

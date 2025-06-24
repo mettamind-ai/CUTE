@@ -108,7 +108,7 @@ class CausalSelfAttention(nn.Module):
         q   = qkv[...,                 :  self.qo_dim ]
         k   = qkv[...,  -self.kv_dim*2 : -self.kv_dim ]
         v   = qkv[...,  -self.kv_dim   :              ]
-        v   = scalars[2] * v + scalars[3] * v_emb(input_seq)
+        v   = scalars[1] * v + v_emb(input_seq)
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
@@ -132,14 +132,14 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim, dim*expansion) if 2 <= layer_id and layer_id < n_layers - 1 else None
+        self.mlp = ReLuSquareMLP(dim, dim*expansion) if 0 <= layer_id and layer_id < n_layers - 3 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
         xn = norm(x)
         attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars)
         if self.mlp is None: return x + attn
-        return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
+        else:                return x + attn + scalars[0]*self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, expansion=2):
@@ -153,7 +153,7 @@ class WinGPT(nn.Module):
 
         self.embeds  = nn.Embedding(vocab_size, dim)
         self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
-        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0, 0.5, 0.5]*n_layers).view(-1, 4))
+        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP

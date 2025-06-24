@@ -10,13 +10,14 @@ class BlockInfo:
 
     def __init__(
         self,
-        m_block_size: cutlass.Constexpr[int],
-        n_block_size: cutlass.Constexpr[int],
-        is_causal: cutlass.Constexpr[bool],
+        m_block_size: cutlass.Constexpr[int],   # Kích thước block theo chiều M (query)
+        n_block_size: cutlass.Constexpr[int],   # Kích thước block theo chiều N (key)
+        is_causal:    cutlass.Constexpr[bool],  # Chỉ attn token phía trước nếu là casual
+        # Tỷ lệ query heads/key-value heads cho Grouped Query Attention
         qhead_per_kvhead_packgqa: cutlass.Constexpr[int] = 1,  # Only pass in if we're doing PackGQA
         *,
-        loc=None,
-        ip=None
+        loc=None,   # MLIR source location for debugging compiled kernels
+        ip=None,    # MLIR insertion point for code generation
     ):
         self.m_block_size: cutlass.Constexpr[int] = m_block_size
         self.n_block_size: cutlass.Constexpr[int] = n_block_size

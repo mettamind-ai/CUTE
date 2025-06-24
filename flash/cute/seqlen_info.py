@@ -8,6 +8,16 @@ class SeqlenInfo:
 
     def __init__(
         self,
+        batch_idx: cutlass.Int32,                   # Index của sample trong batch
+        seqlen_q_static: cutlass.Int32,             # Độ dài query cố định (nếu có)
+        seqlen_k_static: cutlass.Int32,             # Độ dài key cố định (nếu có)
+        mCuSeqlensQ: Optional[cute.Tensor] = None,  # Cumulative sum của query lengths
+        mCuSeqlensK: Optional[cute.Tensor] = None,  # Cumulative sum của key lengths  
+        mSeqUsedQ:   Optional[cute.Tensor] = None,  # Độ dài thực tế được sử dụng của query
+        mSeqUsedK:   Optional[cute.Tensor] = None,  # Độ dài thực tế được sử dụng của key
+    ):
+    def __init__(
+        self,
         batch_idx: cutlass.Int32,
         seqlen_q_static: cutlass.Int32,
         seqlen_k_static: cutlass.Int32,
