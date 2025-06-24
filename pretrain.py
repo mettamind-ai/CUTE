@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=64)
-parser.add_argument("--steps",  type=int, default=20000)
+parser.add_argument("--steps",  type=int, default=50000)
 parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
 
