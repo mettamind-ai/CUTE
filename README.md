@@ -49,9 +49,7 @@
 - TTS cần 1 bộ tokenization khác thiên về phát âm
 - VLM đọc screenshots
 
-# 🌸LINH HOẠT🌸 Dense + MoE + Reused Block + Precision + Size + Flex TKNZ/Super Token + Multi-Modals + Đa Mục Tiêu Học?
-Một sự linh hoạt toàn diện trong cách xây dựng model, và tìm kiếm hiệu quả thực sự trong các cách kết hợp
-linh hoạt đó? `Linh hoạt không khó, linh hoạt mang lại hiệu quả mới khó!`
+# 🌸LINH HOẠT🌸
 
 - LOGITS DISTILL: Có thể **kết hợp logits distill + pre-train** để:
   - giảm dataset phải chuẩn bị cho nó học?
