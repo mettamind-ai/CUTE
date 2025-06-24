@@ -40,42 +40,37 @@ def get_smem_layout_atom(dtype: Type[cutlass.Numeric], k_dim: int) -> cute.Compo
     )
 
 
-# MMA: Matrix Multiply-Accumulate (Nhân Ma trận và Tích lũy)
-def gemm(
-    tiled_mma: cute.TiledMma,
-    acc: cute.Tensor,
-    tCrA: cute.Tensor,
-    tCrB: cute.Tensor,
-    tCsA: cute.Tensor,
-    tCsB: cute.Tensor,
-    smem_thr_copy_A: cute.TiledCopy,
-    smem_thr_copy_B: cute.TiledCopy,
+
+def gemm(                                       # MMA: Matrix Multiply-Accumulate (Nhân Ma trận và Tích lũy)
+    tiled_mma: cute.TiledMma,                   # Đối tượng thực hiện phép nhân ma trận theo tiles
+    acc:  cute.Tensor,                          # Tensor tích lũy kết quả
+    tCrA: cute.Tensor, tCrB: cute.Tensor,       # Tensor A và B trong thanh ghi (register)
+    tCsA: cute.Tensor, tCsB: cute.Tensor,       # Tensor A và B trong bộ nhớ chia sẻ (shared memory)
+    smem_thr_copy_A: cute.TiledCopy,            # Đối tượng sao chép dữ liệu từ shared memory
+    smem_thr_copy_B: cute.TiledCopy,            # -- như trên --
     hook_fn: Optional[Callable] = None,
-    A_in_regs: cutlass.Constexpr[bool] = False,
-    B_in_regs: cutlass.Constexpr[bool] = False,
-    swap_AB: cutlass.Constexpr[bool] = False,
+    A_in_regs: cutlass.Constexpr[bool] = False, # Cờ xác định dữ liệu đã có sẵn trong thanh ghi chưa
+    B_in_regs: cutlass.Constexpr[bool] = False, # -- như trên --
+    swap_AB:   cutlass.Constexpr[bool] = False, # Cờ để hoán đổi vai trò của A và B
 ) -> None:
     if swap_AB:
-        gemm(
-            tiled_mma, acc, tCrB, tCrA, tCsB, tCsA, smem_thr_copy_B, smem_thr_copy_A, hook_fn,
-            A_in_regs=B_in_regs, B_in_regs=A_in_regs, swap_AB=False
-        )
-    else:
-        tCrA_copy_view = smem_thr_copy_A.retile(tCrA)
-        tCrB_copy_view = smem_thr_copy_B.retile(tCrB)
-        if not A_in_regs:
-            cute.copy(smem_thr_copy_A, tCsA[None, None, 0], tCrA_copy_view[None, None, 0])
-        if not B_in_regs:
-            cute.copy(smem_thr_copy_B, tCsB[None, None, 0], tCrB_copy_view[None, None, 0])
-        for k in range(cute.size(tCsA.shape[2])):
-            if k < cute.size(tCsA.shape[2]) - 1:
-                if not A_in_regs:
-                    cute.copy(smem_thr_copy_A, tCsA[None, None, k + 1], tCrA_copy_view[None, None, k + 1])
-                if not B_in_regs:
-                    cute.copy(smem_thr_copy_B, tCsB[None, None, k + 1], tCrB_copy_view[None, None, k + 1])
-            cute.gemm(tiled_mma, acc, tCrA[None, None, k], tCrB[None, None, k], acc)
-            if cutlass.const_expr(k == 0 and hook_fn is not None):
-                hook_fn()
+        return gemm(tiled_mma, acc, tCrB, tCrA, tCsB, tCsA, smem_thr_copy_B, smem_thr_copy_A,
+                        hook_fn, A_in_regs=B_in_regs, B_in_regs=A_in_regs, swap_AB=False)
+
+    # `retile()` sắp xếp lại cấu trúc tile của tensor để phù hợp với pattern sao chép
+    tCrA_copy_view = smem_thr_copy_A.retile(tCrA)
+    tCrB_copy_view = smem_thr_copy_B.retile(tCrB)
+
+    # `None, None, 0` Lấy TẤT CẢ các hàng (M) + Lấy TẤT CẢ các cột (N) + Chỉ lấy tile thứ 0 theo chiều K
+    if not A_in_regs: cute.copy(smem_thr_copy_A, tCsA[None, None, 0], tCrA_copy_view[None, None, 0])
+    if not B_in_regs: cute.copy(smem_thr_copy_B, tCsB[None, None, 0], tCrB_copy_view[None, None, 0])
+
+    for k in range(cute.size(tCsA.shape[2])):
+        if k <     cute.size(tCsA.shape[2]) - 1:
+            if not A_in_regs: cute.copy(smem_thr_copy_A, tCsA[None, None, k + 1], tCrA_copy_view[None, None, k + 1])
+            if not B_in_regs: cute.copy(smem_thr_copy_B, tCsB[None, None, k + 1], tCrB_copy_view[None, None, k + 1])
+        cute.gemm(tiled_mma, acc, tCrA[None, None, k], tCrB[None, None, k], acc)
+        if cutlass.const_expr(k == 0 and hook_fn is not None): hook_fn() # gọi hook sau first tile computed
 
 
 def gemm_rs(

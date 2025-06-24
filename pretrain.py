@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=96)
+parser.add_argument("--bs",     type=int, default=64)
 parser.add_argument("--steps",  type=int, default=20000)
 parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
@@ -20,7 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-model = WinGPT( dim=1024, expansion=2, n_layers=28, num_heads=16, num_kv_heads=4, head_dim=64,
+model = WinGPT( dim=1024, expansion=2, n_layers=24, num_heads=16, num_kv_heads=4, head_dim=64,
                 vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 300m; config ~= qwen3 0.6b
 
 ## Load data, sooner better
