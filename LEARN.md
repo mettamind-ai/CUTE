@@ -484,3 +484,8 @@ Không có framework đơn lẻ nào nắm bắt được mọi thứ - mỗi c�
 
 Xu hướng nghiên cứu hiện tại ngày càng hướng đến các phương pháp tích hợp kết hợp nhiều framework lý thuyết để đạt được hiểu biết hoàn chỉnh hơn về Transformer.
 
+---
+
+CUDA DSL
+--------
+

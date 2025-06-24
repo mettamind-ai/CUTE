@@ -149,5 +149,5 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         if step % (5 * log_interval) == 0:
-            print(f"""         ATTN___ MLP___  ATTN___ MLP___\n{model.scalars.weight}""")
+            print(f"""         ATTN___ MLP___  ATTN___ MLP___\n{model.scalars}""")
 logger.finish()
