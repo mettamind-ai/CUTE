@@ -28,12 +28,12 @@ def get_smem_layout_atom(dtype: Type[cutlass.Numeric], k_dim: int) -> cute.Compo
         else (3 if dtype_byte == 2 
         else  4))
 
-    x = ( 8 if k_dim % 32 == 0 else 16 )
+    smem_m_block_size = ( 8 if k_dim % 32 == 0 else 16 )
     return cute.make_composed_layout(
         cute.make_swizzle(swizzle_bits, swizzle_base, swizzle_base),
         0, # offset
         cute.make_ordered_layout(
-            shape=( x, smem_k_block_size ), 
+            shape=( smem_m_block_size, smem_k_block_size ), 
             order=( 1, 0 )
         ),
     )
