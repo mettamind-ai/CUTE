@@ -126,11 +126,11 @@ class CausalSelfAttention(nn.Module):
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id, n_layers):
+    def __init__(self, dim, expansion, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim) if 5 <= layer_id and layer_id < n_layers - 1 else None
+        self.mlp = ReLuSquareMLP(dim, dim*expansion) if 5 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary, scalars):
@@ -140,12 +140,12 @@ class Block(nn.Module):
         else:                return x + scalars[0]*attn + scalars[1]*self.mlp(xn)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim = 128):
+    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, expansion=2):
         super().__init__()
         self.n_layers = n_layers
         self.rotary = Rotary(head_dim, max_seq_len)
 
-        blks = [ Block(dim, num_heads, num_kv_heads, max_seq_len, head_dim, i, n_layers) for i in range(n_layers) ]
+        blks = [ Block(dim, expansion, num_heads, num_kv_heads, max_seq_len, head_dim, i, n_layers) for i in range(n_layers) ]
         self.blocks = nn.ModuleList(blks)
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
