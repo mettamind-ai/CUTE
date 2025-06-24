@@ -20,7 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
 
-model = WinGPT( dim=1024, expansion=3, n_layers=24, num_heads=16, num_kv_heads=8, head_dim=64,
+model = WinGPT( dim=1024, expansion=3, n_layers=20, num_heads=16, num_kv_heads=8, head_dim=64,
                 vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 300m; config ~= qwen3 0.6b
 
 ## Load data, sooner better
@@ -149,5 +149,5 @@ for step in range(args.steps):  # training loop
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
         if step % (5 * log_interval) == 0:
-            print(f"""         ATTN___ MLP___  ATTN___ MLP___\n{model.scalars}""")
+            print(f"""         ATTN___ MLP___  value__ vemb__\n{model.scalars}""")
 logger.finish()
