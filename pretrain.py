@@ -15,11 +15,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
 parser.add_argument("--steps",  type=int, default=30000)
 parser.add_argument("--vocab",  type=int, default=8192)
-for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
+for x in "XS S M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
 torch.manual_seed(1981)
-D, E, HD, T = (512, 2, 64, 384) if args.S else (1024, 4, 128, 128) if args.L else (1024, 2, 128, 192)
+D, E, HD, T = (512, 2, 64, 384) if args.XS else (1024, 4, 128, 128) if args.M else (1024, 2, 128, 192)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 model = WinGPT(dim=D, expansion=E, n_layers=28, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
