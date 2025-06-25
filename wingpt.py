@@ -105,10 +105,11 @@ class CausalSelfAttention(nn.Module):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
-        qk = self.qk_proj(x)
-        q  = qk[...,              :  self.qo_dim ]
-        k  = qk[..., -self.kv_dim :              ]
-        v  = x*0.3 + v_emb(input_seq)
+        qk   = self.qk_proj(x)
+        q, k = qk.chunk(2, dim=-1)
+        # q  = qk[...,              :  self.qo_dim ]
+        # k  = qk[..., -self.kv_dim :              ]
+        v    = v_emb(input_seq)
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
