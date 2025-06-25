@@ -12,16 +12,14 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=128)
+parser.add_argument("--bs",     type=int, default=196)
 parser.add_argument("--steps",  type=int, default=30000)
 parser.add_argument("--vocab",  type=int, default=8192)
 args = parser.parse_args()
 
 torch.manual_seed(1981)
 tokens_per_batch = args.bs*1024
-
-model = WinGPT( dim=1024, expansion=2, n_layers=28, num_heads=16, num_kv_heads=16, head_dim=64,
-                vocab_size=args.vocab, max_seq_len=tokens_per_batch) # 570m; config ~= qwen3 0.6b
+model = WinGPT(dim=1024, expansion=2, n_layers=28, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
@@ -71,12 +69,10 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=[*model.unembeds.parameters()                           ], lr=0.003 ),
-    dict(params=[*model.embeds.parameters(),                            ], lr=0.006 ), 
-    # dict(params=[*model.embeds.parameters(), *model.v_embs.parameters() ], lr=0.006 ), 
-    # dict(params=[ model.scalars                                         ], lr=0.01  ),
+    dict(params=model  .embeds.parameters(), lr=0.006 ), 
+    dict(params=model.unembeds.parameters(), lr=0.003 ),
 ]
-adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)  # eps=1e-10,
+adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
 muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
@@ -149,6 +145,4 @@ for step in range(args.steps):  # training loop
             num_tokens_seen_millions = tokens_per_batch*step,
             tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
         ), step=step)
-        # if step % (5 * log_interval) == 0:
-        #     print(f"""         ATTN___ MLP___  value__ vemb__\n{model.scalars}""")
 logger.finish()

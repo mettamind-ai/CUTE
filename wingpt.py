@@ -22,14 +22,14 @@ def init_linear(w: Tensor, scale=1):
     return w.uniform_(-bound, bound)
 
 class Rotary(nn.Module):
-    def __init__(self, dim: int, max_seq_len: int):
+    def __init__(self, dim: int, ctxlen: int):
         super().__init__()
         base, half, dtype = (1/10000), (dim//4), torch.float32
         angular_freq = base  **  torch.linspace(0, 1, steps=half, dtype=dtype)
         angular_freq = torch.cat([angular_freq, torch.zeros(half, dtype=dtype)])
         # Tần số góc, nửa đầu giảm dần từ 1 tới base và nửa còn lại là zeros
 
-        positions = torch.arange(max_seq_len, dtype=dtype)
+        positions = torch.arange(ctxlen, dtype=dtype)
         theta = torch.einsum("i,j -> ij", positions, angular_freq)
         # theta[i, j] = positions[i] * angular_freq[j]
 
@@ -37,16 +37,15 @@ class Rotary(nn.Module):
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
     def forward(self, x_THD: Tensor):
-        seq_len = x_THD.size(-3) # T seq_len, head, dim (of head)
-        assert self.cos.size(0) >= seq_len, f"{self.cos.size(0)} >= {seq_len}?"
+        ctxlen = x_THD.size(-3) # T ctxlen, head, dim (of head)
+        assert self.cos.size(0) >= ctxlen, f"{self.cos.size(0)} >= {ctxlen}?"
 
-        cos = self.cos[:seq_len, None, :] # [seq_len, 1, dim]
-        sin = self.sin[:seq_len, None, :] # [seq_len, 1, dim]
+        cos = self.cos[:ctxlen, None, :] # [ctxlen, 1, dim]
+        sin = self.sin[:ctxlen, None, :] # [ctxlen, 1, dim]
 
         x1, x2 = x_THD.to(dtype=torch.float32).chunk(2, dim=-1)
-
-        y1 = x1 * (+cos) + x2 * sin
-        y2 = x1 * (-sin) + x2 * cos
+        y1     = x1 * (+cos) + x2 * sin
+        y2     = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), -1).type_as(x_THD)
 
 
@@ -73,26 +72,14 @@ class ReLuSquareMLP(nn.Module):
         return self.fc2_proj(y)
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim:int, num_heads:int, num_kv_heads:int, seq_len:int, head_dim=128, long=False, layer_id=-1, odim=None):
+    def __init__(self, dim:int, ctxlen:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim = hidden_size = embedding = feature = representation
 
-        self.num_heads    = num_heads
-        self.num_kv_heads = num_kv_heads
-        self.head_dim     = head_dim
-        self.layer_id     = layer_id
-        self.seq_len      = seq_len
-        if odim == None: odim = dim
-
-        self.qo_dim = head_dim * num_heads
-        self.kv_dim = head_dim * num_kv_heads
-        assert self.qo_dim == self.kv_dim # để bỏ o_proj
-
-        self.qk_proj  = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
-        # self.o_proj = nn.Linear(self.qo_dim, odim, bias=False)
-
-        with torch.no_grad():
-            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
-            # self.  o_proj.weight.zero_() # zero init
+        self.num_heads = dim // head_dim
+        self.head_dim  = head_dim
+        self.ctxlen   = ctxlen
+        self.qk_proj   = nn.Linear(dim, 2*dim, bias=False)
+        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -102,40 +89,31 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        H, Hkv  = self.num_heads, self.num_kv_heads
-        D, T    = self.head_dim,  self.seq_len
+        q, k    = self.qk_proj(x).chunk(2, dim=-1)
+        v       = v_emb(input_seq)
 
-        qk   = self.qk_proj(x)
-        q, k = qk.chunk(2, dim=-1)
-        # q  = qk[...,              :  self.qo_dim ]
-        # k  = qk[..., -self.kv_dim :              ]
-        v    = v_emb(input_seq)
+        T, H, D = self.ctxlen, self.num_heads, self.head_dim
+        q, k, v = q.view(T, H, D), k.view(T, H, D), v.view(T, H, D)
 
-        q = q.view(T, H,   D)
-        k = k.view(T, Hkv, D)
-        v = v.view(T, Hkv, D)
-        v = norm(v) # norm theo chiều D
-
-        if self.rope:
-            q, k = rotary(q), rotary(k)
+        v = norm(v) # norm head_dim (64 hoặc 128)
+        if self.rope: q, k = rotary(q), rotary(k)
 
         o = flash_attn_varlen_func(
             q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             softmax_scale=self.attn_scale, window_size=(self.window, 0),
-        ).view(T, H * D)
-        return o
-        # return self.o_proj(o)
+        )
+        return o.view(T, H * D)
 
 ##############################
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, expansion, num_heads, num_kv_heads, max_seq_len, head_dim, layer_id, n_layers):
+    def __init__(self, dim, expansion, ctxlen, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.mlp = ReLuSquareMLP(dim, dim*expansion) if 1 <= layer_id and layer_id < n_layers - 1 else None
-        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
+        self.attn = CausalSelfAttention(dim, ctxlen, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
         xn = norm(x)
@@ -144,31 +122,20 @@ class Block(nn.Module):
         else:                return x + attn + self.mlp(xn)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, expansion=2):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
         super().__init__()
-        self.n_layers = n_layers
-        self.rotary = Rotary(head_dim, max_seq_len)
-
-        blks = [ Block(dim, expansion, num_heads, num_kv_heads, max_seq_len, head_dim, i, n_layers) for i in range(n_layers) ]
-        self.blocks = nn.ModuleList(blks)
-        self.dim, self.kv_dim = dim, num_kv_heads * head_dim
-
-        self.embeds  = nn.Embedding(vocab_size, dim)
-        self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
-        # self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
-
-        ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
-        #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
-        self .head2_mlp = ReLuSquareMLP(2*dim, hdim=expansion*dim, odim=dim, zero_out=False) # predict next of next token (MTP)
-
-        self.unembeds = nn.Linear(dim, vocab_size, bias=False)
-        if isinstance(self.unembeds, nn.Linear):  # khởi tạo riêng cho nn.Linear head
-            with torch.no_grad(): self.unembeds.weight.zero_()
+        self.rotary    = Rotary(head_dim, ctxlen)
+        self.dim       = dim
+        self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
+        self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers + 1)])
+        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=4*dim, odim=dim, zero_out=False) # predict next of next token (MTP)
+        self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
+        with torch.no_grad(): self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = checkpoint(self.embeds, input_seq, use_reentrant=False)
+        x = checkpoint(self.embeds[0], input_seq, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, self.v_embs[i], input_seq, cu_seqlens, max_seqlen, self.rotary)
+            f = lambda x, i, blk: blk(x, self.embeds[i], input_seq, cu_seqlens, max_seqlen, self.rotary)
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x
 
@@ -180,7 +147,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
 
-        x0    = model.embeds(input_seq)
+        x0    = model.embeds[0](input_seq)
         xx_x0 = torch.cat([xx, x0], dim=-1)
 
         y     = model.head2_mlp(norm(xx_x0))
@@ -214,15 +181,13 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     seed = 1981
-    seq_len = 256
+    ctxlen = 256
     vocab_size = 32*1024
-    dim, n_layers = 128, 8
-    num_heads, num_kv_heads = 1, 1
-    print(f"win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
+    dim, head_dim, n_layers = 128, 64, 8
+    print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
     torch.manual_seed(seed)
-    model = WinGPT(vocab_size, n_layers, num_heads, num_kv_heads, dim, seq_len).cuda()
-    
+    model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim=head_dim).cuda()
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]
@@ -240,9 +205,8 @@ if __name__ == "__main__":
 
     for step in range(10):
         ## Generate sequences with batch dimension
-        vv = vocab_size//4
-        input_seq = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
-        target    = torch.randint(5, vv, (seq_len,), dtype=torch.long).cuda()
+        input_seq = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
+        target    = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         optim.zero_grad()
