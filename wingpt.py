@@ -128,7 +128,7 @@ class WinGPT(nn.Module):
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers + 1)])
-        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token (MTP)
+        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=int(2.5*dim), odim=dim, zero_out=False) # predict next next token (MTP)
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
 
