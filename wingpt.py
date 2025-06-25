@@ -5,6 +5,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import Int8MixedLinear, FusedCE
 from flash.attn import flash_attn_varlen_func
+from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -73,14 +74,14 @@ class ReLuSquareMLP(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, ctxlen:int, head_dim=128, long=False, layer_id=-1):
-        super().__init__() # dim = hidden_size = embedding = feature = representation
+        super().__init__() # dim = hidden = embedding = feature = representation
 
-        self.dim       = dim
         self.ctxlen    = ctxlen
         self.head_dim  = head_dim
+        self.rope_dim = head_dim // 2
         self.num_heads = dim // head_dim
-        self.qk_proj   = nn.Linear(dim, dim+dim//4, bias=False)
-        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim+dim//4, dim)))
+        self.qk_proj   = nn.Linear(dim, dim + self.rope_dim, bias=False)
+        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim + self.rope_dim, dim)))
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -90,13 +91,14 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        qk = self.qk_proj(x)
-        q  = qk[..., : self.dim ]
-        k  = qk[..., self.dim : ]
-        v  = v_emb(input_seq)
+        T, H, D, RD = self.ctxlen, self.num_heads, self.head_dim, self.rope_dim
+        q, k_rope   = torch.split(self.qk_proj(x), [H*D, RD], dim=-1)
+        v           = v_emb(input_seq) # T, hidden
 
-        T, H, D = self.ctxlen, self.num_heads, self.head_dim
-        q, k, v = q.view(T, H, D), k.view(T, H//4, D), v.view(T, H//4, D)
+        k_rope = k_rope.view(T, 1, RD) 
+        k_rope = repeat(k_rope, 'T 1 RD -> T H RD', H=H//2)
+        q, v   = q.view(T, H, D), v.view(T, H//2, D)
+        k      = torch.cat([v[..., : -RD], k_rope], dim=-1) 
 
         v = norm(v) # norm head_dim (64 hoặc 128)
         if self.rope: q, k = rotary(q), rotary(k)
@@ -131,7 +133,7 @@ class WinGPT(nn.Module):
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
-        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//4) for _ in range(n_layers)])
+        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
