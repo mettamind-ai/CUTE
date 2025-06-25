@@ -50,9 +50,9 @@ class Rotary(nn.Module):
 
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion_factor=2, zero_out=True):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion=2, zero_out=True):
         super().__init__()
-        if not hdim: hdim = int(dim*expansion_factor)
+        if not hdim: hdim = int(dim*expansion)
         if not odim: odim = dim
 
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
@@ -128,7 +128,7 @@ class WinGPT(nn.Module):
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers + 1)])
-        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=expansion*dim, odim=dim, zero_out=False) # predict next of next token
+        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
 
