@@ -7,6 +7,7 @@
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
 - 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (Command A)
 - Không norm q, k để bảo toàn NoPE (Command A)
+- MTP dùng concat(last_hidden, next token embedding) idea từ DeepSeek v3
 '''
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
@@ -83,13 +84,11 @@ class ReLuSquareMLP(nn.Module):
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, ctxlen:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim = hidden = embedding = feature = representation
-
         self.ctxlen    = ctxlen
         self.head_dim  = head_dim
-        self.rope_dim = head_dim // 2
         self.num_heads = dim // head_dim
-        self.qk_proj   = nn.Linear(dim, dim + self.rope_dim, bias=False)
-        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim + self.rope_dim, dim)))
+        self.qk_proj   = nn.Linear(dim, dim + head_dim//2, bias=False)
+        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim + head_dim//2, dim)))
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -99,14 +98,15 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        T, H, D, RD = self.ctxlen, self.num_heads, self.head_dim, self.rope_dim
-        q, k_rope   = torch.split(self.qk_proj(x), [H*D, RD], dim=-1)
+        T, H, D, SD = self.ctxlen, self.num_heads, self.head_dim, self.head_dim//2
+        q, shared_k = torch.split(self.qk_proj(x), [H*D, SD], dim=-1)
         v           = v_emb(input_seq) # T, hidden
 
-        k_rope = k_rope.view(T, 1, RD) 
-        k_rope = repeat(k_rope, 'T 1 RD -> T H RD', H=H//4)
-        q, v   = q.view(T, H, D), v.view(T, H//4, D)
-        k      = torch.cat([v[..., : -RD], k_rope], dim=-1) 
+        q           = q.view(T, H, D)
+        v           = v.view(T, H//4, D)
+        shared_k    = shared_k.view(T, 1, SD) 
+        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//4)
+        k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
 
         v = norm(v) # norm head_dim (64 hoặc 128)
         if self.rope: q, k = rotary(q), rotary(k)

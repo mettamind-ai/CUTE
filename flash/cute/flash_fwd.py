@@ -219,7 +219,6 @@ class FlashAttentionForwardBase:
         stream: cuda.CUstream,
     ):
         """Configures and launches the flash attention kernel.
-
         mQ/mK/mV/mO has same data types(supports fp16 and bf16) and same layout:
         (batch_size, seqlen_q, num_head, head_dim):(_, _, _, 1)
         """
