@@ -12,14 +12,17 @@ from tqdm import tqdm
 from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--bs",     type=int, default=196)
+parser.add_argument("--bs",     type=int, default=None)
 parser.add_argument("--steps",  type=int, default=30000)
 parser.add_argument("--vocab",  type=int, default=8192)
+for x in "S L M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
 torch.manual_seed(1981)
+dim, bs_24gvram = (512, 2*196) if args.S else (1024, 196)
+if args.bs is None: args.bs = bs_24gvram
 tokens_per_batch = args.bs*1024
-model = WinGPT(dim=1024, expansion=2, n_layers=28, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=dim, expansion=2, n_layers=28, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
