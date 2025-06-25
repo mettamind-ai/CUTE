@@ -108,7 +108,8 @@ class CausalSelfAttention(nn.Module):
         q   = qkv[...,                 :  self.qo_dim ]
         k   = qkv[...,  -self.kv_dim*2 : -self.kv_dim ]
         # v = qkv[...,  -self.kv_dim   :              ]
-        # v   = v_emb(input_seq)
+        # v = v_emb(input_seq)
+        v   = x
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
@@ -119,7 +120,7 @@ class CausalSelfAttention(nn.Module):
             q, k = rotary(q), rotary(k)
 
         o = flash_attn_varlen_func(
-            q, k, x, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+            q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
         return o
@@ -216,7 +217,7 @@ if __name__ == "__main__":
     seq_len = 256
     vocab_size = 32*1024
     dim, n_layers = 128, 8
-    num_heads, num_kv_heads = 4, 1
+    num_heads, num_kv_heads = 1, 1
     print(f"win config: layers={n_layers}, dim={dim}, heads={num_heads}/{num_kv_heads}; seq_len={seq_len}")
 
     torch.manual_seed(seed)
