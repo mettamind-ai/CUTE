@@ -7,27 +7,27 @@ from seqlen_info import SeqlenInfo
 
 
 class BlockInfo:
-'''
-Attention matrix được chia thành blocks
-Query blocks (M): [Q0][Q1][Q2]...
-Key   blocks (N): [K0][K1][K2]...
+    '''
+    Attention matrix được chia thành blocks
+    Query blocks (M): [Q0][Q1][Q2]...
+    Key   blocks (N): [K0][K1][K2]...
 
-Full-attention matrix:
-     K0  K1  K2  K3
-Q0  [x] [x] [x] [x]
-Q1  [x] [x] [x] [x]  
-Q2  [x] [x] [x] [x]
+    Full-attention matrix:
+        K0  K1  K2  K3
+    Q0  [x] [x] [x] [x]
+    Q1  [x] [x] [x] [x]  
+    Q2  [x] [x] [x] [x]
 
-Với causal mask - chỉ tính blocks "hợp lệ":
-     K0  K1  K2  K3
-Q0  [✓] [-] [-] [-]  (Q0 chỉ nhìn K0)
-Q1  [✓] [✓] [-] [-]  (Q1 nhìn K0, K1)
-Q2  [✓] [✓] [✓] [-]  (Q2 nhìn K0, K1, K2)
+    Với causal mask - chỉ tính blocks "hợp lệ":
+        K0  K1  K2  K3
+    Q0  [✓] [-] [-] [-]  (Q0 chỉ nhìn K0)
+    Q1  [✓] [✓] [-] [-]  (Q1 nhìn K0, K1)
+    Q2  [✓] [✓] [✓] [-]  (Q2 nhìn K0, K1, K2)
 
-Function trả về:
-- `n_block_min`: Block K đầu tiên cần xử lý (thường = 0)
-- `n_block_max`: Block K cuối cùng cần xử lý
-'''
+    Function trả về:
+    - `n_block_min`: Block K đầu tiên cần xử lý (thường = 0)
+    - `n_block_max`: Block K cuối cùng cần xử lý
+    '''
     def __init__(
         self,
         m_block_size: cutlass.Constexpr[int],   # Kích thước block theo chiều M (query)
@@ -70,9 +70,9 @@ Function trả về:
         m_block:     cutlass.Int32,
         n_block_min: cutlass.Int32,
     ) -> cutlass.Int32:
-    '''
-    xác định từ block nào bắt đầu cần apply causal mask
-    '''
+        '''
+        xác định từ block nào bắt đầu cần apply causal mask
+        '''
         m_idx_min = m_block * self.m_block_size
 
         if cutlass.const_expr(self.qhead_per_kvhead_packgqa > 1):

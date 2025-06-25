@@ -16,9 +16,7 @@ import cutlass.cute as cute
 from cutlass.cute.nvgpu import cpasync, warp, warpgroup
 import cutlass.utils.ampere_helpers as sm80_utils_basic
 
-import ampere_helpers as sm80_utils
-import utils
-import pipeline
+import utils, pipeline, ampere_helpers as sm80_utils
 from mask import AttentionMask
 from softmax import Softmax
 from seqlen_info import SeqlenInfo
@@ -55,30 +53,12 @@ class FlashAttentionForwardBase:
         Q_in_regs: bool = False,
     ):
         """Initializes the configuration for a flash attention kernel.
-
         All contiguous dimensions must be at least 16 bytes aligned, which means that the head dimension
         should be a multiple of 8.
-
-        :param head_dim: head dimension
-        :type head_dim: int
-        :param m_block_size: m block size
-        :type m_block_size: int
-        :param n_block_size: n block size
-        :type n_block_size: int
-        :param num_threads: number of threads
-        :type num_threads: int
-        :param is_causal: is causal
         """
         self.dtype = dtype
-        # padding head_dim to a multiple of 16 as k_block_size
-        hdim_multiple_of = 16
-        self.head_dim_padded = int(math.ceil(head_dim / hdim_multiple_of) * hdim_multiple_of)
-        head_dim_v = head_dim_v if head_dim_v is not None else head_dim
-        self.same_hdim_kv = head_dim == head_dim_v
-        self.head_dim_v_padded = int(math.ceil(head_dim_v / hdim_multiple_of) * hdim_multiple_of)
-        # Can save registers (and hence be faster) if we don't have to check hdim predication
-        self.check_hdim_oob = head_dim != self.head_dim_padded
-        self.check_hdim_v_oob = head_dim_v != self.head_dim_v_padded
+        # padding head_dim to a multiple of 16 as k_block_size (bỏ qua vì luôn set head_dim là 64 hoặc 128)
+        self.head_dim_padded = head_dim
         self.qhead_per_kvhead = qhead_per_kvhead
         self.is_causal = is_causal
         self.has_softcap = has_softcap
@@ -94,48 +74,22 @@ class FlashAttentionForwardBase:
         dtype, head_dim, head_dim_v, m_block_size, n_block_size, num_stages, num_threads, is_causal,
         Q_in_regs=False
     ) -> bool:
-        """Check if the kernel can be implemented with the given parameters.
-
-        :param dtype: data type
-        :type dtype: cutlass.Numeric
-        :param head_dim: head dimension
-        :type head_dim: int
-        :param m_block_size: m block size
-        :type m_block_size: int
-        :param n_block_size: n block size
-        :type n_block_size: int
-        :param num_threads: number of threads
-        :type num_threads: int
-        :param is_causal: is causal
-        :type is_causal: bool
-
-        :return: True if the kernel can be implemented, False otherwise
-        :rtype: bool
-        """
-        if dtype not in [cutlass.Float16, cutlass.BFloat16]:
-            return False
-        if head_dim % 8 != 0:
-            return False
-        if head_dim_v % 8 != 0:
-            return False
-        if n_block_size % 16 != 0:
-            return False
-        if num_threads % 32 != 0:
-            return False
+        if dtype not in [cutlass.Float16, cutlass.BFloat16]: return False
+        if head_dim % 8 != 0:       return False
+        if n_block_size % 16 != 0:  return False
+        if num_threads % 32 != 0:   return False
         # Check if block size setting is out of shared memory capacity
         # Shared memory usage: Q tile + (K tile + V tile) where K and V use the same tile size
         smem_usage_Q = m_block_size * head_dim * 2
         smem_usage_K = n_block_size * head_dim * num_stages * 2
-        smem_usage_V = n_block_size * head_dim_v * num_stages * 2
+        smem_usage_V = n_block_size * head_dim * num_stages * 2
         smem_usage_QV = (smem_usage_Q + smem_usage_V) if not Q_in_regs else max(smem_usage_Q, smem_usage_V)
         smem_usage = smem_usage_QV + smem_usage_K
         # TODO: sm86 and sm89
         smem_capacity = sm80_utils_basic.SMEM_CAPACITY["sm80"]
-        if smem_usage > smem_capacity:
-            return False
+        if smem_usage > smem_capacity: return False
         # Check if twice the block size is divisible by the number of threads
-        if (m_block_size * 2) % num_threads != 0:
-            return False
+        if (m_block_size * 2) % num_threads != 0: return False
         return True
 
     def _check_type(
@@ -179,10 +133,10 @@ class FlashAttentionForwardBase:
             sK_layout_atom, (self.n_block_size, self.head_dim_padded, self.num_stages), (0, 1, 2),
         )
         self.sV_layout = cute.tile_to_shape(
-            sV_layout_atom, (self.n_block_size, self.head_dim_v_padded, self.num_stages), (0, 1, 2),
+            sV_layout_atom, (self.n_block_size, self.head_dim_padded, self.num_stages), (0, 1, 2),
         )
         self.sO_layout = cute.tile_to_shape(
-            sO_layout_atom, (self.m_block_size, self.head_dim_v_padded), (0, 1),
+            sO_layout_atom, (self.m_block_size, self.head_dim_padded), (0, 1),
         )
         if cutlass.const_expr(sP_layout_atom is not None):
             self.sP_layout = cute.tile_to_shape(
@@ -209,8 +163,10 @@ class FlashAttentionForwardBase:
         )
         # tQ_layout and tK_layout: thread layout for QK load
         tQK_shape_dim_1 = sQ_layout_atom.outer.shape[1] // async_copy_elems
-        assert self.num_Q_load_threads % tQK_shape_dim_1 == 0, "num_threads must be divisible by tQK_shape_dim_1"
-        assert self.num_producer_threads % tQK_shape_dim_1 == 0, "num_threads must be divisible by tQK_shape_dim_1"
+        assert self.num_Q_load_threads % tQK_shape_dim_1 == 0, 
+            "num_threads must be divisible by tQK_shape_dim_1"
+        assert self.num_producer_threads % tQK_shape_dim_1 == 0, 
+            "num_threads must be divisible by tQK_shape_dim_1"
         tQ_layout = cute.make_ordered_layout(
             (self.num_Q_load_threads // tQK_shape_dim_1, tQK_shape_dim_1), order=(1, 0),
         )
@@ -299,8 +255,8 @@ class FlashAttentionForwardBase:
         # copy acc O from rmem to smem with the smem copy atom
         cute.copy(smem_copy_atom_O, taccOrO, taccOsO)
 
-        cO = cute.make_identity_tensor((self.m_block_size, self.head_dim_v_padded))
-        pack_gqa = PackGQA(self.m_block_size, self.head_dim_padded, self.check_hdim_oob, self.qhead_per_kvhead)
+        cO = cute.make_identity_tensor((self.m_block_size, self.head_dim_padded))
+        pack_gqa = PackGQA(self.m_block_size, self.head_dim_padded, False, self.qhead_per_kvhead)
 
         # Write LSE from rmem -> gmem
         if cutlass.const_expr(mLSE is not None):
@@ -311,7 +267,7 @@ class FlashAttentionForwardBase:
             if cutlass.const_expr(not self.pack_gqa):
                 gLSE = cute.local_tile(mLSE_cur, (self.m_block_size,), (m_block,))
                 gLSE_expanded_layout = cute.append(
-                    gLSE.layout, cute.make_layout((self.head_dim_v_padded,), stride=(0,))
+                    gLSE.layout, cute.make_layout((self.head_dim_padded,), stride=(0,))
                 )
                 gLSE_expanded = cute.make_tensor(gLSE.iterator, gLSE_expanded_layout)
                 thr_mma = tiled_mma.get_slice(tidx)
@@ -339,7 +295,7 @@ class FlashAttentionForwardBase:
             # ensure smem writes are visible to TMA
             cute.arch.fence_proxy(cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta)
             utils.barrier_arrive(barrier_id=int(NamedBarrierFwd.Epilogue), number_of_threads=self.num_epilogue_threads + cute.arch.WARP_SIZE)
-            gO = cute.local_tile(mO_cur, (self.m_block_size, self.head_dim_v_padded), (m_block, 0))
+            gO = cute.local_tile(mO_cur, (self.m_block_size, self.head_dim_padded), (m_block, 0))
             tOsO, tOgO = cpasync.tma_partition(
                 tma_atom_O,
                 0,
@@ -361,7 +317,7 @@ class FlashAttentionForwardBase:
             # load acc O from smem to rmem for wider vectorization
             cute.autovec_copy(tOsO, tOrO)
             if cutlass.const_expr(not self.pack_gqa):
-                gO = cute.local_tile(mO_cur, (self.m_block_size, self.head_dim_v_padded), (m_block, 0))
+                gO = cute.local_tile(mO_cur, (self.m_block_size, self.head_dim_padded), (m_block, 0))
                 tOgO = gmem_thr_copy_O.partition_D(gO)
                 tOcO = gmem_thr_copy_O.partition_S(cO)
                 t0OcO = gmem_tiled_copy_O.get_slice(0).partition_S(cO)
@@ -373,7 +329,7 @@ class FlashAttentionForwardBase:
                             gmem_tiled_copy_O,
                             tOrO[None, rest_m, None],
                             tOgO[None, rest_m, None],
-                            pred=tOpO[None, rest_m, None] if self.check_hdim_v_oob else None,
+                            pred=None,
                         )
             else:
                 pack_gqa.store_O(mO_cur, tOrO, gmem_tiled_copy_O, tidx, m_block, seqlen.seqlen_q)
@@ -405,7 +361,7 @@ class FlashAttentionForwardBase:
                     gmem_thr_copy,
                     tQgQ[None, m, None],
                     tQsQ[None, m, None],
-                    pred=tQpQ[None, m, None] if self.check_hdim_oob else None,
+                    pred=tQpQ[None, m, None] if False else None,
                 )
             # We don't need to clear the sQ smem tiles since we'll only write out the valid outputs
 
@@ -442,7 +398,7 @@ class FlashAttentionForwardBase:
                         gmem_tiled_copy,
                         tKgK[None, n, None, block],
                         tKsK[None, n, None, smem_pipe_write if self.num_stages > 1 else 0],
-                        pred=tKpK[None, n, None] if self.check_hdim_oob else None,
+                        pred=tKpK[None, n, None] if False else None,
                     )
                 # We don't need to clear the sK smem tiles since we'll mask out the scores anyway.
         else:
@@ -450,7 +406,7 @@ class FlashAttentionForwardBase:
                 gmem_tiled_copy,
                 tKgK[None, None, None, block],
                 tKsK[None, None, None, smem_pipe_write if self.num_stages > 1 else 0],
-                pred=tKpK if self.check_hdim_oob else None,
+                pred=None,
             )
 
     @cute.jit
@@ -473,14 +429,14 @@ class FlashAttentionForwardBase:
             for n in range(cute.size(tVsV.shape[1])):
                 # If kBlockN doesn't evenly divide the tiled copy, only the last `n` needs to be checked
                 if is_even_n_smem_v or n < cute.size(tVsV.shape[1]) - 1 or tVcV[0, n, 0][0] < self.n_block_size:
-                    predicate = tVpV[None, n, None] if self.check_hdim_v_oob else None
+                    predicate = None
                     if cutlass.const_expr(need_predicates):
                         seqlen_limit = seqlen - block * self.n_block_size - tVcV[0][0]
                         predicate_n = t0VcV[0, n, 0][0] < seqlen_limit
                         predicate = cute.make_fragment_like(tVpV[None, 0, None])
                         for k in range(cute.size(predicate.shape[1])):
                             for i in range(cute.size(predicate.shape[0])):
-                                predicate[i, k] = (tVpV[i, n, k] if self.check_hdim_v_oob else True) and predicate_n
+                                predicate[i, k] = predicate_n
                     cute.copy(
                         gmem_tiled_copy,
                         tVgV[None, n, None, block],
@@ -492,7 +448,7 @@ class FlashAttentionForwardBase:
                 gmem_tiled_copy,
                 tVgV[None, None, None, block],
                 tVsV[None, None, None, smem_pipe_write if self.num_stages > 1 else 0],
-                pred=tVpV if self.check_hdim_v_oob else None,
+                pred=None,
             )
 
 
@@ -501,7 +457,7 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
     def _get_smem_layout_atom(self):
         sQ_layout_atom = sm80_utils.get_smem_layout_atom(self.dtype, self.head_dim_padded)
         sK_layout_atom = sQ_layout_atom
-        sV_layout_atom = sm80_utils.get_smem_layout_atom(self.dtype, self.head_dim_v_padded)
+        sV_layout_atom = sm80_utils.get_smem_layout_atom(self.dtype, self.head_dim_padded)
         sO_layout_atom = sV_layout_atom
         sP_layout_atom = None
         return sQ_layout_atom, sK_layout_atom, sV_layout_atom, sO_layout_atom, sP_layout_atom
@@ -658,7 +614,7 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
         # ///////////////////////////////////////////////////////////////////////////////
         blkQ_shape = (self.m_block_size, self.head_dim_padded)
         blkK_shape = (self.n_block_size, self.head_dim_padded)
-        blkV_shape = (self.n_block_size, self.head_dim_v_padded)
+        blkV_shape = (self.n_block_size, self.head_dim_padded)
         gQ = cute.local_tile(mQ[None, None, num_head, batch_size], blkQ_shape, (m_block, 0))
         num_head_kv = num_head // self.qhead_per_kvhead
         gK = cute.local_tile(mK[None, None, num_head_kv, batch_size], blkK_shape, (None, 0))
@@ -693,7 +649,7 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
         tSrQ = thr_mma_qk.make_fragment_A(thr_mma_qk.partition_A(sQ))
         tSrK = thr_mma_qk.make_fragment_B(thr_mma_qk.partition_B(sK[None, None, 0]))
         tOrVt = thr_mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt[None, None, 0]))
-        acc_shape_O = thr_mma_pv.partition_shape_C((self.m_block_size, self.head_dim_v_padded))
+        acc_shape_O = thr_mma_pv.partition_shape_C((self.m_block_size, self.head_dim_padded))
         acc_O = cute.make_fragment(acc_shape_O, cutlass.Float32)
         acc_O.fill(0.0)
 
@@ -722,21 +678,18 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
         cK = cute.make_identity_tensor((self.n_block_size, self.head_dim_padded))
         tKcK = gmem_thr_copy_K.partition_S(cK)
         t0KcK = gmem_thr_copy_K.get_slice(0).partition_S(cK)
-        if cutlass.const_expr(self.head_dim_padded == self.head_dim_v_padded):
+        if cutlass.const_expr(self.head_dim_padded == self.head_dim_padded):
             tVcV = tKcK
             t0VcV = t0KcK
         else:
-            cV = cute.make_identity_tensor((self.n_block_size, self.head_dim_v_padded))
+            cV = cute.make_identity_tensor((self.n_block_size, self.head_dim_padded))
             tVcV = gmem_thr_copy_V.partition_S(cV)
             t0VcV = gmem_thr_copy_V.get_slice(0).partition_S(cV)
         # Allocate predicate tensors for m and n, here we only allocate the tile of k, and
         # use "if" on the mn dimension.
         # This is to reduce register pressure and gets 2-3% performance gain.
         tKpK = utils.predicate_k(tKcK, limit=mK.shape[1])
-        if cutlass.const_expr(self.same_hdim_kv):
-            tVpV = tKpK
-        else:
-            tVpV = utils.predicate_k(tVcV, limit=mV.shape[1])
+        tVpV = tKpK
 
         # shape: (atom_v_m * rest_m)
         softmax = Softmax(softmax_scale_log2, num_rows=acc_O.shape[0][0] * acc_O.shape[1])

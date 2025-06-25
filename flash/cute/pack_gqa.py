@@ -10,28 +10,29 @@ import utils
 
 
 class PackGQA:
-
+    '''Xử lý trường hợp nhiều query heads dùng chung 1 KV head với layout Packed format
+    '''
     def __init__(
         self,
-        m_block_size: cutlass.Constexpr[int],
-        head_dim_padded: cutlass.Constexpr[int],
-        check_hdim_oob: cutlass.Constexpr[bool],
-        qhead_per_kvhead: cutlass.Constexpr[bool],
+        m_block_size     : cutlass.Constexpr[int],
+        head_dim_padded  : cutlass.Constexpr[int],
+        check_hdim_oob   : cutlass.Constexpr[bool],
+        qhead_per_kvhead : cutlass.Constexpr[bool],
     ):
-        self.m_block_size = m_block_size
-        self.head_dim_padded = head_dim_padded
-        self.check_hdim_oob = check_hdim_oob
+        self.m_block_size     = m_block_size
+        self.head_dim_padded  = head_dim_padded
+        self.check_hdim_oob   = check_hdim_oob
         self.qhead_per_kvhead = qhead_per_kvhead
 
     @cute.jit
     def compute_ptr(
         self,
         tensor: cute.Tensor,
-        cRows: cute.Tensor,
-        tidx: cutlass.Int32,
+        cRows:  cute.Tensor,
+        tidx:  cutlass.Int32,
         block: cutlass.Int32,
         threads_per_row: cutlass.Constexpr[int],
-        num_threads: cutlass.Constexpr[int],
+        num_threads:     cutlass.Constexpr[int],
     ):
         num_ptr_per_thread = cute.ceil_div(cute.size(cRows), threads_per_row)
         tPrPtr = cute.make_fragment(num_ptr_per_thread, cutlass.Int64)

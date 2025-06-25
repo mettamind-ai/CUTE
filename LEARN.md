@@ -492,3 +492,7 @@ Xu hướng nghiên cứu hiện tại ngày càng hướng đến các phương
 - https://bytez.com/docs/arxiv/2404.02258/paper
 
 
+# Hidden Breakthroughs in LLM Training
+- https://www.alphaxiv.org/abs/2506.15872
+
+Họ phát triển POLCA (Projection Oriented Loss Change Allocation) để "mổ xẻ" sự thay đổi loss theo các hướng cụ thể trong không gian tham số. Thay vì chỉ nhìn loss tổng thể, họ phân tích loss của từng ví dụ riêng lẻ theo các hướng gradient khác nhau.
