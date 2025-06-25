@@ -483,3 +483,12 @@ Góc nhìn bộ nhớ liên kết thiếu sót trong việc nắm bắt xử lý
 Không có framework đơn lẻ nào nắm bắt được mọi thứ - mỗi cái làm sáng tỏ các khía cạnh khác nhau của hành vi Transformer phức tạp. Hiểu biết tối ưu cần nhiều framework bổ sung: bộ nhớ liên kết cho trực giác lưu trữ/truy xuất, lý thuyết thông tin cho phân tích định lượng, phương pháp kernel cho tính toán độ tương tự, lý thuyết đồ thị cho tính chất cấu trúc, hệ thống động học cho tiến hóa thời gian.
 
 Xu hướng nghiên cứu hiện tại ngày càng hướng đến các phương pháp tích hợp kết hợp nhiều framework lý thuyết để đạt được hiểu biết hoàn chỉnh hơn về Transformer.
+
+---
+
+# MoD: Mixture of Depth
+- https://www.alphaxiv.org/abs/2404.02258
+- https://www.youtube.com/watch?v=5QFqvTr8zSM
+- https://bytez.com/docs/arxiv/2404.02258/paper
+
+
