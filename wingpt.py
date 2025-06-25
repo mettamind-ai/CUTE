@@ -135,7 +135,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = checkpoint(self.embeds[0], input_seq, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, self.embeds[i], input_seq, cu_seqlens, max_seqlen, self.rotary)
+            f = lambda x, i, blk: blk(x, self.embeds[i + 1], input_seq, cu_seqlens, max_seqlen, self.rotary)
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x
 

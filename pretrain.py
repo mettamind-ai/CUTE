@@ -79,9 +79,9 @@ for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
         group["init_lr"] = group["lr"]
 
-##############
-## TRANING  ##
-##############
+###############
+##  TRANING  ##
+###############
 lossf = torch.compile(lossf)
 # for x in model.blocks: x.compile()
 
