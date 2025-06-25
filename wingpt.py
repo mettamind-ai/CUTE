@@ -85,12 +85,13 @@ class CausalSelfAttention(nn.Module):
 
         self.qo_dim = head_dim * num_heads
         self.kv_dim = head_dim * num_kv_heads
+        assert self.qo_dim == self.kv_dim # để bỏ o_proj
 
-        self.qkv_proj = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
-        # self.  o_proj = nn.Linear(self.qo_dim, odim, bias=False)
+        self.qk_proj  = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
+        # self.o_proj = nn.Linear(self.qo_dim, odim, bias=False)
 
         with torch.no_grad():
-            self.qkv_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
+            self.qk_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
             # self.  o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
@@ -104,11 +105,10 @@ class CausalSelfAttention(nn.Module):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
-        qkv = self.qkv_proj(norm(x))
-        q   = qkv[...,                 :  self.qo_dim ]
-        k   = qkv[...,  -self.kv_dim*2 : -self.kv_dim ]
-        # v = qkv[...,  -self.kv_dim   :              ]
-        v   = x*0.3 + v_emb(input_seq)
+        qk = self.qk_proj(x)
+        q  = qk[...,              :  self.qo_dim ]
+        k  = qk[..., -self.kv_dim :              ]
+        v  = x*0.3 + v_emb(input_seq)
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
