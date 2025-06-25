@@ -241,7 +241,7 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split
         HEADDIM_SWITCH(params.d, [&] {
             BOOL_SWITCH(params.is_causal, Is_causal, [&] {
                 if (params.num_splits <= 1 && !force_split_kernel) {
-                    run_mha_fwd_<elem_type, kHeadDim, true>(params, stream);
+                    run_mha_fwd_splitkv_dispatch<elem_type, kHeadDim, true>(params, stream);
                 }
             });
         });

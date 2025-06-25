@@ -75,11 +75,12 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, dim:int, ctxlen:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim = hidden_size = embedding = feature = representation
 
-        self.num_heads = dim // head_dim
+        self.dim       = dim
+        self.ctxlen    = ctxlen
         self.head_dim  = head_dim
-        self.ctxlen   = ctxlen
-        self.qk_proj   = nn.Linear(dim, 2*dim, bias=False)
-        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
+        self.num_heads = dim // head_dim
+        self.qk_proj   = nn.Linear(dim, dim+dim//4, bias=False)
+        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim+dim//4, dim)))
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -89,11 +90,13 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        q, k    = self.qk_proj(x).chunk(2, dim=-1)
-        v       = v_emb(input_seq)
+        qk = self.qk_proj(x)
+        q  = qk[..., : self.dim ]
+        k  = qk[..., self.dim : ]
+        v  = v_emb(input_seq)
 
         T, H, D = self.ctxlen, self.num_heads, self.head_dim
-        q, k, v = q.view(T, H, D), k.view(T, H, D), v.view(T, H, D)
+        q, k, v = q.view(T, H, D), k.view(T, H//4, D), v.view(T, H//4, D)
 
         v = norm(v) # norm head_dim (64 hoặc 128)
         if self.rope: q, k = rotary(q), rotary(k)
@@ -124,10 +127,11 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
         super().__init__()
+        Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
-        self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers + 1)])
+        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//4) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
@@ -181,9 +185,9 @@ if __name__ == "__main__":
     from optimus import convert_int8_mixed_precision
 
     seed = 1981
-    ctxlen = 256
+    ctxlen = 512
     vocab_size = 32*1024
-    dim, head_dim, n_layers = 128, 64, 8
+    dim, head_dim, n_layers = 256, 64, 8
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
     torch.manual_seed(seed)
