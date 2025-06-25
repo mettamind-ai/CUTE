@@ -140,8 +140,8 @@ class Block(nn.Module):
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         xn = norm(x)
         attn = self.attn(xn, cu_seqlens, max_seqlen, rotary)
-        if self.mlp is None: return x + attn
-        else:                return x + attn + self.mlp(xn)
+        if self.mlp is None: return attn
+        else:                return attn + self.mlp(xn)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, num_heads, num_kv_heads, dim, max_seq_len, head_dim=128, expansion=2):
