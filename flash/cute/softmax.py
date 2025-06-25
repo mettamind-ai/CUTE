@@ -28,7 +28,6 @@ class Softmax:
         check_inf: cutlass.Constexpr[bool] = True,
     ) -> cute.Tensor:
         """Apply online softmax and return the row_scale to rescale O.
-
         :param acc_S: acc_S tensor
         :type acc_S: cute.Tensor
         :param is_first: is first n_block
@@ -37,32 +36,33 @@ class Softmax:
         # Change acc_S to M,N layout view.
         acc_S_mn = utils.make_acc_tensor_mn_view(acc_S)
         row_scale = cute.make_fragment_like(self.row_max, cutlass.Float32)
+
         # Each iteration processes one row of acc_S
         for r in range(cute.size(self.row_max)):
-            acc_S_row = acc_S_mn[r, None].load()  # (n_block_size)
+            acc_S_row   = acc_S_mn[r, None].load()  # (n_block_size)
             row_max_cur = acc_S_row.reduce(cute.ReductionOp.MAX, -cutlass.Float32.inf, 0)
             row_max_cur = utils.warp_reduce(row_max_cur, cute.arch.fmax, width=4)
+
             if cutlass.const_expr(is_first):
-                if check_inf:
-                    row_max_cur = 0.0 if row_max_cur == -cutlass.Float32.inf else row_max_cur
+                if check_inf: row_max_cur = 0.0 if row_max_cur == -cutlass.Float32.inf else row_max_cur
                 row_max_cur_scaled = row_max_cur * self.scale_log2
                 acc_S_row_exp = utils.exp2f(acc_S_row * self.scale_log2 - row_max_cur_scaled)
                 acc_S_row_sum = acc_S_row_exp.reduce(cute.ReductionOp.ADD, cutlass.Float32.zero, 0)
-                row_scale[r] = 1.0
+                row_scale[r]  = 1.0
             else:
                 row_max_prev = self.row_max[r]
-                row_max_cur = cute.arch.fmax(row_max_prev, row_max_cur)
-                if check_inf:
-                    row_max_cur = 0.0 if row_max_cur == -cutlass.Float32.inf else row_max_cur
+                row_max_cur  = cute.arch.fmax(row_max_prev, row_max_cur)
+                if check_inf: row_max_cur = 0.0 if row_max_cur == -cutlass.Float32.inf else row_max_cur
                 row_max_cur_scaled = row_max_cur * self.scale_log2
                 acc_S_row_exp = utils.exp2f(acc_S_row * self.scale_log2 - row_max_cur_scaled)
                 acc_S_row_sum = acc_S_row_exp.reduce(cute.ReductionOp.ADD, cutlass.Float32.zero, 0)
-                # row_scale[r] = utils.exp2f(row_max_prev * self.scale_log2 - row_max_cur_scaled)
-                row_scale[r] = utils.exp2f((row_max_prev - row_max_cur) * self.scale_log2)
+                row_scale[r]  = utils.exp2f((row_max_prev - row_max_cur) * self.scale_log2)
                 acc_S_row_sum = acc_S_row_sum + self.row_sum[r] * row_scale[r]
+
             self.row_max[r] = row_max_cur
             self.row_sum[r] = acc_S_row_sum
             acc_S_mn[r, None].store(acc_S_row_exp)
+
         return row_scale
 
     @cute.jit

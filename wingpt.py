@@ -87,11 +87,11 @@ class CausalSelfAttention(nn.Module):
         self.kv_dim = head_dim * num_kv_heads
 
         self.qkv_proj = nn.Linear(dim, self.qo_dim + self.kv_dim, bias=False)
-        self.  o_proj = nn.Linear(self.qo_dim, odim, bias=False)
+        # self.  o_proj = nn.Linear(self.qo_dim, odim, bias=False)
 
         with torch.no_grad():
             self.qkv_proj.weight.copy_(init_linear(torch.empty(self.qo_dim + self.kv_dim, dim)))
-            self.  o_proj.weight.zero_() # zero init
+            # self.  o_proj.weight.zero_() # zero init
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -100,7 +100,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
 
 
-    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, cu_seqlens, max_seqlen, rotary):
         H, Hkv  = self.num_heads, self.num_kv_heads
         D, T    = self.head_dim,  self.seq_len
 
@@ -108,21 +108,22 @@ class CausalSelfAttention(nn.Module):
         q   = qkv[...,                 :  self.qo_dim ]
         k   = qkv[...,  -self.kv_dim*2 : -self.kv_dim ]
         # v = qkv[...,  -self.kv_dim   :              ]
-        v   = v_emb(input_seq)
+        # v   = v_emb(input_seq)
 
         q = q.view(T, H,   D)
         k = k.view(T, Hkv, D)
         v = v.view(T, Hkv, D)
-        v = norm(v)
+        # v = norm(v)
 
         if self.rope:
             q, k = rotary(q), rotary(k)
 
         o = flash_attn_varlen_func(
-            q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+            q, k, x, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
             softmax_scale=self.attn_scale, window_size=(self.window, 0),
         ).view(T, H * D)
-        return self.o_proj(o)
+        return o
+        # return self.o_proj(o)
 
 ##############################
 ## Transformer for the WIN  ##
@@ -135,9 +136,9 @@ class Block(nn.Module):
         self.mlp = ReLuSquareMLP(dim, dim*expansion) if 1 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, max_seq_len, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, cu_seqlens, max_seqlen, rotary):
         xn = norm(x)
-        attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
+        attn = self.attn(xn, cu_seqlens, max_seqlen, rotary)
         if self.mlp is None: return x + attn
         else:                return x + attn + self.mlp(xn)
 
@@ -152,8 +153,8 @@ class WinGPT(nn.Module):
         self.dim, self.kv_dim = dim, num_kv_heads * head_dim
 
         self.embeds  = nn.Embedding(vocab_size, dim)
-        self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
-        self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
+        # self.v_embs  = nn.ModuleList([nn.Embedding(vocab_size, self.kv_dim) for _ in range(n_layers)])
+        # self.scalars = nn.Parameter(torch.tensor([1.0, 1.0]*n_layers).view(-1, 2))
 
         ##    head0 chính là trunk (thân chính của model) to predict next token (NTP)
         #self.head1_mlp = ReLuSquareMLP(  dim, hdim=4*dim, zero_out=False) # Early exit ở layer giữa, nên mọc thêm head1 to NTP
@@ -166,7 +167,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = checkpoint(self.embeds, input_seq, use_reentrant=False)
         for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, self.v_embs[i], input_seq, cu_seqlens, max_seqlen, self.rotary)
+            f = lambda x, i, blk: blk(x, cu_seqlens, max_seqlen, self.rotary)
             x = checkpoint(f, x, i, blk, use_reentrant=False)
         return x
 

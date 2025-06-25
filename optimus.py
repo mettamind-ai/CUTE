@@ -230,6 +230,7 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa l
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ? ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
+    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6: thêm 1 iter giúp khử nhiễu tốt hơn?
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):
