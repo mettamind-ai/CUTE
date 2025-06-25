@@ -9,7 +9,7 @@ from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
 if not os.environ.get("MAX_JOBS"):
-    max_jobs = int(free_memory_gb / 5)
+    max_jobs = int(free_memory_gb / 6)
     os.environ["MAX_JOBS"] = str(max_jobs)
 print(f"flash_attn_2.7.1: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
 
@@ -36,13 +36,13 @@ CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
         abspath/"flash_api.cpp",
-        abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
-        abspath/"flash_fwd_split_hdim64_bf16_causal_sm80.cu",
+        abspath/"flash_fwd_hdim128_bf16_causal_sm80.cu",
+        abspath/"flash_fwd_hdim64_bf16_causal_sm80.cu",
         abspath/"flash_bwd_hdim128_bf16_causal_sm80.cu",
         abspath/"flash_bwd_hdim64_bf16_causal_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
-    extra_include_paths=[ str(abspath),  str(abspath/"cutlass/include"),],
+    extra_include_paths=[ str(abspath), str(abspath/"cutlass/include"),],
 )
 # ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
 print(f"flash_attn_2.7.1: DONE. In {int(time.time() - started_at)} seconds.")
