@@ -85,9 +85,9 @@ for opt in [muon_optim, adam_optim]:
 ###############
 ##  TRANING  ##
 ###############
-# lossf = torch.compile(lossf)
+lossf = torch.compile(lossf)
 # for x in model.blocks: x.compile()
-model = torch.compile(model)
+
 model = model.cuda()
 model.train()
 
@@ -104,13 +104,15 @@ for step in range(args.steps):  # training loop
     tokens, targets = batch[:-1], batch[1:]
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
 
-    lossv = lossf(model, tokens, targets, c, m)
+    loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch
+    loss.backward()
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
     # grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None).item() ** 0.5
 
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
+        lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
         log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr)
 
