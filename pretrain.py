@@ -136,11 +136,10 @@ for step in range(args.steps):  # training loop
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=len(c), max=m)
+        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=len(c), maxlen=m)
 
         logger.log(log_dict, step=step)
-        if step > 0:  # Only use pbar after it's initialized
-            pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
+        pbar.set_postfix(loss=lossv, lr=muon_lr, samples=len(c), maxlen=m) # tối thiểu chiều rộng
 
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
