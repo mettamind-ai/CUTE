@@ -2,7 +2,7 @@
 from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
 from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
-import re, os, sys, types, argparse, json, time, torch, wandb, numpy as np
+import re, os, sys, types, argparse, json, time, math, torch, wandb, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -117,7 +117,8 @@ for step in range(args.steps):  # training loop
         log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr)
 
         logger.log(log_dict, step=step)
-        pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
+        if step > 0:  # Only use pbar after it's initialized
+            pbar.set_postfix(loss=lossv, lr=muon_lr) # tối thiểu chiều rộng
 
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
