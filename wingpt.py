@@ -153,7 +153,9 @@ class WinGPT(nn.Module):
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
-    x = model(input_seq, cu_seqlens, max_seqlen) 
+    z = model(input_seq, cu_seqlens, max_seqlen)
+    x = z.detach(); x.requires_grad = True
+
     def prepare():
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
@@ -164,10 +166,13 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    w     = model.unembeds.weight
-    xloss = FusedCE.apply(xn,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
-    return xloss + yloss
+    W, tx = model.unembeds.weight, target
+    xloss = FusedCE.apply(xn, W, tx, n_ignore, ignore, 0.7); xloss.backward()  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn, W, ty, n_ignore, ignore, 0.3); yloss.backward()  # MTP: Next of next token prediction
+
+    loss = xloss.detach() + yloss.detach()
+    z.backward(gradient=x.grad)
+    return loss     
 
 
 def get_cu_max_seqlens_from(input_seq, eot):
@@ -225,7 +230,6 @@ if __name__ == "__main__":
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, ", end="")
 
-        loss_model.backward()
         optim.step()
         aptim.step()
 

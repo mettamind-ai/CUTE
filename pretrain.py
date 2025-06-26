@@ -106,7 +106,6 @@ for step in range(args.steps):  # training loop
 
     loss = lossf(model, tokens, targets, c, m)
     batch = get_batch() # async prefetch next batch
-    loss.backward()
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
     # grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None).item() ** 0.5
