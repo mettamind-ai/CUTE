@@ -205,7 +205,6 @@ class FusedCE(torch.autograd.Function):
         )
         return torch.sum(losses) * reduction
 
-
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):

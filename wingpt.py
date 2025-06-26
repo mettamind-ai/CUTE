@@ -124,9 +124,7 @@ class Block(nn.Module):
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
         xn = norm(x)
-        attn = self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
-        if self.mlp is None: return x + attn
-        else:                return x + attn + self.mlp(xn)
+        return x + self.mlp(xn) + self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
@@ -139,13 +137,17 @@ class WinGPT(nn.Module):
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
+        assert self.blocks[0].mlp is None and self.blocks[-1].mlp is None # bỏ MLP ở layer đầu và cuối
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = self.embeds[0](input_seq)
-        for i, blk in enumerate(self.blocks):
-            f = lambda x, i, blk: blk(x, self.embeds[i + 1], input_seq, cu_seqlens, max_seqlen, self.rotary)
-            x = checkpoint(f, x, i, blk, use_reentrant=False)
-        return x
+        B, E, R, I, C, M = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
+        def first(): x = E[0](I); return x + B[ 0].attn(norm(x), E[ 1], I, C, M, R)
+        def last(x):              return x + B[-1].attn(norm(x), E[-1], I, C, M, R)
+        x = checkpoint(first, use_reentrant=False)
+        for i, b in enumerate(B[1 : -1]):
+            f = lambda x, i, b: b(x, E[i+2], I, C, M, R)
+            x = checkpoint(f, x, i, b, use_reentrant=False)
+        return  checkpoint(last, x, use_reentrant=False)
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
