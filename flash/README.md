@@ -71,3 +71,14 @@ ROUNDING & SMOOTHING
 
 ## Fused activation vào 8-bit matmul
 - https://github.com/triton-lang/triton/issues/5583
+
+---
+
+20250625
+```
+ flash_attn/cute/flash_bwd_postprocess.py |   4 +-
+ flash_attn/cute/flash_fwd.py             | 521 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------------------------
+ flash_attn/cute/seqlen_info.py           |   2 +
+ flash_attn/cute/softmax.py               | 118 +++++++++++++++++++---
+ flash_attn/cute/utils.py                 | 111 ++++++++++++++++++---
+```

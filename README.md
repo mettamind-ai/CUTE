@@ -50,10 +50,12 @@
 - VLM đọc screenshots
 
 ---
+
 # V1.0 TODO
 
-- [ ] Dùng final NTP loss của mỗi token làm weighted cho early exit prediction (EE) và next of next token prediction (MTP)
-  `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+- [ ] Dùng final NTP loss của mỗi token làm weighted cho next of next token prediction (MTP)
+  - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+  - Dùng predicted next token (main head) để predict next of next token => more robust?
 
 - [ ] Nghĩ ra biến thể ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
   Cần nhiều token để đoán => quan trọng? https://chatgpt.com/share/68595fcc-b4b0-8003-b9e3-881f4498be01
@@ -83,6 +85,13 @@
     giống như một "đỉnh núi nhọn" hay "mũi nhọn" nhô ra khỏi bề mặt bình thường.
     Điều này khiến model khó "di chuyển" một cách mượt mà từ "ember" sang các từ khác.
 
+    Irregularities lan truyền vì:
+
+    - Residual connections bảo tồn lỗi gốc
+    - Attention mechanism khuếch đại sự bất ổn
+    - Geometric properties được giữ nguyên qua các layers
+    - Context không thể "chữa lành" được structural problems
+    - Accumulation effect làm vấn đề nghiêm trọng hơn theo thời gian
     ```
 
 - [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa gamming GPUs)
