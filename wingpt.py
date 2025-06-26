@@ -141,8 +141,8 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R, I, C, M = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
-        def first(): x = E[0](I); return x + B[ 0].attn(norm(x), E[ 1], I, C, M, R)
-        def last(x):              return x + B[-1].attn(norm(x), E[-1], I, C, M, R)
+        def first(): return E[0](I) + B[ 0].attn(norm(E[0](I)), E[ 1], I, C, M, R)
+        def last(x): return x       + B[-1].attn(norm(x)      , E[-1], I, C, M, R)
         x = checkpoint(first, use_reentrant=False)
         for i, b in enumerate(B[1 : -1]):
             f = lambda x, i, b: b(x, E[i+2], I, C, M, R)
@@ -173,9 +173,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     return xloss + yloss
 
 
-def get_cu_max_seqlens_from(input_seq, eot=6399):
-        mask = (input_seq == eot)
-        mask[-1] = True
+def get_cu_max_seqlens_from(input_seq, eot):
+        mask       = (input_seq == eot)
+        mask[-1]   = True
         cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1,])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
@@ -216,13 +216,12 @@ if __name__ == "__main__":
         ## Generate sequences with batch dimension
         input_seq = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
         target    = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
+        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq, eot=0)
 
         optim.zero_grad()
         aptim.zero_grad()
 
-        loss_model = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
- 
+        loss_model     = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
         print(f"step {step}, loss_model {loss_model.item():.4f}, ", end="")
 
