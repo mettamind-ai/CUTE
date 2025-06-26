@@ -496,3 +496,46 @@ Xu hướng nghiên cứu hiện tại ngày càng hướng đến các phương
 - https://www.alphaxiv.org/abs/2506.15872
 
 Họ phát triển POLCA (Projection Oriented Loss Change Allocation) để "mổ xẻ" sự thay đổi loss theo các hướng cụ thể trong không gian tham số. Thay vì chỉ nhìn loss tổng thể, họ phân tích loss của từng ví dụ riêng lẻ theo các hướng gradient khác nhau.
+
+---
+
+# MEAP (Mask-Enhanced Autoregressive Prediction)
+- https://www.alphaxiv.org/abs/2502.07490
+- https://x.com/Shiwei_Liu66/status/188967429285126991
+
+Next-Token Prediction (NTP) tiêu chuẩn, gặp khó khăn trong việc **truy xuất thông tin chính xác từ ngữ cảnh**, đặc biệt là trong các tài liệu dài. Mặc dù Masked Language Modeling (MLM) từ BERT tốt hơn trong việc truy xuất thông tin, nhưng lại kém hiệu quả hơn trong việc tạo văn bản.
+
+MEAP khéo léo kết hợp điểm mạnh của cả hai phương pháp bằng cách trong quá trình tiền huấn luyện sẽ che ngẫu nhiên 15% các token đầu vào và thực hiện dự đoán token tiếp theo tiêu chuẩn chỉ sử dụng Transformer decoder-only mà không cần thay đổi kiến trúc. Trong giai đoạn tinh chỉnh, phương pháp này nhân đôi các mẫu huấn luyện và áp dụng 10% che phủ cho các bản sao, sau đó huấn luyện trên cả phiên bản gốc và phiên bản đã che.
+
+Kết quả thực nghiệm cho thấy hiệu suất ấn tượng của MEAP. Trong các tác vụ truy xuất thông tin, phương pháp này cải thiện 33% trên bài kiểm tra Needle-in-a-Haystack và tốt hơn 27,2 điểm phần trăm trên Multi-Document QA. Đặc biệt trong các tình huống tinh chỉnh với vấn đề "thất lạc giữa đường", MEAP vượt trội hơn 11,77%.
+
+Về hiệu quả sử dụng dữ liệu, MEAP thể hiện sự vượt trội đáng kể khi đạt được 85,8% độ chính xác chỉ với 60 tỷ token huấn luyện, trong khi NTP tiêu chuẩn cần tới 200 tỷ token để đạt hiệu suất tương tự, tức là hiệu quả hơn gấp ba lần. Ngoài ra, phương pháp này còn giảm tỷ lệ ảo giác trên các tác vụ tóm tắt, duy trì hiệu suất trên các tác vụ mô hình hóa ngôn ngữ tổng quát và hoạt động tốt trên nhiều kiến trúc mô hình khác nhau.
+
+Phân tích của các tác giả tiết lộ lý do tại sao MEAP thành công. Phương pháp này **tạo ra các mẫu chú ý có thể phân biệt rõ ràng hơn**, với các token bị che nhận ít hơn 53% sự chú ý, đồng thời tăng độ biến thiên chú ý lên 7,8% trên các token không bị che. Điều này buộc mô hình phải tập trung vào ít token hơn nhưng có liên quan hơn thay vì phân tán chú ý đều khắp. Cụ thể, các mô hình MEAP phân bổ 34,5% sự chú ý cho các token liên quan đến câu trả lời so với chỉ 9,4% của các mô hình tiêu chuẩn.
+
+
+Ưu điểm thực tiễn của MEAP rất hấp dẫn vì không tốn thêm chi phí tính toán nào trong quá trình suy luận, không cần sửa đổi kiến trúc, có thể thay thế trực tiếp cho huấn luyện NTP hiện tại và tích hợp liền mạch với các framework LLM hiện có. MEAP chứng minh rằng đôi khi những giải pháp hiệu quả nhất cũng là những giải pháp đơn giản nhất - bằng cách che chiến lược một phần nhỏ các token đầu vào, các mô hình học cách "chú ý ít hơn để học nhiều hơn", cải thiện đáng kể khả năng trích xuất thông tin quan trọng từ các ngữ cảnh phức tạp và dài.
+
+---
+
+# FireQ:
+- https://www.alphaxiv.org/abs/2505.20839
+
+**FireQ: Tăng tốc suy luận mô hình ngôn ngữ lớn bằng kernel INT4-FP8 và lượng tử hóa tối ưu RoPE**
+
+Nghiên cứu này giải quyết một thách thức quan trọng trong việc triển khai các mô hình ngôn ngữ lớn: việc giới hạn băng thông bộ nhớ làm giảm đáng kể tốc độ suy luận. Khi các mô hình ngày càng lớn và chuỗi đầu vào ngày càng dài, vấn đề này trở nên nghiêm trọng hơn, thúc đẩy nhu cầu về các phương pháp lượng tử hóa hiệu quả.
+
+Nhóm nghiên cứu từ Samsung SDS đã phát triển FireQ, một framework lượng tử hóa sau huấn luyện được đồng thiết kế với kernel nhân ma trận chuyên biệt. Điểm đặc biệt của FireQ là chiến lược lượng tử hóa hỗn hợp độc đáo: trọng số của các lớp tuyến tính và ma trận key-value được lượng tử hóa xuống INT4, trong khi các activation và query được chuyển đổi sang định dạng FP8. Cách tiếp cận này tận dụng tối đa khả năng của các tensor core FP8 trên kiến trúc Hopper GPU.
+
+Một trong những đóng góp quan trọng nhất của FireQ là việc giải quyết các thách thức kỹ thuật phức tạp trong quá trình lượng tử hóa. Đối với các lớp tuyến tính, hệ thống sử dụng kỹ thuật per-tensor scaling để ngăn chặn hiện tượng underflow do hệ số tỷ lệ FP8 gây ra, đồng thời áp dụng channel-wise scaling để bù đắp cho độ phân giải thô của quantization INT4. Đối với các lớp attention, FireQ phải đối phó với những thách thức đặc biệt từ rotary positional embeddings (RoPE), một kỹ thuật mã hóa vị trí quan trọng nhưng tạo ra sự phức tạp trong quá trình lượng tử hóa.
+
+Để xử lý RoPE một cách hiệu quả, nhóm nghiên cứu đã phát triển chiến lược làm mượt outlier hai giai đoạn. Giai đoạn đầu sử dụng RoPE-preserving normalization để xử lý các cặp channel ổn định, trong khi giai đoạn thứ hai áp dụng channel-wise RoPE scaling để giải quyết các channel outlier. Phương pháp này không chỉ duy trì độ chính xác mà còn tối ưu hóa throughput.
+
+FireQ cũng mở rộng FlashAttention-3 bằng cách giới thiệu pipeline ba giai đoạn cho pha prefill. Cấu trúc này bao gồm một producer warpgroup tải dữ liệu bất đồng bộ và một consumer warpgroup thực hiện ba giai đoạn tính toán chồng lấp nhau: nhân query-key, tính toán softmax và tổng hợp value. Thiết kế này tăng cường đáng kể việc sử dụng phần cứng và giảm thời gian đến token đầu tiên.
+
+Kết quả thực nghiệm trên GPU H100 cho thấy hiệu suất ấn tượng của FireQ. So với QServe, một framework tiên tiến khác, FireQ đạt được tốc độ nhanh hơn 1.68 lần trên các lớp feed-forward network của mô hình Llama2-7B và nhanh hơn 1.26 lần trong pha prefill của Llama3-8B. Điều đáng chú ý là những cải thiện về tốc độ này đạt được mà không làm giảm đáng kể độ chính xác của mô hình.
+
+Nghiên cứu này thể hiện sự cân bằng tinh tế giữa hiệu suất và độ chính xác trong lĩnh vực tối ưu hóa mô hình ngôn ngữ lớn. FireQ không chỉ giải quyết các thách thức kỹ thuật phức tạp mà còn mở ra hướng phát triển mới cho việc triển khai LLM hiệu quả trên các kiến trúc GPU hiện đại.
+
+---
+

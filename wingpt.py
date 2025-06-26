@@ -13,6 +13,7 @@ import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE
+from ohmai import OhMaiEmbedding, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -129,44 +130,48 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
         super().__init__()
-        Embed          = nn.Embedding
+        Embed          = OhMaiEmbedding
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)         for i in range(n_layers)])
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
-        self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
-        with torch.no_grad(): self.unembeds.weight.zero_()
+        self.unembeds  = OhMaiHead(dim, vocab_size)
+        # self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
+        # with torch.no_grad(): self.unembeds.weight.zero_()
         assert self.blocks[0].mlp is None and self.blocks[-1].mlp is None # bỏ MLP ở layer đầu và cuối
-
-    def x0(self, input_seq): return self.embeds[0](input_seq)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R, I, C, M  = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
-        def first(): return self.x0(I) + B[ 0].attn(norm(self.x0(I)), E[ 1], I, C, M, R)
-        def last(x): return x          + B[-1].attn(norm(x)         , E[-1], I, C, M, R)
+        x = x0 = E[0](I)
+        def first(): return x0 + B[ 0].attn(norm(x0), E[ 1], I, C, M, R)
+        def last(x): return x  + B[-1].attn(norm(x),  E[-1], I, C, M, R)
         x = checkpoint(first, use_reentrant=False)
         for i, b in enumerate(B[1 : -1]):
             f = lambda x, i, b: b(x, E[i+2], I, C, M, R)
             x = checkpoint(f, x, i, b, use_reentrant=False)
-        return  checkpoint(last, x, use_reentrant=False)
+        return  checkpoint(last, x, use_reentrant=False), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
-    x = model(input_seq, cu_seqlens, max_seqlen)
+    ohmaihead = isinstance(model.unembeds, OhMaiHead)
+    if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)
+    if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
+
     def prepare():
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
-        xx_x0 = torch.cat([xx, model.x0(input_seq)], dim=-1)
+        xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.head2_mlp(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(x), norm(y), ty
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    w     = model.unembeds.weight
-    xloss = FusedCE.apply(xn,  w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn,  w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
+    w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
+    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn, w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
     return xloss + yloss
 
 

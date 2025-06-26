@@ -19,11 +19,6 @@ for x in "XS S M".split(): parser.add_argument(f"--{x}", action="store_true")
 args = parser.parse_args()
 
 torch.manual_seed(1981)
-D, E, HD, T = (512, 2, 64, 384) if args.XS else (1024, 4, 128, 128) if args.M else (1024, 2, 128, 192)
-if args.bs is None: args.bs = T
-tokens_per_batch = args.bs*1024
-model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
-
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
 CTX  = tokens_per_batch + 1
@@ -34,8 +29,52 @@ def get_batch():
     idx = torch.randint(0, N, (1,)) + WIN    # shape = (CTX)
     x = torch.from_numpy(data[idx.numpy()])  # Tensor → pin_memory → GPU.
     return x.pin_memory().to("cuda", dtype=torch.long, non_blocking=True)
-batch = get_batch()
+# batch = get_batch()
 
+from pathlib import Path
+import itertools
+import glob
+######
+def _load_data_shard(file: Path):
+    header = torch.from_file(str(file), False, 256, dtype=torch.int32) # header is 256 int32
+    assert header[0] == 20240520, "magic number mismatch in the data .bin file"
+    assert header[1] == 1, "unsupported version"
+    num_tokens = int(header[2]) # number of tokens (claimed)
+    with file.open("rb", buffering=0) as f:
+        tokens = torch.empty(num_tokens, dtype=torch.uint16, pin_memory=True) # avoid pin_memory copy by @YouJiacheng
+        f.seek(256 * 4)
+        nbytes = f.readinto(tokens.numpy()) # avoid bytes->array copy by @YouJiacheng
+        assert nbytes == 2 * num_tokens, "number of tokens read does not match header"
+    return tokens
+
+def data_generator(filename_pattern: str, batch_size: int, rank : int, world_size : int):
+    files = [Path(file) for file in sorted(glob.glob(filename_pattern))]
+    file_iter = itertools.cycle(files) # iter(files); use itertools.cycle(files) instead if you want to do multi-epoch training
+    tokens, pos = _load_data_shard(next(file_iter)), 0
+    while True:
+        if pos + batch_size + 1 >= len(tokens): tokens, pos = _load_data_shard(next(file_iter)), 0
+        buf     = tokens[pos + local_batch_size:][:local_batch_size + 1]
+        inputs  = buf[  :-1].to(device="cuda", dtype=torch.int32, non_blocking=True) # no sync on host side;
+        targets = buf[1 :  ].to(device="cuda", dtype=torch.int32, non_blocking=True) # H2D in another stream isn't helpful.
+        pos     = pos + batch_size
+        yield inputs, targets
+
+## Config
+D, E, HD, T = (512, 2, 64, 384) if args.XS else (1024, 4, 128, 128) if args.M else (1024, 2, 128, 192)
+if args.bs is None: args.bs = T
+tokens_per_batch = args.bs*1024
+
+train_files  = "data/fineweb10B/fineweb_train_*.bin" # input .bin to train on
+val_files    = "data/fineweb10B/fineweb_val_*.bin" # input .bin to eval validation loss on
+val_tokens   = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
+args.vocab   = 50257
+train_loader = data_generator(train_files, tokens_per_batch, rank, world_size)
+tokens, targets = next(train_loader)
+
+# end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
+eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256
+
+model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 ## INT8 hoá
 names, params = convert_int8_mixed_precision(model)
 def find_key(s):
@@ -95,17 +134,15 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
-## end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
-eot = 6399 if args.vocab < 32000 else 31999
-
 started_at = time.time()
 for step in range(args.steps):  # training loop
 
-    tokens, targets = batch[:-1], batch[1:]
-    c, m = get_cu_max_seqlens_from(tokens, eot=eot)
+    # tokens, targets = batch[:-1], batch[1:]
+    # batch = get_batch() # async prefetch next batch
 
+    c, m = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, c, m)
-    batch = get_batch() # async prefetch next batch
+    tokens, targets = next(train_loader)
     loss.backward()
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
