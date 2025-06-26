@@ -136,7 +136,7 @@ for step in range(args.steps):  # training loop
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr)
+        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=len(c), max=m)
 
         logger.log(log_dict, step=step)
         if step > 0:  # Only use pbar after it's initialized

@@ -539,3 +539,10 @@ Nghiên cứu này thể hiện sự cân bằng tinh tế giữa hiệu suất 
 
 ---
 
+# FFS Feedforward Split Multi Token Prediction
+- https://nickcdryan.com/2024/05/04/improving-language-modeling-loss-with-multi-token-prediction-experiments-in-multi-token-prediction-and-the-new-fair-paper
+|![](https://nickcdryan.com/wp-content/uploads/2024/05/image-13.png)|![](https://nickcdryan.com/wp-content/uploads/2024/05/image-11.png)|
+|-|-|
+|![](https://nickcdryan.com/wp-content/uploads/2024/05/image-10.png)|![](https://nickcdryan.com/wp-content/uploads/2024/05/image-edited.png)|
+|![]()|![]()|
+

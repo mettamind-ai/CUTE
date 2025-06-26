@@ -66,9 +66,24 @@
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 
-- [ ] fast inference + hiệu chỉnh logits
+- [ ] fast inference + hiệu chỉnh logits + sửa chữa tích luỹ sai lệch + phát hiện token "bất thường"
   - https://pytorch.org/blog/accelerating-generative-ai-2
-  - top-nơ https://www.alphaxiv.org/abs/2411.07641
+  - hiệu chỉnh logits top-nơ https://www.alphaxiv.org/abs/2411.07641
+  - sửa chữa tích luỹ sai lệch https://www.alphaxiv.org/abs/2410.14655
+    - Batch-scheduled Sampling (BASH), ngẫu nhiên kết hợp token từ dữ liệu gốc với token do mô hình tự sinh, giúp mô hình làm quen với việc xử lý các token không hoàn hảo trong quá trình huấn luyện.
+    - Reference-Answer-based Correction (RAC), tích hợp khả năng tự sửa lỗi vào mô hình bằng cách dạy nó cách điều chỉnh những token sai lệch dựa trên ngữ cảnh tham chiếu.
+  - Tránh tokens "bất thường" trong prompt https://www.alphaxiv.org/abs/2504.01002
+    ```
+    Hãy tưởng tượng token embeddings như một bản đồ 3D, nơi mỗi từ/token là một điểm trên bản đồ này. Trong một bản đồ "bình thường", địa hình sẽ tương đối mượt mà - không có vách đá dựng đứng hay hố sâu bất ngờ.
+    Những token "bất thường" giống như những điểm có địa hình kỳ lạ - có thể là đỉnh núi nhọn hoắt, hố sâu, hoặc vách đá dựng đứng.
+
+    => Xác định tokens bất thường: Với mỗi token, ta vẽ những vòng tròn có bán kính tăng dần xung quanh nó, rồi đếm xem có bao nhiêu token khác nằm trong mỗi vòng tròn ...
+
+    Ví dụ: Khi họ vẽ bản đồ 3D của không gian xung quanh token "ember" (than hồng), họ phát hiện ra nó nằm ở một vị trí rất kỳ lạ - 
+    giống như một "đỉnh núi nhọn" hay "mũi nhọn" nhô ra khỏi bề mặt bình thường.
+    Điều này khiến model khó "di chuyển" một cách mượt mà từ "ember" sang các từ khác.
+
+    ```
 
 - [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa gamming GPUs)
   - 2 GPUs => trao đổi `1:1`; 3 GPUs => `1:1 x 3`; 4 GPUs => `1:1 x 6`
