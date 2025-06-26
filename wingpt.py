@@ -152,26 +152,26 @@ class WinGPT(nn.Module):
         return  checkpoint(last, x, use_reentrant=False)
 
 
+# @torch.compile()
+def prepare(x, target, model):
+    zeros = torch.zeros_like(x[:1])
+    xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
+    xx_x0 = torch.cat([xx, model.x0(input_seq)], dim=-1)
+    y     = model.head2_mlp(norm(xx_x0))
+    ty    = F.pad(target[1:], (1, 0), mode='constant', value=-100)
+    return norm(x), norm(y), ty
+
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     z = model(input_seq, cu_seqlens, max_seqlen)
     x = z.detach(); x.requires_grad = True
 
-    @torch.compile()
-    def prepare():
-        zeros = torch.zeros_like(x[:1])
-        xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
-        xx_x0 = torch.cat([xx, model.x0(input_seq)], dim=-1)
-        y     = model.head2_mlp(norm(xx_x0))
-        ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
-        return norm(x), norm(y), ty
-    xn, yn, ty = checkpoint(prepare, use_reentrant=False)
-
+    xn, yn, ty = checkpoint(prepare, x, target, model, use_reentrant=False)
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     W, tx = model.unembeds.weight, target
     xloss = FusedCE.apply(xn, W, tx, n_ignore, ignore, 0.7); xloss.backward()  # NTP: Next token prediction
     yloss = FusedCE.apply(yn, W, ty, n_ignore, ignore, 0.3); yloss.backward()  # MTP: Next of next token prediction
 
-    loss = (xloss.detach() + yloss.detach()).item()
+    loss = (xloss + yloss).item()
     z.backward(gradient=x.grad)
     return loss
 
@@ -229,7 +229,7 @@ if __name__ == "__main__":
 
         loss_model     = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss_model {loss_model.item():.4f}, ", end="")
+        print(f"step {step}, loss_model {loss_model:.4f}, ", end="")
 
         optim.step()
         aptim.step()

@@ -168,7 +168,6 @@ def per_label_cross_entropy(
 class FusedCE(torch.autograd.Function):
     @staticmethod
     @torch.no_grad()
-    @torch.compile()
     @torch.amp.custom_fwd(device_type="cuda")
     def forward(ctx, _input, weight, target, n_ignores=0, ignore=-100, ratio=1.0):
 
