@@ -119,7 +119,9 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
-started_at = time.time()
+started_at    = time.time()
+total_samples = 0
+
 for step in range(args.steps):  # training loop
 
     # tokens, targets = batch[:-1], batch[1:]
@@ -133,13 +135,16 @@ for step in range(args.steps):  # training loop
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
     # grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None).item() ** 0.5
 
+    n_samples = len(c)
+    total_samples += n_samples
+
     if (step - 1) % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=len(c), maxlen=m)
+        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=n_samples, maxlen=m)
 
         logger.log(log_dict, step=step)
-        pbar.set_postfix(loss=lossv, lr=muon_lr, samples=len(c), maxlen=m) # tối thiểu chiều rộng
+        pbar.set_postfix(loss=lossv, lr=muon_lr, samples=n_samples, maxlen=m) # tối thiểu chiều rộng
 
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
@@ -165,9 +170,12 @@ for step in range(args.steps):  # training loop
     pbar.update()
 
     if step % log_interval == 0:
+        x = tokens_per_batch * step
         logger.log(dict(
             max_memory_allocated     = torch.cuda.max_memory_allocated(), 
-            num_tokens_seen_millions = tokens_per_batch*step,
-            tokens_per_second        = tokens_per_batch*step / (time.time() - time0),
+            num_tokens_seen_millions = x / 1e6,
+            tokens_per_second        = x / (time.time() - time0),
+            total_samples            = total_samples,
+            avg_sample_len           = x / total_samples,
         ), step=step)
 logger.finish()
