@@ -11,15 +11,12 @@
 ## Others, data, test run ...
 ######################################################################
 # pip install --pre torch==2.8.0.dev20250622 --index-url https://download.pytorch.org/whl/nightly/cu128 -U
-pip install numpy tqdm wandb einops ninja torch==2.6.0 -U --user
+pip install numpy tqdm wandb einops ninja huggingface_hub torch==2.6.0 -U --user
 git clone https://github.com/NVIDIA/cutlass.git flash/attn/cutlass
 cd flash/attn/cutlass; git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3
 
 ./wingpt.py
-if [ ! -f data6400.bin ]; then
-    wget https://huggingface.co/datasets/Symonsters/MiniTinyStories/resolve/main/data6400.bin.xz
-    xz -d data6400.bin.xz
-fi
+python3 data/cached_fineweb10B.py 1 
 ./pretrain.py --bs 1
 
 # git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
