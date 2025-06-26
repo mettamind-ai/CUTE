@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 D, E, HD, T = (512, 2, 64, 384) if args.XS else (1024, 4, 128, 128) if args.M else (1024, 2, 128, 192)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
-model = WinGPT(dim=D, expansion=E, n_layers=28, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 data = np.memmap(f"data/{args.vocab}.bin", dtype=np.uint16, mode="r")
