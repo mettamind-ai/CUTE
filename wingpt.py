@@ -153,7 +153,7 @@ class WinGPT(nn.Module):
 
 
 # @torch.compile()
-def prepare(x, target, model):
+def prepare(x, target, model, input_seq):
     zeros = torch.zeros_like(x[:1])
     xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
     xx_x0 = torch.cat([xx, model.x0(input_seq)], dim=-1)
@@ -165,7 +165,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     z = model(input_seq, cu_seqlens, max_seqlen)
     x = z.detach(); x.requires_grad = True
 
-    xn, yn, ty = checkpoint(prepare, x, target, model, use_reentrant=False)
+    xn, yn, ty = checkpoint(prepare, x, target, model, input_seq, use_reentrant=False)
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     W, tx = model.unembeds.weight, target
     xloss = FusedCE.apply(xn, W, tx, n_ignore, ignore, 0.7); xloss.backward()  # NTP: Next token prediction
