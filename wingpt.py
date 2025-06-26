@@ -100,9 +100,9 @@ class CausalSelfAttention(nn.Module):
         v           = v_emb(input_seq) # T, hidden
 
         q           = q.view(T, H, D)
-        v           = v.view(T, H//4, D)
+        v           = v.view(T, H//2, D)
         shared_k    = shared_k.view(T, 1, SD) 
-        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//4)
+        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
         k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
 
         v = norm(v) # norm head_dim (64 hoặc 128)
@@ -133,7 +133,7 @@ class WinGPT(nn.Module):
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)         for i in range(n_layers)])
-        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//4) for _ in range(n_layers)])
+        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
