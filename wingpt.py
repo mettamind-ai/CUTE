@@ -135,7 +135,7 @@ class Block(nn.Module):
         else:                return x + attn + self.mlp(xn)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):3
         super().__init__()
         Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)

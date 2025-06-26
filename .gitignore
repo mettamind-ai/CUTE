@@ -13,3 +13,5 @@ cutlass
 cpm.cu
 *.o
 *.so
+OpenCode.md
+.opencode
