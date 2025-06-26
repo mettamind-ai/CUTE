@@ -130,7 +130,7 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
         super().__init__()
-        Embed          = OhMaiEmbedding
+        Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
         self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)         for i in range(n_layers)])
