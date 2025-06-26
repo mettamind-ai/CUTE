@@ -135,7 +135,7 @@ class Block(nn.Module):
         else:                return x + attn + self.mlp(xn)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):3
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
         super().__init__()
         Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     for step in range(10):
         ## Generate sequences with batch dimension
         input_seq = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
-        target    = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
+        target    = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq)
 
         optim.zero_grad()
