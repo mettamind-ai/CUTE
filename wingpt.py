@@ -170,9 +170,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xloss = FusedCE.apply(xn, W, tx, n_ignore, ignore, 0.7); xloss.backward()  # NTP: Next token prediction
     yloss = FusedCE.apply(yn, W, ty, n_ignore, ignore, 0.3); yloss.backward()  # MTP: Next of next token prediction
 
-    loss = xloss.detach() + yloss.detach()
+    loss = (xloss + yloss).item()
     z.backward(gradient=x.grad)
-    return loss     
+    return loss
 
 
 def get_cu_max_seqlens_from(input_seq, eot):
