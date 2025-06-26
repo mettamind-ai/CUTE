@@ -85,9 +85,9 @@ for opt in [muon_optim, adam_optim]:
 ###############
 ##  TRANING  ##
 ###############
-lossf = torch.compile(lossf)
+# lossf = torch.compile(lossf)
 # for x in model.blocks: x.compile()
-
+model = torch.compile(model)
 model = model.cuda()
 model.train()
 
