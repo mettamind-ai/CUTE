@@ -12,7 +12,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import Int8MixedLinear, FusedCE
+from optimus import FusedCE
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -82,9 +82,8 @@ class ReLuSquareMLP(nn.Module):
         return self.fc2_proj(y)
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim:int, ctxlen:int, head_dim=128, long=False, layer_id=-1):
+    def __init__(self, dim:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim = hidden = embedding = feature = representation
-        self.ctxlen    = ctxlen
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
         self.qk_proj   = nn.Linear(dim, dim + head_dim//2, bias=False)
@@ -92,13 +91,11 @@ class CausalSelfAttention(nn.Module):
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
-
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
-        self.attn_scale = 0.12
 
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        T, H, D, SD = self.ctxlen, self.num_heads, self.head_dim, self.head_dim//2
+        T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
         q, shared_k = torch.split(self.qk_proj(x), [H*D, SD], dim=-1)
         v           = v_emb(input_seq) # T, hidden
 
@@ -111,22 +108,19 @@ class CausalSelfAttention(nn.Module):
         v = norm(v) # norm head_dim (64 hoặc 128)
         if self.rope: q, k = rotary(q), rotary(k)
 
-        o = flash_attn_varlen_func(
-            q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
-            softmax_scale=self.attn_scale, window_size=(self.window, 0),
-        )
+        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
 
 ##############################
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, expansion, ctxlen, head_dim, layer_id, n_layers):
+    def __init__(self, dim, expansion, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.mlp = ReLuSquareMLP(dim, dim*expansion) if 1 <= layer_id and layer_id < n_layers - 1 else None
-        self.attn = CausalSelfAttention(dim, ctxlen, head_dim, self.long, layer_id)
+        self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
         xn = norm(x)
@@ -140,14 +134,14 @@ class WinGPT(nn.Module):
         Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
-        self.blocks    = nn.ModuleList([Block(dim, expansion, ctxlen, head_dim, i, n_layers) for i in range(n_layers)])
+        self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)         for i in range(n_layers)])
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//4) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = checkpoint(self.embeds[0], input_seq, use_reentrant=False)
+        x = self.embeds[0](input_seq)
         for i, blk in enumerate(self.blocks):
             f = lambda x, i, blk: blk(x, self.embeds[i + 1], input_seq, cu_seqlens, max_seqlen, self.rotary)
             x = checkpoint(f, x, i, blk, use_reentrant=False)
@@ -180,7 +174,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 def get_cu_max_seqlens_from(input_seq, eot=6399):
         mask = (input_seq == eot)
         mask[-1] = True
-        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device="cuda"), torch.where(mask)[0].to(torch.int32) + 1,])
+        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1,])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
 
@@ -192,7 +186,6 @@ def get_cu_max_seqlens_from(input_seq, eot=6399):
 if __name__ == "__main__":
     import numpy as np
     from optimus import Muon1GPU as Muon
-    from optimus import convert_int8_mixed_precision
 
     seed = 1981
     ctxlen = 512
