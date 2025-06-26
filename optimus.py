@@ -114,7 +114,7 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         inp, weight = ctx.saved_tensors
-        grad_weight = grad_bias = None 
+        grad_weight = grad_bias = None
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
@@ -240,25 +240,24 @@ class Muon1GPU(torch.optim.Optimizer):
     @torch.compiler.disable
     def step(self):
         for group in self.param_groups:
-            for p in group['params']:                       # với mỗi tham số p trong model
-                if p.grad is None: continue                 # bỏ qua nếu không có gradient
+            for p in group['params']:               # với mỗi tham số p trong model
+                if p.grad is None: continue         # bỏ qua nếu không có gradient
 
-                g, st = p.grad, self.state[p]               # lấy gradient và optim state và ...
-                if 'mm' not in st:                          # ... khởi tạo momentum nếu chưa có
-                    st['mm'] = torch.zeros_like(g, dtype=torch.bfloat16)
+                g, st = p.grad, self.state[p]       # lấy gradient và optim state và ...
+                if 'mm' not in st:                  # ... khởi tạo momentum nếu chưa có
+                    st['mm'] = torch.zeros_like(g)
 
-                st['mm'].lerp_(g, 1 - group['mm'])          # momentum = momentum * 0.95 + gradient * 0.05
-                g = g.lerp_(st['mm'], group['mm'])          # gradient = gradient * 0.05 + momentum * 0.95
+                st['mm'].lerp_(g, 1 - group['mm'])  # momentum = momentum * 0.95 + gradient * 0.05
+                g = g.lerp_(st['mm'], group['mm'])  # gradient = gradient * 0.05 + momentum * 0.95
 
                 assert g.dim() == 2, "Muon only supports 2D weight matrices"
-                g = zeropower_newtonschulz5(g.bfloat16())   # Trực giao hoá g
+                g = zeropower_newtonschulz5(g)      # Trực giao hoá g
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
-                p.mul_(1 - group['lr']*group['wd'])         # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
-                rows, cols = p.size(-2), p.size(-1)         # 2) p -= g * lr * sqrt(max(1, rows / cols))
+                p.mul_(1 - group['lr']*group['wd']) # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0
+                rows, cols = p.size(-2), p.size(-1) # 2) p -= g * lr * sqrt(max(1, rows / cols))
                 x = max(1, rows / cols)**0.5 
                 p.add_(g, alpha=-group['lr']*x)
-
 
 
 ########################

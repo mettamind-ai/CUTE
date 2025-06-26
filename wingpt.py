@@ -18,8 +18,8 @@ from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
-torch.set_float32_matmul_precision('high') # better for f32 head
-torch.backends.cuda.matmul.allow_tf32  = True
+torch.set_float32_matmul_precision('high')
+torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_default_dtype(torch.bfloat16)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
@@ -139,10 +139,12 @@ class WinGPT(nn.Module):
         with torch.no_grad(): self.unembeds.weight.zero_()
         assert self.blocks[0].mlp is None and self.blocks[-1].mlp is None # bỏ MLP ở layer đầu và cuối
 
+    def x0(self, input_seq): return self.embeds[0](input_seq)
+
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        B, E, R, I, C, M = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
-        def first(): return E[0](I) + B[ 0].attn(norm(E[0](I)), E[ 1], I, C, M, R)
-        def last(x): return x       + B[-1].attn(norm(x)      , E[-1], I, C, M, R)
+        B, E, R, I, C, M  = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
+        def first(): return self.x0(I) + B[ 0].attn(norm(self.x0(I)), E[ 1], I, C, M, R)
+        def last(x): return x          + B[-1].attn(norm(x)         , E[-1], I, C, M, R)
         x = checkpoint(first, use_reentrant=False)
         for i, b in enumerate(B[1 : -1]):
             f = lambda x, i, b: b(x, E[i+2], I, C, M, R)
@@ -153,16 +155,11 @@ class WinGPT(nn.Module):
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
     x = model(input_seq, cu_seqlens, max_seqlen) 
     def prepare():
-
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
-
-        x0    = model.embeds[0](input_seq)
-        xx_x0 = torch.cat([xx, x0], dim=-1)
-
+        xx_x0 = torch.cat([xx, model.x0(input_seq)], dim=-1)
         y     = model.head2_mlp(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
-
         return norm(x), norm(y), ty
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
 
@@ -197,6 +194,9 @@ if __name__ == "__main__":
 
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim=head_dim).cuda()
+
+    # from optimus import convert_int8_mixed_precision
+    # convert_int8_mixed_precision(model)
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]
