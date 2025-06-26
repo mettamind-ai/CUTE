@@ -152,7 +152,7 @@ class WinGPT(nn.Module):
         return  checkpoint(last, x, use_reentrant=False)
 
 
-# @torch.compile()
+@torch.compile()
 def prepare(x, target, model, input_seq):
     zeros = torch.zeros_like(x[:1])
     xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
