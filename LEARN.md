@@ -548,9 +548,12 @@ Nghiên cứu này thể hiện sự cân bằng tinh tế giữa hiệu suất 
 
 ---
 
-# Quá trình xử lý **per-layer input** trong mô hình Gemma 3n
+GEMMA3N
+-------
 
-## 1. **Khởi tạo và tạo ra per-layer input**
+## Quá trình xử lý **per-layer input** trong mô hình Gemma 3n
+
+### 1. **Khởi tạo và tạo ra per-layer input**
 
 Ban đầu, mô hình tạo ra đầu vào riêng biệt cho từng tầng bằng cách:
 
@@ -562,11 +565,11 @@ Ban đầu, mô hình tạo ra đầu vào riêng biệt cho từng tầng bằn
 
 Kết quả cuối cùng là tensor `per_layer_inputs` dùng để đưa vào từng tầng riêng biệt.
 
-## 2. **Phân bổ đầu vào tới từng tầng**
+### 2. **Phân bổ đầu vào tới từng tầng**
 
 Trong quá trình xử lý qua các tầng (`DecoderLayer`), mô hình lần lượt lấy ra một "lát cắt" theo tầng của tensor đầu vào (`per_layer_inputs`). Mỗi tầng chỉ nhận phần đầu vào tương ứng với tầng đó, giúp mỗi tầng xử lý các thông tin chuyên biệt cho nhiệm vụ của nó.
 
-## 3. **Biến đổi per-layer input trong từng tầng**
+### 3. **Biến đổi per-layer input trong từng tầng**
 
 Khi nhận được đầu vào theo tầng, mỗi tầng thực hiện các bước sau:
 
@@ -582,7 +585,7 @@ Khi nhận được đầu vào theo tầng, mỗi tầng thực hiện các bư
 * **Bước 4 - Kết hợp vào mạng**:
   Kết quả cuối cùng này sẽ được đưa vào nhánh residual đặc biệt trong cấu trúc AltUp của mô hình, giúp ảnh hưởng đến đầu ra của các tầng kế tiếp.
 
-## 4. **Ý nghĩa chung của quá trình**
+### 4. **Ý nghĩa chung của quá trình**
 
 Việc sử dụng đầu vào theo tầng như thế này giúp mô hình Gemma3n có thể HỌC VÀ DUY TRÌ CÁC BIỂU DIỄN ĐẶC TRƯNG RIÊNG BIỆT CHO TỪNG TẦNG:
 
@@ -591,4 +594,84 @@ Việc sử dụng đầu vào theo tầng như thế này giúp mô hình Gemma
 * **Ở cấp từng tầng**: Đầu vào này giúp tầng điều tiết thông tin hiệu quả hơn thông qua gating, tránh đưa quá nhiều thông tin không cần thiết vào tầng, đồng thời giúp các tầng chia sẻ và kết hợp thông tin một cách có kiểm soát.
 
 Nói cách khác, cơ chế **per-layer input** này giúp mỗi tầng trong mô hình hoạt động một cách thông minh, vừa duy trì đặc điểm riêng, vừa phối hợp tốt với toàn bộ mạng để tối ưu hóa hiệu suất chung của mô hình.
+
+
+
+## AltUp (Alternating Updates) ― cơ chế “nhiều luồng residual song song”
+
+AltUp mở rộng khái niệm residual thông thường bằng việc **duy trì đồng thời `N` bản sao ẩn** của cùng một chuỗi token (mặc định `2 ≤ N ≤ 4` tuỳ cấu hình). Mỗi bản sao gọi là một *altup‑input*. Dòng chính được đánh số `altup_active_idx` (thường là 0). Các bước ở **mỗi tầng** diễn ra theo chu trình **Predict → Transform → Correct**:
+
+### 1. **Predict** – pha “dự đoán”
+
+```python
+predictions = self.altup.predict(hidden_states)    # shape: (N, B, T, D)
+active_pred = predictions[altup_active_idx]        #           (B, T, D)
+```
+
+1. **Chuẩn hoá & “định tuyến”**
+   `compute_router_modalities` lấy bản sao chủ động, RMS‑Norm + thang hệ số rồi đưa qua `modality_router` → vector “modalities” kích thước `altup_num_inputs`.
+
+2. **Tính ma trận phối trộn**
+   `prediction_coefs` (Linear) biến `modalities` thành tensor hệ số **(B,T,N,N)** rồi hoán vị để tiện `matmul`.
+   Điều này tương đương **học một ma trận chuyển tiếp** giữa các kênh AltUp tùy theo ngữ cảnh.
+
+3. **Kết hợp**
+ ```python
+ predictions = hidden_states @ all_coefs + hidden_states
+               (B,T,D,N)     · (N,N)       (cộng shortcut)
+ ```
+ Kết quả là **N bản sao ẩn đã được phỏng đoán** cho đầu ra tầng kế tiếp.
+
+
+### 2. **Transform** – áp dụng khối Transformer chỉnh sửa bản sao chủ động
+
+Khối thông thường của Gemma3n (LayerNorm → Attention → Laurel → MLP) **chỉ chạy trên `active_pred`**. Những bản sao khác tạm “đứng yên”.
+
+### 3. **Correct** – pha “sửa sai”
+```python
+corrected = self.altup.correct(predictions, activated)  # vẫn (N, B, T, D)
+```
+
+1. **Innovation**
+ ```
+ innovation = activated - predictions[active_idx]
+ ```
+ Đây là phần sai lệch giữa thực tế (kết quả sau Transform) và dự đoán ban đầu.
+
+2. **Lặp innovation vào mọi luồng**
+ `innovation` được replicate trên trục N rồi nhân với hệ số `correction_coefs(modalities)+1`.
+ Hệ số này **học** xem nên bù thêm bao nhiêu cho từng bản sao phụ để bám sát bản sao chủ.
+
+3. **Cộng ngược vào predictions** → `corrected`
+Như vậy, tất cả luồng AltUp được “kéo” về gần bản sao chủ động mới nhất, nhưng vẫn giữ tiếng nói riêng.
+
+4. **Tùy chọn scale**
+Nếu bật `altup_correct_scale`, tầng có thể học vector scale riêng `correct_output_scale` để nắn cường độ của bản sao chủ sau khi sửa.
+
+### 4. **Tiêm per‑layer input**
+Trong cùng tầng Decoder, bản sao chủ (`first_prediction`) còn đi qua cơ chế *per‑layer input gate* rồi được **cộng *chỉ* vào các luồng phụ** (`corrected_predictions[1:] += …`). Điều này tạo thêm dị biệt giữa chủ và phụ, tránh chúng sớm “đồng hoá” hoàn toàn.
+
+### 5. **Lan truyền sang tầng kế tiếp**
+`hidden_states` gửi xuống tầng dưới chính là tensor `corrected` đầy đủ N luồng. Vòng Predict‑Transform‑Correct lặp lại.
+
+### 6. **Hợp nhất khi thoát bộ giải mã**
+Sau khi qua hết các tầng, mô hình gom N bản sao về một:
+```python
+for i in 1..N-1:
+    proj_i = altup_unembed_projections[i-1](hidden_states[i])
+    # cân bằng độ lớn rồi xếp vào list
+hidden_states = mean(stack([hidden_states[0], proj_1, …, proj_N-1]), dim=0)
+hidden_states = final_RMSNorm(hidden_states)
+```
+Như vậy, thông tin riêng lẻ của luồng phụ được quy về đại diện duy nhất mang phong phú hoá bối cảnh.
+
+### Tại sao AltUp hữu ích?
+
+| Vấn đề thường gặp  | AltUp giải quyết thế nào?  |
+| -----------------  | -------------------------- |
+| **Gradient vanishing / bottleneck** khi chỉ có một đường residual | Giữ **n** đường song song → đa dạng luồng thông tin, giảm áp lực lưu trữ ở duy nhất một tensor. |
+| **Trade‑off giữa ổn định và linh hoạt**                           | Pha *Predict* cho phép mô hình “ước lượng” đáp án, pha *Correct* sửa trên sai số thực, tựa như bước predictor–corrector trong tích phân số → hội tụ nhanh hơn. |
+| **Khó truyền kiến thức tầng thấp lên cao**                        | Innovation được nhân & cộng vào mọi luồng → mỗi tầng cao nhận “tín hiệu lỗi” giàu ý nghĩa, không chỉ từ nhánh chính.  |
+
+Tóm lại, ALTUP BIẾN RESIDUAL CONNECTION THÀNH **HỆ SINH THÁI NHIỀU NHÁNH TƯƠNG TÁC**: MỘT NHÁNH ĐƯỢC XỬ LÝ SÂU, CÁC NHÁNH CÒN LẠI VỪA DỰ ĐOÁN VỪA HỌC ĐIỀU CHỈNH. Điều này tăng khả năng biểu diễn và giúp Gemma3n huấn luyện ổn định, đặc biệt trên dải ngữ liệu dài hoặc kiến trúc rất sâu.
 
