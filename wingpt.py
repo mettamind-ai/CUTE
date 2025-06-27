@@ -11,8 +11,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE
-from ohmai import OhMaiEmbedding, OhMaiHead
+from optimus import FusedCE, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -88,7 +87,7 @@ class CausalSelfAttention(nn.Module):
         else:    self.rope, self.window  = True,  1024
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
-    def forward(self, q, k, v, rotary, cu_seqlens, max_seqlen):
+    def forward(self, q, k, v, cu_seqlens, max_seqlen, rotary):
         T, H, D = q.size(0), self.num_heads, self.head_dim
         q = q.view(T, H   ,  D   )
         v = v.view(T, H//2,  D   )
@@ -124,12 +123,15 @@ class Block(nn.Module):
         y = self.fc1_proj(x)
         return self.fc2_proj(y)
 
-    def forward(self, x, v, rotary, cu_seqlens, max_seqlen):
+    def forward(self, x, v, cu_seqlens, max_seqlen, rotary, scalars):
         D, KD = x.shape[-1], self.attn.head_dim//2
         up = self.upup_proj(norm(x))
         q  = up[..., -D      :    ]
         k  = up[..., -D - KD : -D ]
-        return x + self.attn(q, k, v, rotary, cu_seqlens, max_seqlen) + self.down_proj(F.relu(up).square())
+        return ( scalars[0] * x + 
+                 scalars[1] * self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + 
+                 scalars[2] * self.down_proj(F.relu(up).square())
+        )
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
@@ -141,11 +143,13 @@ class WinGPT(nn.Module):
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = OhMaiHead(dim, vocab_size)
+        self.scalars   = nn.Parameter(torch.concat([torch.tensor([1.0, 1.0, 1.0]) for _ in range(n_layers)]).view(-1, 3))
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = x0 = self.embeds[0](input_seq)
-        def f(x, i): return self.blocks[i](x, self.embeds[i+1](input_seq), self.rotary, cu_seqlens, max_seqlen)
-        for i in range(len( self.blocks)): x = checkpoint(f, x, i, use_reentrant=False)
+        B, E, R, S = self.blocks, self.embeds, self.rotary, self.scalars
+        x = x0 = E[0](input_seq)
+        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R, S[i])
+        for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return  x, x0
 
 
@@ -205,7 +209,7 @@ if __name__ == "__main__":
     print("\nAdam:", apara.keys())
     apara = list(apara.values())
 
-    aptim = torch.optim.Adam(apara)
+    aptim = torch.optim.AdamW(apara)
     optim = Muon(opara)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
@@ -231,3 +235,6 @@ if __name__ == "__main__":
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
+
+print(model.scalars)
+model.unembeds.update_async_weight()

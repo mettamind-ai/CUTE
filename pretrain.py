@@ -92,8 +92,9 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=model  .embeds.parameters(), lr=0.006 ), 
-    dict(params=model.unembeds.parameters(), lr=0.003 ),
+    dict(params=[model.scalars],              lr=0.006 ), 
+    dict(params= model.embeds.parameters(),   lr=0.006 ), 
+    dict(params= model.unembeds.parameters(), lr=0.003 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
 muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
@@ -113,22 +114,16 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
-started_at    = time.time()
+started_at = time.time()
 total_samples = 0
 
 for step in range(args.steps):  # training loop
-
-    # tokens, targets = batch[:-1], batch[1:]
-    # batch = get_batch() # async prefetch next batch
-
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, c, m)
     tokens, targets = next(train_loader)
     loss.backward()
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
-    # grad_norm = sum(p.grad.square().sum() for p in muon_params if p.grad is not None).item() ** 0.5
-
     n_samples = len(c)
     total_samples += n_samples
 
@@ -172,4 +167,7 @@ for step in range(args.steps):  # training loop
             total_samples            = total_samples,
             avg_sample_len           = x / total_samples,
         ), step=step)
+        if step % (10*log_interval) == 0: print(model.scalars)
+
 logger.finish()
+model.unembeds.update_async_weight()
