@@ -236,5 +236,5 @@ if __name__ == "__main__":
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
 
-print(model.scalars)
-model.unembeds.update_async_weight()
+    print(model.scalars)
+    model.unembeds.update_async_weight()
