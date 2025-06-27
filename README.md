@@ -96,3 +96,7 @@
 
 - [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa gamming GPUs)
   - 2 GPUs => trao đổi `1:1`; 3 GPUs => `1:1 x 3`; 4 GPUs => `1:1 x 6`
+
+- [ ] gemma 3n
+  - https://github.com/huggingface/transformers/blob/main/src/transformers/models/gemma3n/modeling_gemma3n.py#L2189
+  - https://huggingface.co/google/gemma-3n-E4B-it/blob/main/config.json

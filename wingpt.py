@@ -79,7 +79,7 @@ class ReLuSquareMLP(nn.Module):
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
-        y = F.relu(self.fc1_proj(x)).square()
+        y = F.relu(self.fc1_proj(norm(x))).square()
         return self.fc2_proj(y)
 
 class CausalSelfAttention(nn.Module):
@@ -95,20 +95,20 @@ class CausalSelfAttention(nn.Module):
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
 
-    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
         T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
-        q, shared_k = torch.split(self.qk_proj(x), [H*D, SD], dim=-1)
-        v           = v_emb(input_seq) # T, hidden
-
-        q           = q.view(T, H, D)
-        v           = v.view(T, H//2, D)
-        shared_k    = shared_k.view(T, 1, SD) 
-        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
-        k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
-
-        v = norm(v) # norm head_dim (64 hoặc 128)
-        if self.rope: q, k = rotary(q), rotary(k)
-
+        def prepare(qk):
+            q, shared_k = torch.split(qk, [H*D, SD], dim=-1)
+            v           = v_emb(input_seq) # T, hidden
+            q           = q.view(T, H, D)
+            v           = v.view(T, H//2, D)
+            shared_k    = shared_k.view(T, 1, SD) 
+            shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
+            k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
+            q, k, v     = norm(q), norm(k), norm(v) # head_dim (64 hoặc 128)
+            if self.rope: q, k = rotary(q), rotary(k)
+            return q, k, v
+        q, k, v = checkpoint(prepare, self.qk_proj(x), use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
 
@@ -118,14 +118,12 @@ class CausalSelfAttention(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, expansion, head_dim, layer_id, n_layers):
         super().__init__()
-        self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.mlp = ReLuSquareMLP(dim, dim*expansion) if 1 <= layer_id and layer_id < n_layers - 1 else None
+        self.mlp  = ReLuSquareMLP(dim, dim*expansion) if 1 <= layer_id and layer_id < n_layers - 1 else None
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
-    def forward(self, x, v_emb, input_seq, cu_seqlens, max_seqlen, rotary):
-        xn = norm(x)
-        return x + self.mlp(xn) + self.attn(xn, v_emb, input_seq, cu_seqlens, max_seqlen, rotary)
+    def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
+        return x + checkpoint(self.mlp, x, use_reentrant=False) + self.attn(x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
@@ -142,15 +140,13 @@ class WinGPT(nn.Module):
         assert self.blocks[0].mlp is None and self.blocks[-1].mlp is None # bỏ MLP ở layer đầu và cuối
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        B, E, R, I, C, M  = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
+        B, E, R, I, C, M = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
         x = x0 = E[0](I)
-        def first(): return x0 + B[ 0].attn(norm(x0), E[ 1], I, C, M, R)
-        def last(x): return x  + B[-1].attn(norm(x),  E[-1], I, C, M, R)
+        def first():  return  x0  +  B[ 0].attn(x0, E[ 1], R, I, C, M)
+        def last(x):  return  x   +  B[-1].attn(x,  E[-1], R, I, C, M)
         x = checkpoint(first, use_reentrant=False)
-        for i, b in enumerate(B[1 : -1]):
-            f = lambda x, i, b: b(x, E[i+2], I, C, M, R)
-            x = checkpoint(f, x, i, b, use_reentrant=False)
-        return  checkpoint(last, x, use_reentrant=False), x0
+        for i, b in enumerate(B[1 : -1]): x = b(x, E[i+2], R, I, C, M)
+        return checkpoint(last, x, use_reentrant=False), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
