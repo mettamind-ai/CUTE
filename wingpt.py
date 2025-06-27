@@ -97,18 +97,16 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
         T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
-        def prepare(qk):
-            q, shared_k = torch.split(qk, [H*D, SD], dim=-1)
-            v           = v_emb(input_seq) # T, hidden
-            q           = q.view(T, H, D)
-            v           = v.view(T, H//2, D)
-            shared_k    = shared_k.view(T, 1, SD) 
-            shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
-            k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
-            q, k, v     = norm(q), norm(k), norm(v) # head_dim (64 hoặc 128)
-            if self.rope: q, k = rotary(q), rotary(k)
-            return q, k, v
-        q, k, v = checkpoint(prepare, self.qk_proj(x), use_reentrant=False)
+        q, shared_k = torch.split(qk, [H*D, SD], dim=-1)
+        v           = v_emb(input_seq) # T, hidden
+        q           = q.view(T, H, D)
+        v           = v.view(T, H//2, D)
+        shared_k    = shared_k.view(T, 1, SD) 
+        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
+        k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
+        q, k, v     = norm(q), norm(k), norm(v) # head_dim (64 hoặc 128)
+        if self.rope: q, k = rotary(q), rotary(k)
+
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
 
@@ -142,11 +140,13 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R, I, C, M = self.blocks, self.embeds, self.rotary, input_seq, cu_seqlens, max_seqlen
         x = x0 = E[0](I)
-        def first():  return  x0  +  B[ 0].attn(x0, E[ 1], R, I, C, M)
-        def last(x):  return  x   +  B[-1].attn(x,  E[-1], R, I, C, M)
-        x = checkpoint(first, use_reentrant=False)
-        for i, b in enumerate(B[1 : -1]): x = b(x, E[i+2], R, I, C, M)
-        return checkpoint(last, x, use_reentrant=False), x0
+        def first():        return x0 + B[ 0].attn(x0, E[ 1], R, I, C, M)
+        def last(x):        return x  + B[-1].attn(x,  E[-1], R, I, C, M)
+        def mid(blk, x, i): return             blk(x, E[i+2], R, I, C, M)
+        x     = checkpoint(first, use_reentrant=False)
+        for i, b in enumerate(B[1 : -1]): 
+            x = checkpoint(mid, b, x, i, use_reentrant=False)
+        return  checkpoint(last, x, use_reentrant=False), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
@@ -159,7 +159,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(norm(xx_x0))
+        y     = model.head2_mlp(xx_x0)
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(x), norm(y), ty
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
