@@ -142,8 +142,8 @@ class Int8MixedLinear(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
-            grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            grad_weight = _fp32_to_bf16_sr(grad_weight)
+            grad_weight = scaled_mm(A, B, As, Bs, dtype=weight.dtype)
+            # grad_weight = _fp32_to_bf16_sr(grad_weight)
         return grad_input, grad_weight, grad_bias
 
 

@@ -79,7 +79,7 @@ class ReLuSquareMLP(nn.Module):
             else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
-        y = F.relu(self.fc1_proj(norm(x))).square()
+        y = F.relu(self.fc1_proj(x)).square()
         return self.fc2_proj(y)
 
 class CausalSelfAttention(nn.Module):
@@ -104,10 +104,8 @@ class CausalSelfAttention(nn.Module):
         shared_k    = shared_k.view(T, 1, SD) 
         shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
         k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
-        q, k, v     = norm(q), norm(k), norm(v) # head_dim (64 hoặc 128)
         if self.rope: q, k = rotary(q), rotary(k)
-
-        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
+        o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
 
 ##############################
@@ -121,7 +119,8 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
-        return x + checkpoint(self.mlp, x, use_reentrant=False) + self.attn(x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen)
+        xn = norm(x)
+        return x + checkpoint(self.mlp, xn, use_reentrant=False) + self.attn(xn, v_emb, rotary, input_seq, cu_seqlens, max_seqlen)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
@@ -159,7 +158,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(xx_x0)
+        y     = model.head2_mlp(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(x), norm(y), ty
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
