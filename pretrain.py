@@ -15,13 +15,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
 parser.add_argument("--steps",  type=int, default=30000)
 parser.add_argument("--vocab",  type=int, default=8192)
-for x in "XS S M".split(): parser.add_argument(f"--{x}", action="store_true")
+for x in "X S M L".split(): parser.add_argument(f"--{x}", action="store_true")
 
 args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 4, 64, 128) if args.XS else (1024, 4, 128, 64) if args.M else (1024, 4, 64, 64)
+D, E, HD, T = (512, 4, 64, 320) if args.X else (1024, 4, 64, 128)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 
