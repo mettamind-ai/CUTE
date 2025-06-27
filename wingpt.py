@@ -107,7 +107,9 @@ class Block(nn.Module):
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
+        if layer_id % 2 == 0 and expansion > 2: expansion -= 1
         hdim = dim * expansion
+
         self.upup_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim, dim, bias=False)
 
@@ -128,9 +130,9 @@ class Block(nn.Module):
         up = self.upup_proj(norm(x))
         q  = up[..., -D      :    ]
         k  = up[..., -D - KD : -D ]
-        return ( scalars[0] * x + 
-                 scalars[1] * self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + 
-                 scalars[2] * self.down_proj(F.relu(up).square())
+        return ( x + 
+                 scalars[0] * self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + 
+                 scalars[1] * self.down_proj(F.relu(up).square())
         )
 
 class WinGPT(nn.Module):
@@ -143,7 +145,7 @@ class WinGPT(nn.Module):
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = OhMaiHead(dim, vocab_size)
-        self.scalars   = nn.Parameter(torch.concat([torch.tensor([1.0, 1.0, 1.0]) for _ in range(n_layers)]).view(-1, 3))
+        self.scalars   = nn.Parameter(torch.concat([torch.tensor([1.0, 1.0]) for _ in range(n_layers)]).view(-1, 2))
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R, S = self.blocks, self.embeds, self.rotary, self.scalars
