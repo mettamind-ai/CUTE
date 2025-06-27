@@ -110,30 +110,25 @@ class Block(nn.Module):
         if layer_id % 2 == 0 and expansion > 2: expansion -= 1
         hdim = dim * expansion
 
-        self.upup_proj = nn.Linear(dim, hdim, bias=False)
+        self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim, dim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
-        self.upup_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
+        self.  up_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
         self.down_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded nanogpt cfg)
 
         with torch.no_grad():
-            self.upup_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
-    def forward(self, x):
-        y = self.fc1_proj(x)
-        return self.fc2_proj(y)
 
-    def forward(self, x, v, cu_seqlens, max_seqlen, rotary, scalars):
+    def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         D, KD = x.shape[-1], self.attn.head_dim//2
-        up = self.upup_proj(norm(x))
-        q  = up[..., -D      :    ]
-        k  = up[..., -D - KD : -D ]
-        return ( x + 
-                 scalars[0] * self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + 
-                 scalars[1] * self.down_proj(F.relu(up).square())
-        )
+        y = self.up_proj(x)
+        q = y[..., -D      :    ]
+        k = y[..., -D - KD : -D ]
+        y = F.relu(y).square()
+        return x + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
@@ -145,12 +140,11 @@ class WinGPT(nn.Module):
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = OhMaiHead(dim, vocab_size)
-        self.scalars   = nn.Parameter(torch.concat([torch.tensor([1.0, 1.0]) for _ in range(n_layers)]).view(-1, 2))
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        B, E, R, S = self.blocks, self.embeds, self.rotary, self.scalars
+        B, E, R = self.blocks, self.embeds, self.rotary
         x = x0 = E[0](input_seq)
-        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R, S[i])
+        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return  x, x0
 
@@ -237,6 +231,4 @@ if __name__ == "__main__":
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
-
-    print(model.scalars)
     model.unembeds.update_async_weight()

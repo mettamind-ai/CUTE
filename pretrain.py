@@ -92,7 +92,6 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params=[model.scalars],              lr=0.006 ), 
     dict(params= model.embeds.parameters(),   lr=0.006 ), 
     dict(params= model.unembeds.parameters(), lr=0.003 ),
 ]
@@ -167,7 +166,6 @@ for step in range(args.steps):  # training loop
             total_samples            = total_samples,
             avg_sample_len           = x / total_samples,
         ), step=step)
-        if step % (10*log_interval) == 0: print(model.scalars)
 
 logger.finish()
 model.unembeds.update_async_weight()
