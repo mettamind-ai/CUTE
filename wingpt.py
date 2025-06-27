@@ -97,7 +97,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
         T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
-        q, shared_k = torch.split(qk, [H*D, SD], dim=-1)
+        q, shared_k = torch.split(self.qk_proj(x), [H*D, SD], dim=-1)
         v           = v_emb(input_seq) # T, hidden
         q           = q.view(T, H, D)
         v           = v.view(T, H//2, D)
