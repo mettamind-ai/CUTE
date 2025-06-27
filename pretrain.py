@@ -21,7 +21,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 2, 64, 256) if args.XS else (1024, 4, 128, 128) if args.M else (1024, 2, 128, 128)
+D, E, HD, T = (512, 4, 64, 128) if args.XS else (1024, 4, 128, 64) if args.M else (1024, 4, 64, 64)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 
@@ -59,7 +59,7 @@ train_loader = data_generator(train_files, tokens_per_batch)
 tokens, targets = next(train_loader)
 
 # end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
-eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"oet: {eot}")
+eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"end-of-text: {eot}")
 
 model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 ## INT8 hoá
