@@ -107,6 +107,7 @@ class Block(nn.Module):
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
+        if layer_id % 2 == 0 and expansion > 2: expansion = expansion - 1
         hdim = dim * expansion
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim, dim, bias=False)
@@ -122,7 +123,7 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         D, KD = x.shape[-1], self.attn.head_dim//2
-        y = self.up_proj(x)
+        y = self.up_proj(norm(x))
         q = y[..., -D      :    ]
         k = y[..., -D - KD : -D ]
         y = F.relu(y).square()
