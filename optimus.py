@@ -123,7 +123,7 @@ class Int8MixedLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             T, D = inp.shape
-            step = min(1024*4, T)
+            step = min(1024*8, T)
             assert T % step == 0
 
             if step == D:
@@ -136,7 +136,7 @@ class Int8MixedLinear(torch.autograd.Function):
                     A, As = quantize_int8(grad_output[i:i+step].T, dim=1, sr=False)
                     for k in range(0, T, step):
                         B, Bs = quantize_int8(inp[k:k+step], dim=0, sr=False)
-                        grad_weight += scaled_mm(A, B, As, Bs, dtype=torch.float32)
+                        grad_weight = grad_weight + scaled_mm(A, B, As, Bs, dtype=torch.float32)
                 grad_weight = grad_weight.to(weight.dtype)
         return grad_input, grad_weight, grad_bias
 
