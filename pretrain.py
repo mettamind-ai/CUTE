@@ -114,25 +114,15 @@ log_interval = 5
 logger = wandb.init(dir="/tmp", config=args,)
 
 started_at = time.time()
-total_samples = 0
+total_samples = maxlen = 0
 
 for step in range(args.steps):  # training loop
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, c, m)
     tokens, targets = next(train_loader)
+
     loss.backward()
-
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
-    n_samples = len(c)
-    total_samples += n_samples
-
-    if (step - 1) % log_interval == 0 or step == args.steps - 1:
-        lossv = loss.item()
-        muon_lr = muon_optim.param_groups[0]["lr"]
-        log_dict = dict(loss=lossv, grad_norm=grad_norm, lr=muon_lr, samples=n_samples, maxlen=m)
-
-        logger.log(log_dict, step=step)
-        pbar.set_postfix(loss=lossv, lr=muon_lr, samples=n_samples, maxlen=m) # tối thiểu chiều rộng
 
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
@@ -155,17 +145,30 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-    pbar.update()
 
-    if step % log_interval == 0:
-        x = tokens_per_batch * step
+    total_docs += len(c)
+    if m > maxlen: max_len = m
+
+    if step % log_interval == 0 or step == args.steps - 1:
+        lossv = loss.item()
+        muon_lr = muon_optim.param_groups[0]["lr"]
+        tokens_seen = tokens_per_batch * step
+        tokens_per_second_K = (tokens_seen / 1e3) / (time.time() - time0)
+        tokens_per_second_K = int(tokens_per_second_K)
         logger.log(dict(
-            max_memory_allocated     = torch.cuda.max_memory_allocated(), 
-            num_tokens_seen_millions = x / 1e6,
-            tokens_per_second        = x / (time.time() - time0),
-            total_samples            = total_samples,
-            avg_sample_len           = x / total_samples,
+            loss                 = lossv, 
+            lr                   = muon_lr, 
+            grad_norm            = grad_norm,
+            max_memory_allocated = torch.cuda.max_memory_allocated(), 
+            tokens_seen_M        = tokens_seen / 1e6,
+            tokens_per_second_K  = tokens_per_second_K,
+            total_docs           = total_docs,
+            avglen               = num_tokens_seen / total_docs,
+            maxlen               = maxlen,
         ), step=step)
+        pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m)
+    else: pbar.set_postfix(maxlen=m)
+    pbar.update()
 
 logger.finish()
 model.unembeds.update_async_weight()
