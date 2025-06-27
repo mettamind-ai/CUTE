@@ -87,8 +87,8 @@ class CausalSelfAttention(nn.Module):
         super().__init__() # dim = hidden = embedding = feature = representation
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
-        self.qk_proj   = nn.Linear(dim, dim + head_dim//2, bias=False)
-        with torch.no_grad(): self.qk_proj.weight.copy_(init_linear(torch.empty(dim + head_dim//2, dim)))
+        self.k_proj    = nn.Linear(dim, head_dim//2, bias=False)
+        with torch.no_grad(): self.k_proj.weight.copy_(init_linear(torch.empty(head_dim//2, dim)))
 
         if long: self.rope, self.window  = False, 1024*4
         else:    self.rope, self.window  = True,  1024
@@ -97,7 +97,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
         T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
-        q, shared_k = torch.split(self.qk_proj(x), [H*D, SD], dim=-1)
+        q, shared_k = x, self.k_proj(x)
         v           = v_emb(input_seq) # T, hidden
         q           = q.view(T, H, D)
         v           = v.view(T, H//2, D)
