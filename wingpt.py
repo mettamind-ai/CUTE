@@ -107,9 +107,7 @@ class Block(nn.Module):
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
 
-        if layer_id % 2 == 0 and expansion > 2: expansion -= 1
         hdim = dim * expansion
-
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim, dim, bias=False)
 
@@ -131,7 +129,7 @@ class Block(nn.Module):
         return x + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
         super().__init__()
         Embed          = nn.Embedding
         self.rotary    = Rotary(head_dim, ctxlen)
@@ -194,7 +192,7 @@ if __name__ == "__main__":
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
     torch.manual_seed(seed)
-    model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim=head_dim).cuda()
+    model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim, 2).cuda()
 
     # from optimus import convert_int8_mixed_precision
     # convert_int8_mixed_precision(model)
