@@ -120,7 +120,7 @@ class Block(nn.Module):
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
         xn = norm(x)
-        return x + checkpoint(self.mlp, xn, use_reentrant=False) + self.attn(xn, v_emb, rotary, input_seq, cu_seqlens, max_seqlen)
+        return x + self.mlp(xn) + self.attn(xn, v_emb, rotary, input_seq, cu_seqlens, max_seqlen)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128, expansion=2):
