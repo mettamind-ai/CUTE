@@ -99,7 +99,6 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     return ( tensor, scale )                            # int8, float32
 
 
-@torch.compile()
 def _fp32_to_bf16_sr(x_f32: Tensor) -> Tensor:
     ''' https://github.com/pytorch/ao/blob/main/torchao/optim/quant_utils.py
     For an FP32 number      [a31, ..., a16, a15, ..., a0] to be converted to BF16
@@ -215,7 +214,7 @@ class FusedCE(torch.autograd.Function):
             if weight.requires_grad:
                 grad_weight = torch.addmm(grad_weight, logits.t(), _input[s:e])
 
-        # Khi n_labels lớn thì cộng trước rồi chia sau giúp ổn định số học hơn
+        # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
         reduction = ratio * step / (n_labels - n_ignores)
         ctx.save_for_backward(
             (grad_input  * reduction).detach(), 
