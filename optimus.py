@@ -99,6 +99,7 @@ def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
     return ( tensor, scale )                            # int8, float32
 
 
+@torch.compile()
 def _fp32_to_bf16_sr(x_f32: Tensor) -> Tensor:
     ''' https://github.com/pytorch/ao/blob/main/torchao/optim/quant_utils.py
     For an FP32 number      [a31, ..., a16, a15, ..., a0] to be converted to BF16
@@ -113,13 +114,7 @@ def _fp32_to_bf16_sr(x_f32: Tensor) -> Tensor:
     x_f32_bits = x_f32.view(torch.int32)
     x_fraction = x_f32_bits & 0xFFFF              # lower 16 bits
     x_bf16_towards_zero = x_f32_bits & 0xFFFF0000 # upper 16 bits
-    '''
-    x_f32_bits = torch.where(
-        rand_16bit < x_fraction,                  # this is True with the probability of p_fraction
-        x_bf16_towards_zero + 0x10000,            # this might overflow, which will result in UB due to signed integer
-        x_bf16_towards_zero,
-    ) # '''
-    x_f32_bits = (x_f32_bits + rand_16bit) & 0xFFFF0000  # alternative, slightly faster
+    x_f32_bits = (x_f32_bits + rand_16bit) & 0xFFFF0000
     return x_f32_bits.view(torch.float32).bfloat16()
 
 
