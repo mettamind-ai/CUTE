@@ -14,21 +14,17 @@ from torch import Tensor, nn
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
 parser.add_argument("--steps",  type=int, default=30000)
-parser.add_argument("--vocab",  type=int, default=8192)
+parser.add_argument("--vocab",  type=int, default=50257)
 for x in "X S M L".split(): parser.add_argument(f"--{x}", action="store_true")
 
 args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 2, 64, 256) if args.X else (1024, 3, 128, 128)
+D, E, HD, T = (512, 2, 64, 256) if args.X else (1024, 2, 128, 128)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
-
-train_files  = "data/fineweb10B/fineweb_train_*.bin" # input .bin to train on
-val_files    = "data/fineweb10B/fineweb_val_*.bin" # input .bin to eval validation loss on
-val_tokens   = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
-args.vocab   = 50257
+model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -55,13 +51,11 @@ def data_generator(filename_pattern: str, batch_size: int):
         pos     = pos + batch_size
         yield inputs, targets
 
-train_loader = data_generator(train_files, tokens_per_batch)
-tokens, targets = next(train_loader)
-
 # end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
 eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"end-of-text: {eot}")
+train_loader = data_generator("data/fineweb10B/fineweb_train_*.bin", tokens_per_batch)
+tokens, targets = next(train_loader)
 
-model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 ## INT8 hoá
 names, params = convert_int8_mixed_precision(model)
 def find_key(s):
