@@ -41,7 +41,6 @@ class Rotary(nn.Module):
 
         positions = torch.arange(ctxlen, dtype=dtype)
         theta = torch.einsum("i,j -> ij", positions, angular_freq)
-        # theta[i, j] = positions[i] * angular_freq[j]
 
         self.cos = nn.Buffer(theta.cos(), persistent=False)
         self.sin = nn.Buffer(theta.sin(), persistent=False)
@@ -57,7 +56,6 @@ class Rotary(nn.Module):
         y1     = x1 * (+cos) + x2 * sin
         y2     = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), -1).type_as(x_THD)
-
 
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion=2, zero_out=True):
@@ -94,13 +92,11 @@ class CausalSelfAttention(nn.Module):
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
 
-    def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
+    def forward(self, x, v_emb, rotary, inp_seq, cu_seqlens, max_seqlen):
         T, H, D = len(input_seq), self.num_heads, self.head_dim
-        v = v_emb(input_seq)
-        k = self.k_proj(x)
-        q = x.view(T, H   , D   )
-        v = v.view(T, H//2, D   )
-        k = k.view(T, 1   , D//2)
+        q = x             .view(T, H   ,  D   )
+        v = v_emb(inp_seq).view(T, H//2,  D   )
+        k = self.k_proj(x).view(T, 1   ,  D//2)
         k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1) 
         if self.rope: q, k = rotary(q), rotary(k)
