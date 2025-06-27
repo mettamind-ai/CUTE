@@ -114,7 +114,7 @@ class Block(nn.Module):
 
         # Add weight decay multiplier attribute to the weights
         self.upup_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.down_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
+        self.down_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded nanogpt cfg)
 
         with torch.no_grad():
             self.upup_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
@@ -141,8 +141,6 @@ class WinGPT(nn.Module):
         self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = OhMaiHead(dim, vocab_size)
-        # self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
-        # with torch.no_grad(): self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = x0 = self.embeds[0](input_seq)
