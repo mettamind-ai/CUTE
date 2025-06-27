@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 ''' GPT for the WIN
 - half rope và v_emb idea từ https://github.com/KellerJordan/modded-nanogpt
-- thay toàn bộ v_proj bằng v_emb
-- bỏ   o_proj, inspired by https://www.alphaxiv.org/abs/2311.01906
-- thay k_proj bằng shared k_rope_proj (head_dim//2) và áp dụng GTA from https://arxiv.org/abs/2505.21487v1
+- bỏ o_proj, inspired by https://www.alphaxiv.org/abs/2311.01906
+- Áp dụng GTA from https://arxiv.org/abs/2505.21487v1
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
 - 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (Command A)
 - Không norm q, k để bảo toàn NoPE (Command A)
-- MTP dùng concat(last_hidden, next token embedding) idea từ DeepSeek v3
+- MTP dùng concat(last_hidden, next token embedding) DeepSeek v3
 '''
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
