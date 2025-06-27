@@ -21,7 +21,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 4, 64, 320) if args.X else (1024, 4, 64, 128)
+D, E, HD, T = (512, 4, 64, 256) if args.X else (1024, 4, 64, 128)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 
