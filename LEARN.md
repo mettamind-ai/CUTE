@@ -546,3 +546,49 @@ Nghiên cứu này thể hiện sự cân bằng tinh tế giữa hiệu suất 
 |![](https://nickcdryan.com/wp-content/uploads/2024/05/image-10.png)|![](https://nickcdryan.com/wp-content/uploads/2024/05/image-edited.png)|
 |![]()|![]()|
 
+---
+
+# Quá trình xử lý **per-layer input** trong mô hình Gemma 3n
+
+## 1. **Khởi tạo và tạo ra per-layer input**
+
+Ban đầu, mô hình tạo ra đầu vào riêng biệt cho từng tầng bằng cách:
+
+* **Tra cứu từ vựng riêng** (`embed_tokens_per_layer`): Với mỗi token, mô hình lấy ra một vector embedding đặc trưng riêng biệt cho từng tầng, tạo thành tensor 4 chiều dạng `(batch_size, seq_length, num_layers, hidden_size_per_layer_input)`.
+
+* **Chiếu từ embedding gốc** (`per_layer_model_projection`): Ngoài việc tra bảng embedding riêng biệt như trên, mô hình cũng tạo ra một đại diện thứ hai bằng cách chiếu embedding chính (`inputs_embeds`) xuống không gian có kích thước phù hợp với đầu vào theo tầng. Kết quả cũng là tensor cùng kích thước `(batch_size, seq_length, num_layers, hidden_size_per_layer_input)`.
+
+* **Kết hợp hai nguồn đầu vào trên**: Mô hình cộng hai tensor này lại với nhau, sau đó nhân với hệ số `1/√2`. Việc này giúp cân bằng ảnh hưởng của cả hai nguồn thông tin, một nguồn "động" dựa vào embedding gốc, một nguồn "tĩnh" từ bảng embedding riêng.
+
+Kết quả cuối cùng là tensor `per_layer_inputs` dùng để đưa vào từng tầng riêng biệt.
+
+## 2. **Phân bổ đầu vào tới từng tầng**
+
+Trong quá trình xử lý qua các tầng (`DecoderLayer`), mô hình lần lượt lấy ra một "lát cắt" theo tầng của tensor đầu vào (`per_layer_inputs`). Mỗi tầng chỉ nhận phần đầu vào tương ứng với tầng đó, giúp mỗi tầng xử lý các thông tin chuyên biệt cho nhiệm vụ của nó.
+
+## 3. **Biến đổi per-layer input trong từng tầng**
+
+Khi nhận được đầu vào theo tầng, mỗi tầng thực hiện các bước sau:
+
+* **Bước 1 - Tạo cổng kiểm soát**:
+  Mô hình sử dụng một lớp tuyến tính (`per_layer_input_gate`) để chuyển đổi biểu diễn của tầng hiện tại (`first_prediction`) từ không gian ẩn lớn sang không gian nhỏ hơn (`hidden_size_per_layer_input`). Sau đó, nó áp dụng hàm kích hoạt (ví dụ: GELU hoặc SiLU) để tạo ra một "mặt nạ mềm". Mặt nạ này được dùng để kiểm soát mức độ ảnh hưởng của đầu vào theo tầng.
+
+* **Bước 2 - Kết hợp thông tin động và tĩnh**:
+  Mô hình nhân từng phần tử của mặt nạ mềm này với tensor đầu vào theo tầng (`per_layer_input`). Bước này giúp tầng vừa tận dụng thông tin động từ dữ liệu hiện tại, vừa giữ lại thông tin chuyên biệt được học riêng cho từng tầng.
+
+* **Bước 3 - Chiếu ngược và chuẩn hóa**:
+  Sau khi kết hợp, mô hình lại chiếu kết quả này trở lại không gian ẩn ban đầu (`hidden_size`). Cuối cùng, nó áp dụng một bước chuẩn hóa (`post_per_layer_input_norm`) để ổn định kết quả đầu ra.
+
+* **Bước 4 - Kết hợp vào mạng**:
+  Kết quả cuối cùng này sẽ được đưa vào nhánh residual đặc biệt trong cấu trúc AltUp của mô hình, giúp ảnh hưởng đến đầu ra của các tầng kế tiếp.
+
+## 4. **Ý nghĩa chung của quá trình**
+
+Việc sử dụng đầu vào theo tầng như thế này giúp mô hình Gemma3n có thể HỌC VÀ DUY TRÌ CÁC BIỂU DIỄN ĐẶC TRƯNG RIÊNG BIỆT CHO TỪNG TẦNG:
+
+* **Ở cấp mô hình tổng thể**: Mô hình học được cả biểu diễn “tĩnh” (cố định, riêng biệt cho từng tầng) và “động” (tính từ thông tin dữ liệu đầu vào theo thời gian), giúp tăng sự phong phú trong cách biểu diễn dữ liệu mà không làm tăng kích thước quá nhiều.
+
+* **Ở cấp từng tầng**: Đầu vào này giúp tầng điều tiết thông tin hiệu quả hơn thông qua gating, tránh đưa quá nhiều thông tin không cần thiết vào tầng, đồng thời giúp các tầng chia sẻ và kết hợp thông tin một cách có kiểm soát.
+
+Nói cách khác, cơ chế **per-layer input** này giúp mỗi tầng trong mô hình hoạt động một cách thông minh, vừa duy trì đặc điểm riêng, vừa phối hợp tốt với toàn bộ mạng để tối ưu hóa hiệu suất chung của mô hình.
+

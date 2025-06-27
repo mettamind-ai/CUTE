@@ -96,14 +96,14 @@ class CausalSelfAttention(nn.Module):
 
 
     def forward(self, x, v_emb, rotary, input_seq, cu_seqlens, max_seqlen):
-        T, H, D, SD = len(input_seq), self.num_heads, self.head_dim, self.head_dim//2
-        q, shared_k = x, self.k_proj(x)
-        v           = v_emb(input_seq) # T, hidden
-        q           = q.view(T, H, D)
-        v           = v.view(T, H//2, D)
-        shared_k    = shared_k.view(T, 1, SD) 
-        shared_k    = repeat(shared_k, 'T 1 D -> T H D', H=H//2)
-        k           = torch.cat([shared_k, v[..., SD : ]], dim=-1) 
+        T, H, D = len(input_seq), self.num_heads, self.head_dim
+        v = v_emb(input_seq)
+        k = self.k_proj(x)
+        q = x.view(T, H   , D   )
+        v = v.view(T, H//2, D   )
+        k = k.view(T, 1   , D//2)
+        k = repeat(k, 'T 1 d -> T h d', h=H//2)
+        k = torch.cat([k, v[..., D//2 : ]], dim=-1) 
         if self.rope: q, k = rotary(q), rotary(k)
         o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
