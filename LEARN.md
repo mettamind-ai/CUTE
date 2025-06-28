@@ -608,3 +608,237 @@ gated_input   = Linear(gated_input)         # → [batch, seq_len, hidden_size]
 gated_input   = Normalize(gated_input)
 hidden_states = hidden_states + gated_input # KẾT QUẢ CUỐI CÙNG
 ```
+
+---
+
+DeltaFormer
+-----------
+- https://www.youtube.com/watch?v=vXjk1LF-qqg
+- playground/685eadb64751e9040c8b8e91
+
+# Hiểu Transformer từ góc độ Bộ nhớ Liên kết
+
+**Phần 1: Bộ nhớ liên kết và khả năng của nó**
+Tại sao Transformer lại hiệu quả đến vậy? Phần này sẽ khám phá khái niệm bộ nhớ liên kết và phân tích vai trò của nó trong Transformer. Thông qua việc hiểu bộ nhớ liên kết, chúng ta có thể giải thích tốt hơn khả năng mạnh mẽ của Transformer.
+
+**Phần 2: Các phương pháp cập nhật bộ nhớ hiện tại**
+Các phương pháp hiện tại để cập nhật bộ nhớ hoạt động như thế nào? Phần này sẽ xem xét và phân tích vai trò của cơ chế attention và các công trình liên quan.
+
+**Phần 3: Khám phá mô hình thế hệ tiếp theo**
+Làm thế nào để tăng cường Transformer với các quy tắc cập nhật mạnh mẽ hơn? Dựa trên phân tích, nhóm nghiên cứu đề xuất ý tưởng cải thiện cơ chế cập nhật bộ nhớ của Transformer.
+
+## Mâu thuẫn giữa Khả năng Biểu diễn và Tính Song song
+
+Trước khi đi vào nội dung chính, diễn giả thảo luận về một vấn đề thú vị: mâu thuẫn giữa khả năng biểu diễn và tính song song.
+
+Hãy xem xét hai câu hỏi:
+1. Nếu bạn có thể cộng hai số bất kỳ song song, cần bao nhiêu thời gian để tính tổng n phần tử? Câu trả lời là O(log n).
+2. Với cùng khả năng, cần bao nhiêu thời gian để tính tổng hai ma trận kích thước n×n? Câu trả lời là O(1).
+
+Điều thú vị là mặc dù câu hỏi 1 có độ phức tạp thời gian cao hơn, nhưng tổng số phép toán lại ít hơn câu hỏi 2.
+
+### Phân loại Độ phức tạp Song song
+
+Các nhà khoa học máy tính thế kỷ trước đã nghiên cứu sâu về vấn đề này dựa trên ba câu hỏi:
+1. **Phép toán nào được phép cho mỗi nút?** Có hai loại: chỉ cho phép phép toán boolean (AND, OR, NOT) hoặc thêm cả cổng ngưỡng (threshold gate).
+2. **Số lượng đầu vào cho mỗi nút?** Giới hạn 2 hoặc không giới hạn.
+3. **Độ sâu của mô hình?** Đường dẫn dài nhất trong mạng.
+
+Từ đó có các lớp phức tạp như NC0, AC0, TC0. Điều quan trọng là các mô hình ngôn ngữ lớn hiện tại thuộc lớp AC0 hoặc TC0, nghĩa là chúng không thể giải quyết các bài toán ngoài TC0 trong một bước. Đây là giới hạn cơ bản của kiến trúc Transformer.
+
+## Transformer vs LSTM
+
+Một trong những lý do chính Transformer đánh bại LSTM là khả năng song song hóa cao, tận dụng tốt sức mạnh GPU. Tuy nhiên, điều này cũng tạo ra mâu thuẫn cơ bản giữa tính song song và khả năng biểu diễn.
+
+Câu hỏi đặt ra: Liệu có thể tìm được mô hình vừa tính toán song song hiệu quả trên GPU, vừa có hiệu suất cao hơn Transformer?
+
+## Giải pháp: Delta Rule
+
+Câu trả lời là có thể, thông qua việc sử dụng Delta Rule. Đây không phải ý tưởng mới - nghiên cứu về mạng với quy tắc cập nhật đã có từ những năm 1980-1990. 
+
+Cốt lõi của Delta Rule là điều chỉnh trạng thái nội bộ dựa trên sự không nhất quán giữa đầu ra và phản hồi, với một tốc độ học nhất định. Phương pháp này có thể đạt khả năng biểu diễn vượt TC0.
+
+May mắn thay, năm ngoái Sonang đã phát hiện cách song song hóa hiệu quả loại mạng này trên GPU. Tuy nhiên, các mô hình với không gian trạng thái giới hạn vẫn có điểm yếu về khả năng ghi nhớ so với Transformer.
+
+Do đó, ý tưởng tự nhiên là kết hợp Transformer và Delta Rule để tăng cường khả năng biểu diễn.
+
+## Bộ nhớ Liên kết
+
+### Định nghĩa
+Bộ nhớ liên kết là khả năng học và ghi nhớ mối quan hệ giữa các đối tượng. Ví dụ, chúng ta liên kết Paris với Tháp Eiffel. Đây cũng là quá trình học về sự đồng xuất hiện - kết nối những thứ thường xuyên xuất hiện cùng nhau.
+
+Giống như từ điển, chúng ta có khóa (keys) và giá trị (values). Học tập là quá trình thu nhận ánh xạ giữa chúng. Sau khi học, chúng ta dùng truy vấn (query) để lấy giá trị tương ứng từ bộ nhớ.
+
+### Bộ nhớ Tuyến tính
+Từ năm 1972, các nhà nghiên cứu đã phát hiện khi các khóa trực giao với nhau, có thể dùng tổng các tích ngoài của khóa và giá trị để lưu trữ bộ nhớ. Đây gọi là bộ nhớ tuyến tính.
+
+Tuy nhiên, trong thực tế các khóa không phải lúc nào cũng trực giao. Khi đó sẽ xuất hiện nhiễu và khó lấy thông tin chính xác. Nhóm nghiên cứu định nghĩa chỉ số SNR (tỷ lệ tín hiệu/nhiễu) để đánh giá chất lượng truy xuất.
+
+Với giả định khóa và giá trị là vector Gaussian chuẩn độc lập, có thể tính được mô hình tuyến tính cần chiều không gian D tăng tuyến tính với độ dài chuỗi N để hoạt động tốt. Điều này giải thích tại sao bộ nhớ tuyến tính thường có hiệu suất truy xuất kém.
+
+### Kernel Trick
+Để tăng dung lượng bộ nhớ, có thể sử dụng kernel trick - ánh xạ khóa vào không gian chiều cao hơn thông qua hàm kernel. 
+
+Với softmax attention thông dụng, chỉ cần D = O(log²N) là mô hình có thể hoàn thành ghi nhớ hiệu quả. Điều này giải thích tại sao softmax attention có khả năng truy xuất tốt.
+
+---
+
+## Thiết kế Chéo giữa Attention và FFN
+
+Thực tế, ngay từ bài báo "Attention is All You Need" gốc, các tác giả đã phát hiện sự tương đồng giữa FFN và attention. Họ đã thử nghiệm sử dụng multi-head attention trong FFN, nhưng cuối cùng vì lý do hiệu quả, họ chọn dạng FFN mà chúng ta quen thuộc hiện nay.
+
+Một số ý tưởng thiết kế chéo khác bao gồm:
+
+- **Sparse attention**: Có thể xem như ứng dụng của MOE (Mixture of Experts) trong lớp attention
+- **Thêm gating vào attention**: Cũng là một lựa chọn đáng cân nhắc
+
+Khi được hỏi về sự khác biệt về dung lượng bộ nhớ giữa các hàm activation khác nhau (như ReLU, các hàm với gating), diễn giả giải thích:
+- Theo nghiên cứu, hàm ReLU có khả năng mạnh hơn về superposition (chồng chập thông tin)
+- ReLU có thể có nhiều bộ nhớ hơn
+- Tuy nhiên, do ánh xạ attention luôn thưa (sparse), softmax attention có thể có một số lợi thế riêng
+
+Về cơ chế gating, theo ý kiến cá nhân của diễn giả, gating không tăng dung lượng bộ nhớ mà chỉ tăng khả năng xấp xỉ (approximation power) của mạng neural.
+
+---
+
+# Thí nghiệm: Theo dõi Hoán đổi 5 Phần tử
+Khi Transformer phải học theo dõi hoán đổi vị trí của 5 phần tử:
+- Rất khó học từ dữ liệu
+- Cần gần 16 lớp để học một chuỗi hoán đổi độ dài 32,
+- Mô hình khó tổng quát hóa về độ dài - sau khi huấn luyện với độ dài cố định, nó thất bại khi gặp độ dài khác
+
+Điều này cho thấy giới hạn cơ bản của kiến trúc Transformer trong việc xử lý các tác vụ đòi hỏi **theo dõi trạng thái phức tạp**.
+
+## Delta-Former: Giải pháp Kết hợp
+Mục tiêu chính của nhóm nghiên cứu là làm cho Transformer mạnh hơn `TC0`. Ý tưởng tự nhiên là kết hợp hai khía cạnh đã nghiên cứu:
+- Sử dụng **kernel function** để tăng cường dung lượng mô hình
+- Sử dụng **delta rule** để cải thiện hiệu suất
+
+Delta-Former kết hợp `delta rule` với `kernel trick`. Sau một số phép biến đổi toán học, nhóm nghiên cứu thu được công thức tính `u` và `o` chỉ dựa trên hàm kernel `κ`, không cần các biến trạng thái trung gian phức tạp.
+
+## Triển khai Hiệu quả trên GPU (Chunk-wise)
+- Chia chuỗi thành các khối nhỏ
+- Tính toán trong khối song song, giữa các khối tuần tự
+- Cân bằng tốt giữa tốc độ và bộ nhớ
+
+## Khả năng Lý thuyết của Delta-Former
+Về mặt lý thuyết, với các hàm kernel phi tuyến phù hợp, Delta-Former có thể:
+- Theo dõi N phần tử chỉ với O(log N) chiều
+- So sánh: theo Lemma 2 của nghiên cứu khác, cần 5 chiều để theo dõi 5 phần tử
+- Đây là cải thiện đáng kể về hiệu quả
+
+Điều này cũng dẫn đến ý tưởng nén tự nhiên cho việc theo dõi trạng thái: **nếu có thể đọc và viết lại KV cache ở mỗi bước, kích thước cache thực tế chỉ cần O(log N).**
+
+---
+
+## Kết quả Thực nghiệm
+
+### Kiểm tra Trạng thái (State Checking)
+- **Transformer 8 lớp**: độ chính xác dưới 50%
+- **Delta-Former 1 lớp**: đạt 100% độ chính xác
+- Mọi hàm kernel thông dụng đều tốt hơn Transformer
+
+### Theo dõi N Phần tử với Chiều Nhỏ
+Khi số phần tử N tăng:
+- Linear kernel suy giảm nhanh chóng
+- Delta-Former với kernel phi tuyến vẫn hoạt động tốt
+
+### Học Ngữ pháp Dyck
+Delta-Former cho thấy:
+- Tỷ lệ nén tốt hơn
+- Dễ dàng nhớ số lượng dấu ngoặc trái/phải
+- Giải thích được hiện tượng với mô hình 14B tham số:
+  - Vượt baseline 0.005 về total loss
+  - Vượt 0.03 về code loss
+
+### Induction Heads
+- Delta-Former học induction heads nhanh hơn baseline đáng kể
+- Tính toán u có thể thay thế một phần chức năng của copy heads
+- Thúc đẩy hình thành induction heads hiệu quả hơn
+
+---
+
+## Công việc Tương lai
+
+Nhóm nghiên cứu đề xuất một số hướng phát triển:
+
+1. **Tối ưu hóa**: Matrix inverse trong Delta-Former cần được tối ưu thêm
+2. **Thiết kế mới**: Thử nghiệm với Group Query Attention và các biến thể
+3. **So sánh Kernels**: Đánh giá các hàm kernel khác nhau
+4. **Triển khai**: Chuyển từ chunk implementation sang kernel implementation có thể nhanh hơn
+
+## Phần Hỏi Đáp Chuyên sâu
+
+### Câu hỏi 1: Làm sao áp dụng khả năng vượt TC0 vào tác vụ thực tế?
+
+Diễn giả giải thích rằng các tác vụ như `phân tích cú pháp code` là tác vụ NC1. Với delta rule hoặc các phương pháp có sức mạnh NC1, mô hình có thể thực sự học cách phân tích cú pháp trong giai đoạn pre-training, thay vì chỉ khớp mẫu (pattern matching) như nhiều mô hình hiện tại.
+
+> Một nghiên cứu gần đây cho thấy các mô hình ngôn ngữ lớn thường phân tích code bằng cách khớp mẫu thay vì hiểu thực sự - điều này có thể không phải là trí tuệ thực sự. **Delta rule có thể giúp mô hình học phân tích code một cách chính xác hơn.**
+
+### Câu hỏi 2: NC1 có đủ không? Cần NC2, NC3 không?
+
+Theo diễn giả:
+- Hầu hết tác vụ trong thế giới thực nằm trong phạm vi `NC2`
+- `NC2` có thể đủ cho phần lớn ứng dụng
+- Có khả năng `NC1 = NC2` (tương tự như câu hỏi P ?= NP trong khoa học máy tính)
+- Không cần theo đuổi độ phức tạp P vì khó song song hóa trên GPU
+
+### Câu hỏi 3: Chi tiết về thí nghiệm ngôn ngữ/code
+
+Thiết lập thí nghiệm:
+- **Huấn luyện**: Trên dữ liệu ngôn ngữ thông thường
+- **Đánh giá**: Loss trên dữ liệu code
+- **Mô hình**: 14B tham số (chỉ 700M tham số active - kiến trúc MOE)
+- **Kết quả**: Do kích thước mô hình còn nhỏ nên `chưa đạt kết quả tốt` trên các benchmark coding thực tế
+- **Lý do**: Các benchmark coding thường yêu cầu mô hình lớn hơn để có hiệu suất tốt
+
+> Nhóm vẫn đang trong quá trình gỡ lỗi và hoàn thiện hệ thống đánh giá cho các tác vụ sinh code.
+
+### Câu hỏi 4: Hàm Kernel được sử dụng
+
+Trong triển khai quy mô lớn, nhóm nghiên cứu sử dụng **exponential kernel** cho quá trình huấn luyện.
+
+## Kết luận và Tầm nhìn
+
+Diễn giả kết thúc bài trình bày với tầm nhìn về tương lai:
+
+### Ngắn hạn
+Cần tìm sự cân bằng (trade-off) giữa:
+- Dung lượng bộ nhớ (memory capacity)
+- Khả năng biểu diễn (expressiveness)
+- Hiệu quả tính toán (computational efficiency)
+
+### Dài hạn
+Mô hình mạnh nhất có khả năng sẽ là mô hình có:
+- **Khả năng biểu diễn mạnh** (strong expressiveness)
+- **Cache hoặc state hiệu quả**
+- **Nhiều tính toán hơn** (không đơn thuần nói về việc cần nhiều phép tính hơn, mà là cần loại tính toán phức tạp hơn)
+
+## Ý nghĩa của Nghiên cứu
+
+Nghiên cứu này mang lại một số đóng góp quan trọng:
+
+1. **Góc nhìn mới về Transformer**: Hiểu Transformer qua lăng kính bộ nhớ liên kết giúp giải thích tại sao nó hoạt động tốt và đâu là giới hạn của nó.
+
+2. **Vượt qua giới hạn TC0**: Delta-Former chứng minh có thể xây dựng mô hình vượt qua giới hạn độ phức tạp của Transformer thông thường mà vẫn giữ được khả năng song song hóa.
+
+3. **Cầu nối lý thuyết và thực hành**: Nghiên cứu kết nối lý thuyết độ phức tạp tính toán với thiết kế mô hình thực tế, mở ra hướng đi mới cho việc phát triển các kiến trúc neural network.
+
+4. **Tiềm năng ứng dụng**: Đặc biệt hữu ích cho các tác vụ đòi hỏi theo dõi trạng thái phức tạp như phân tích code, suy luận logic, và các bài toán thuật toán.
+
+## Thách thức và Hướng phát triển
+
+Mặc dù đầy hứa hẹn, Delta-Former vẫn đối mặt với một số thách thức:
+
+1. **Tối ưu hóa triển khai**: Cần cải thiện hiệu quả tính toán matrix inverse và các phép toán liên quan.
+
+2. **Mở rộng quy mô**: Cần thử nghiệm với các mô hình lớn hơn để đánh giá đầy đủ tiềm năng trên các benchmark thực tế.
+
+3. **Lựa chọn kernel**: Cần nghiên cứu thêm để tìm hàm kernel tối ưu cho các loại tác vụ khác nhau.
+
+4. **Tích hợp với các kỹ thuật hiện có**: Làm sao kết hợp hiệu quả với các cải tiến khác của Transformer như Flash Attention, RoPE, v.v.
+
+Tổng kết lại, nghiên cứu này mở ra một hướng đi mới đầy triển vọng trong việc phát triển các mô hình ngôn ngữ thế hệ tiếp theo, vượt qua những giới hạn cơ bản của Transformer hiện tại trong khi vẫn duy trì những ưu điểm về khả năng song song hóa và hiệu quả tính toán.
+
+---
+
