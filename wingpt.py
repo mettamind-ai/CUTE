@@ -57,7 +57,7 @@ class Rotary(nn.Module):
         return torch.cat((y1, y2), -1).type_as(x_THD)
 
 class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion=2, zero_out=True):
+    def __init__(self, dim:int, hdim=None, odim=None, expansion=2):
         super().__init__()
         if not hdim: hdim = int(dim*expansion)
         if not odim: odim = dim
@@ -66,9 +66,8 @@ class ReLuSquareMLP(nn.Module):
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
         with torch.no_grad():
-            self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
-            else:        self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
+            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
 
     def forward(self, x):
         y = F.relu(self.fc1_proj(x)).square()
@@ -106,32 +105,28 @@ class Block(nn.Module):
 
         hdim = dim * (expansion + 1)
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
-        self.down_proj = nn.Linear(hdim-dim, dim, bias=False)
+        self.down_proj = nn.Linear(hdim - dim, dim, bias=False)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
-
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        D, KD = x.shape[-1], self.attn.head_dim//2
-        y = self.up_proj(norm(x))  # fused q, k, z (mlp up) sao cho tổng chiều dài là mũ của 2 (tối ưu GPU IO)
-        q = y[..., -D      :    ]  # `q` D giá trị cuối
-        z = y[...,         : -D ]  # `z` D*expansion giá trị đầu
-        k = y[..., -D - KD : -D ]  # `k` dùng ké 32 hoặc 64 giá trị cuối của z
+        q, y = torch.split(self.up_proj(norm(x)), list(self.down_proj.weight.shape), dim=-1)
+        k    = y[ ..., : self.attn.head_dim // 2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
-        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + self.down_proj(F.relu(z).square())
+        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
+
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
         super().__init__()
         def Embed(dim): return nn.Embedding(vocab_size, dim, dtype=torch.bfloat16)
-        self.rotary    = Rotary(head_dim, ctxlen)
-        self.dim       = dim
-        self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)    for i in range(n_layers)])
-        self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim)] + [Embed(dim//2) for _ in range(n_layers)])
-        self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
-        self.unembeds  = OhMaiHead(dim, vocab_size)
+        self.rotary   = Rotary(head_dim, ctxlen)
+        self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)    for i in range(n_layers)])
+        self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim)] + [Embed(dim//2) for _ in range(n_layers)])
+        self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
+        self.unembeds = OhMaiHead(dim, vocab_size)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
@@ -151,7 +146,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.head2_mlp(norm(xx_x0))
+        y     = model.mtp_head(norm(xx_x0))
         ty    = F.pad(target[1:], (1, 0), mode='constant', value=ignore)
         return norm(x), norm(y), ty
     xn, yn, ty = checkpoint(prepare, use_reentrant=False)
@@ -180,7 +175,7 @@ if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
 
     seed = 1981
-    ctxlen = 512
+    ctxlen = 1024
     vocab_size = 32*1024
     dim, head_dim, n_layers = 256, 64, 8
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
