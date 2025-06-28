@@ -19,15 +19,15 @@
 - [x] `**Muon**          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
 - [x] `**int8**          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
 - [x] `**Dense Arch**    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2)
-- [x] `**OhMai**         1.1x` (Giảm vram cho huge vocab models)
-- [ ] `**Spiral**        2.5x` (Mỗi layer có based Attn và based Dense, sau đó dùng chung MLP Experts, có route để skip layers)
+- [x] `**OhMai**         1.5x` (Giảm vram cho huge vocab models)
+- [ ] `**MoD**           1.5x` (Mixture of Depth: Dùng routing để Skip Layers)
 - [ ] `**LVOT**          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser representations in the hidden space)
 - [ ] `**Sparse Attn**   1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
-
+- [ ] `**N-gram Embedding**  ` Tăng perf, giảm bất thường không gian embeddings 
 🌸__!!! TARGET x10 SPEEPUP !!!__🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
-- Muon is super good! vram = 1/4 + loss giảm sâu hơn adam
+- Muon is good! vram = 1/4 + loss giảm sâu hơn adam
 - int8 hữu dụng trong cả speedup và giảm vram
 - int8 cần kết hợp stochastic rounding (rd) để đường loss bám sát bf16
 - `muon + torch.optim.AdamW(fused=True) + int8rd` chạy rất tốt
@@ -51,7 +51,7 @@
 
 ---
 
-# V1.0 TODO
+# v1.x TODO
 
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho next of next token prediction (MTP)
   - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
@@ -64,7 +64,7 @@
   - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
   - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
 
-- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và 2-gram
+- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và n-gram để score độ quan trọng của từng token, từng n-gram với training process.
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 
@@ -76,27 +76,23 @@
     - Reference-Answer-based Correction (RAC), tích hợp khả năng tự sửa lỗi vào mô hình bằng cách dạy nó cách điều chỉnh những token sai lệch dựa trên ngữ cảnh tham chiếu.
   - Tránh tokens "bất thường" trong prompt https://www.alphaxiv.org/abs/2504.01002
     ```
-    Hãy tưởng tượng token embeddings như một bản đồ 3D, nơi mỗi từ/token là một điểm trên bản đồ này. Trong một bản đồ "bình thường", địa hình sẽ tương đối mượt mà - không có vách đá dựng đứng hay hố sâu bất ngờ.
-    Những token "bất thường" giống như những điểm có địa hình kỳ lạ - có thể là đỉnh núi nhọn hoắt, hố sâu, hoặc vách đá dựng đứng.
+    Hãy tưởng tượng token embeddings như một bản đồ 3D, nơi mỗi từ/token là một điểm trên bản đồ này. 
+    Trong một bản đồ "bình thường", địa hình sẽ tương đối mượt mà - không có vách đá dựng đứng hay hố sâu bất ngờ.
+    Token "bất thường" là những điểm có địa hình kỳ lạ - đỉnh núi nhọn hoắt, hố sâu, hoặc vách đá dựng đứng.
 
-    => Xác định tokens bất thường: Với mỗi token, ta vẽ những vòng tròn có bán kính tăng dần xung quanh nó, rồi đếm xem có bao nhiêu token khác nằm trong mỗi vòng tròn ...
+    => Xác định tokens bất thường: Với mỗi token, ta vẽ những vòng tròn có bán kính tăng dần xung quanh nó,
+       rồi đếm xem có bao nhiêu token khác nằm trong mỗi vòng tròn ...
 
-    Ví dụ: Khi họ vẽ bản đồ 3D của không gian xung quanh token "ember" (than hồng), họ phát hiện ra nó nằm ở một vị trí rất kỳ lạ - 
+    Ví dụ: Khi họ vẽ bản đồ 3D của không gian xung quanh token "ember" (than hồng), 
+    họ phát hiện ra nó nằm ở một vị trí rất kỳ lạ - 
     giống như một "đỉnh núi nhọn" hay "mũi nhọn" nhô ra khỏi bề mặt bình thường.
     Điều này khiến model khó "di chuyển" một cách mượt mà từ "ember" sang các từ khác.
 
     Irregularities lan truyền vì:
-
     - Residual connections bảo tồn lỗi gốc
     - Attention mechanism khuếch đại sự bất ổn
     - Geometric properties được giữ nguyên qua các layers
     - Context không thể "chữa lành" được structural problems
     - Accumulation effect làm vấn đề nghiêm trọng hơn theo thời gian
     ```
-
-- [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa gamming GPUs)
-  - 2 GPUs => trao đổi `1:1`; 3 GPUs => `1:1 x 3`; 4 GPUs => `1:1 x 6`
-
-- [ ] gemma 3n
-  - https://github.com/huggingface/transformers/blob/main/src/transformers/models/gemma3n/modeling_gemma3n.py#L2189
-  - https://huggingface.co/google/gemma-3n-E4B-it/blob/main/config.json
+- [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa GPUs)
