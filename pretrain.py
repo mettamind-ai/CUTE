@@ -167,7 +167,7 @@ for step in range(args.steps):  # training loop
             avglen               = int(tokens_seen / total_docs),
             maxlen               = maxlen,
         ), step=step)
-    pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m)
+    pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m, kts=tokens_per_second_K)
     pbar.update()
 
 logger.finish()
