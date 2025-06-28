@@ -132,18 +132,18 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
         super().__init__()
-        def Embed(vocab_size, dim): return nn.Embedding(vocab_size, dim, dtype=torch.bfloat16)
+        def Embed(dim): return nn.Embedding(vocab_size, dim, dtype=torch.bfloat16)
         self.rotary    = Rotary(head_dim, ctxlen)
         self.dim       = dim
-        self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)         for i in range(n_layers)])
-        self.embeds    = nn.ModuleList([Embed(vocab_size, dim)] + [Embed(vocab_size, dim//2) for _ in range(n_layers)])
+        self.blocks    = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)    for i in range(n_layers)])
+        self.embeds    = nn.ModuleList([nn.Embedding(vocab_size, dim)] + [Embed(dim//2) for _ in range(n_layers)])
         self.head2_mlp = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim, zero_out=False) # predict next of next token
         self.unembeds  = OhMaiHead(dim, vocab_size)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
         x = x0 = E[0](input_seq).bfloat16()
-        f = lambda x, i: B[i](x, E[i+1](input_seq).bfloat16(), cu_seqlens, max_seqlen, R)
+        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return x, x0
 
