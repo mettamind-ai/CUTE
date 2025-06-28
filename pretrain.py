@@ -124,6 +124,8 @@ for step in range(args.steps):  # training loop
         loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
         tokens, targets = next(train_loader)
         loss.backward()
+        total_docs += len(cu_seqlens)
+        if max_seqlen > maxlen: maxlen = max_seqlen
 
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
@@ -149,13 +151,10 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    total_docs += len(cu_seqlens)
-    if max_seqlen > maxlen: maxlen = max_seqlen
-
     if step % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
-        tokens_seen = tokens_per_batch * step
+        tokens_seen = tokens_per_batch * step * cu_steps
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
@@ -167,8 +166,8 @@ for step in range(args.steps):  # training loop
             avglen               = int(tokens_seen / total_docs),
             maxlen               = maxlen,
         ), step=step)
-    tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
-    pbar.set_postfix(loss=lossv, kmax=m//1000, kts=tokens_per_second_K)
+    tokens_per_second_K = int(tokens_per_batch * cu_steps / (time.time() - started_at))/1000
+    pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
     pbar.update()
 
 logger.finish()
