@@ -143,7 +143,7 @@ class Int8MixedLinear(torch.autograd.Function):
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            grad_weight = _fp32_to_bf16_sr(grad_weight)
+            # grad_weight = _fp32_to_bf16_sr(grad_weight)
         return grad_input, grad_weight, grad_bias
 
 
@@ -341,7 +341,6 @@ def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa l
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 3: error ≈ ε⁴
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 4  ... có thể xem mỗi NS iter như 1 lần khử nhiễu ? ...
     A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 5: error ≈ ε¹⁶, flatten singular values to range (0.7, 1.3)
-    A = X @ X.mT; X = a*X + (b*A + c*A@A) @ X   # iter 6: thêm 1 iter giúp khử nhiễu tốt hơn?
     return X.mT if need_invert else X
 
 class Muon1GPU(torch.optim.Optimizer):

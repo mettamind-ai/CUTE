@@ -148,7 +148,7 @@ class WinGPT(nn.Module):
         return x, x0
 
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
     x, x0 = model(input_seq, cu_seqlens, max_seqlen)
@@ -165,8 +165,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
-    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn, w, ty,     n_ignore, ignore, 0.3)  # MTP: Next of next token prediction
+    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn, w, ty,     n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
     return xloss + yloss
 
 

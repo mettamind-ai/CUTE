@@ -21,7 +21,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 2, 64, 160) if args.X else (1024, 2, 128, 80)
+D, E, HD, T = (512, 2, 64, 128) if args.X else (1024, 2, 128, 64)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
@@ -92,11 +92,11 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params= model.embeds.parameters(),   lr=0.006 ), 
-    dict(params= model.unembeds.parameters(), lr=0.003 ),
+    dict(params= model.embeds.parameters(),   lr=0.009 ), 
+    dict(params= model.unembeds.parameters(), lr=0.006 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
-muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
@@ -110,18 +110,21 @@ model = model.cuda()
 model.train()
 
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
-log_interval = 5 
+log_interval = 5
+cu_steps = 8
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
 for step in range(args.steps):  # training loop
 
     started_at = time.time()
-    c, m = get_cu_max_seqlens_from(tokens, eot=eot)
-    loss = lossf(model, tokens, targets, c, m)
-    tokens, targets = next(train_loader)
 
-    loss.backward()
+    for _ in range(cu_steps):
+        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
+        loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
+        tokens, targets = next(train_loader)
+        loss.backward()
+
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
     # set optimization hyperparameters
@@ -132,6 +135,7 @@ for step in range(args.steps):  # training loop
                 frac = min(lr_schedule.t1,  1) # momentum warmup for muon
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
+    if 
     muon_optim.step()
     adam_optim.step()
     model.zero_grad(set_to_none=True)
@@ -146,9 +150,8 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    total_docs += len(c)
-    if m > maxlen: max_len = m
-
+    total_docs += len(cu_seqlens)
+    if max_seqlen > maxlen: maxlen = max_seqlen
 
     if step % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
@@ -160,7 +163,7 @@ for step in range(args.steps):  # training loop
             grad_norm            = grad_norm,
             max_memory_allocated = torch.cuda.max_memory_allocated(), 
             tokens_seen_M        = tokens_seen / 1e6,
-            tokens_per_second_K  = int(tokens_seen / (time.time() - time0))/1000,
+            tokens_per_second_K  = int(tokens_seen / (1.5 + time.time() - time0))/1000,
             total_docs           = total_docs,
             avglen               = int(tokens_seen / total_docs),
             maxlen               = maxlen,
