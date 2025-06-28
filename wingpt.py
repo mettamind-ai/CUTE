@@ -19,7 +19,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high')
 torch.backends.cuda.matmul.allow_tf32 = True
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.bfloat16)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -121,10 +121,10 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
         super().__init__()
-        def Embed(dim): return nn.Embedding(vocab_size, dim, dtype=torch.bfloat16)
+        v_emb         = lambda: nn.Embedding(vocab_size, dim//2, dtype=torch.bfloat16)
         self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers)    for i in range(n_layers)])
-        self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim)] + [Embed(dim//2) for _ in range(n_layers)])
+        self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers) for i in range(n_layers)])
+        self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim, dtype=torch.float32)] + [v_emb() for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = OhMaiHead(dim, vocab_size)
 
@@ -183,8 +183,8 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim, 2).cuda()
 
-    from optimus import convert_int8_mixed_precision
-    convert_int8_mixed_precision(model)
+    # from optimus import convert_int8_mixed_precision
+    # convert_int8_mixed_precision(model)
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]

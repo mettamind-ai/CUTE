@@ -143,7 +143,7 @@ class Int8MixedLinear(torch.autograd.Function):
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            # grad_weight = _fp32_to_bf16_sr(grad_weight)
+            grad_weight = _fp32_to_bf16_sr(grad_weight)
         return grad_input, grad_weight, grad_bias
 
 
@@ -194,12 +194,12 @@ class FusedCE(torch.autograd.Function):
         losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
-        step = min(1024*8, n_labels // 2) # để luôn test được chunked CE
+        step = min(1024*8, n_labels)
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
-            chunk_input = _input[s:e].float()
-            logits = ( chunk_input @ weight.t() ).contiguous()
+            chunk_input     = _input[s:e]
+            logits          = ( chunk_input @ weight.t() ).contiguous()
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr  = logits,
                 target_ptr  = target[s:e],
