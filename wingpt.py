@@ -127,7 +127,7 @@ class Block(nn.Module):
         q = y[..., -D      :    ]
         k = y[..., -D - KD : -D ]
         y = F.relu(y).square()
-        return x.bfloat16() + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
+        return x + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
@@ -142,10 +142,10 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = E[0](input_seq)
+        x = x0 = E[0](input_seq).bfloat16()
         f = lambda x, i: B[i](x, E[i+1](input_seq).bfloat16(), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
-        return  x, x0
+        return x, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100):

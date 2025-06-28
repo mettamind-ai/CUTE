@@ -10,7 +10,7 @@ import torch.nn.functional as F, torch.utils._pytree as pytree
 
 from typing import NamedTuple
 from torch import Tensor, nn
-    
+
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
@@ -143,8 +143,7 @@ class Int8MixedLinear(torch.autograd.Function):
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            if weight.dtype == torch.bfloat16:  # phép rounding này rẻ
-                grad_weight = _fp32_to_bf16_sr(grad_weight)
+            grad_weight = _fp32_to_bf16_sr(grad_weight)
         return grad_input, grad_weight, grad_bias
 
 
