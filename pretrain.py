@@ -21,7 +21,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 2, 64, 192) if args.X else (1024, 2, 128, 96)
+D, E, HD, T = (512, 2, 64, 160) if args.X else (1024, 2, 128, 80)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
 model = WinGPT(dim=D, expansion=E, n_layers=24, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
