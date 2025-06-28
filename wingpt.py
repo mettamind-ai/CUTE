@@ -65,10 +65,6 @@ class ReLuSquareMLP(nn.Module):
         self.fc1_proj = nn.Linear(dim, hdim, bias=False)
         self.fc2_proj = nn.Linear(hdim, odim, bias=False)
 
-        # Add weight decay multiplier attribute to the weights
-        self.fc1_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.fc2_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded gpt)
-
         with torch.no_grad():
             self.             fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             if zero_out: self.fc2_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
@@ -78,7 +74,7 @@ class ReLuSquareMLP(nn.Module):
         y = F.relu(self.fc1_proj(x)).square()
         return self.fc2_proj(y)
 
-class CausalSelfAttention(nn.Module):
+class SlidingWindowAttention(nn.Module):
     def __init__(self, dim:int, head_dim=128, long=False, layer_id=-1):
         super().__init__() # dim = hidden = embedding = feature = representation
         self.head_dim  = head_dim
@@ -105,16 +101,12 @@ class Block(nn.Module):
     def __init__(self, dim, expansion, head_dim, layer_id, n_layers):
         super().__init__()
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
-        self.skip_mlp = ( layer_id == 0 or layer_id == n_layers - 1 ) # bỏ MLP ở 2 đầu
+        self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
+        self.skip_mlp = ( layer_id == 0 or layer_id == n_layers - 1 ) # bỏ MLP ở layer đầu và cuối
 
         hdim = dim * (expansion + 1)
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim-dim, dim, bias=False)
-
-        # Add weight decay multiplier attribute to the weights
-        self.  up_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
-        self.down_proj.weight.wd_mul = 2.0  # gấp đôi so với mặc định (follow modded nanogpt cfg)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
@@ -123,7 +115,7 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         D, KD = x.shape[-1], self.attn.head_dim//2
-        y = self.up_proj(norm(x))  # fused q, k, z sao cho tổng chiều dài là mũ của 2 (tối ưu GPU IO)
+        y = self.up_proj(norm(x))  # fused q, k, z (mlp up) sao cho tổng chiều dài là mũ của 2 (tối ưu GPU IO)
         q = y[..., -D      :    ]  # `q` D giá trị cuối
         z = y[...,         : -D ]  # `z` D*expansion giá trị đầu
         k = y[..., -D - KD : -D ]  # `k` dùng ké 32 hoặc 64 giá trị cuối của z
