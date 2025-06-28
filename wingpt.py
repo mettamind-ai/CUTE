@@ -94,7 +94,7 @@ class CausalSelfAttention(nn.Module):
         k = k.view(T, 1   ,  D//2)
         k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
-        if self.rope: q, k = rotary(q), rotary(k)
+        if self.rope: q, k = rotary(norm(q)), rotary(norm(k))
         o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
         return o.view(T, H*D)
 
@@ -106,9 +106,9 @@ class Block(nn.Module):
         super().__init__()
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
+        self.skip_mlp = ( layer_id == 0 or layer_id == n_layers - 1 ) # bỏ MLP ở 2 đầu
 
-        if layer_id % 2 == 0 and expansion > 2: expansion = expansion - 1
-        hdim = dim * expansion
+        hdim = dim + head_dim//2 if self.skip_mlp else dim * expansion
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim, dim, bias=False)
 
@@ -126,8 +126,8 @@ class Block(nn.Module):
         y = self.up_proj(norm(x))
         q = y[..., -D      :    ]
         k = y[..., -D - KD : -D ]
-        y = F.relu(y).square()
-        return x + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
+        return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
+        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + self.down_proj(F.relu(y).square())
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
