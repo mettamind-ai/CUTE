@@ -21,10 +21,10 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-D, E, HD, T = (512, 2, 64, 256) if args.X else (1024, 2, 128, 128)
+D, E, HD, T = (512, 2, 64, 192) if args.X else (1024, 2, 128, 96)
 if args.bs is None: args.bs = T
 tokens_per_batch = args.bs*1024
-model = WinGPT(dim=D, expansion=E, n_layers=26, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=D, expansion=E, n_layers=25, head_dim=HD, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -66,7 +66,7 @@ short_names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(names)} INT8 {percent:.1f}% {params:,}
-* {len(list(model.parameters())) - len(names)} BF16 {100-percent:.1f}% {total_params - params:,}
+* {len(list(model.parameters())) - len(names)} #### {100-percent:.1f}% {total_params - params:,}
 INT8: {short_names}""")
 
 #########################
