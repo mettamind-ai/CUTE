@@ -19,7 +19,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high')
 torch.backends.cuda.matmul.allow_tf32 = True
-torch.set_default_dtype(torch.bfloat16)
+torch.set_default_dtype(torch.float32)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -127,7 +127,7 @@ class Block(nn.Module):
         q = y[..., -D      :    ]
         k = y[..., -D - KD : -D ]
         y = F.relu(y).square()
-        return x + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
+        return x.bfloat16() + self.down_proj(y) + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
@@ -143,7 +143,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
         x = x0 = E[0](input_seq)
-        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
+        f = lambda x, i: B[i](x, E[i+1](input_seq).bfloat16(), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return  x, x0
 
@@ -195,8 +195,8 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim, 2).cuda()
 
-    # from optimus import convert_int8_mixed_precision
-    # convert_int8_mixed_precision(model)
+    from optimus import convert_int8_mixed_precision
+    convert_int8_mixed_precision(model)
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]

@@ -10,7 +10,7 @@ import torch.nn.functional as F, torch.utils._pytree as pytree
 
 from typing import NamedTuple
 from torch import Tensor, nn
-
+    
 ##############################################
 ##  INT8 Mixed Precision for Linear Module  ##
 ##############################################
@@ -122,7 +122,7 @@ class Int8MixedLinear(torch.autograd.Function):
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
         B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
-        return scaled_mm(A, B, As, Bs, dtype=inp.dtype)
+        return scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -137,13 +137,14 @@ class Int8MixedLinear(torch.autograd.Function):
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
         A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
         B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs, dtype=grad_output.dtype)
+        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
 
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            grad_weight = _fp32_to_bf16_sr(grad_weight)    # phép rounding này rẻ
+            if weight.dtype == torch.bfloat16:  # phép rounding này rẻ
+                grad_weight = _fp32_to_bf16_sr(grad_weight)
         return grad_input, grad_weight, grad_bias
 
 
@@ -198,7 +199,8 @@ class FusedCE(torch.autograd.Function):
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
-            logits = ( _input[s:e] @ weight.t() ).contiguous()
+            chunk_input = _input[s:e].float()
+            logits = ( chunk_input @ weight.t() ).contiguous()
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr  = logits,
                 target_ptr  = target[s:e],
@@ -212,7 +214,7 @@ class FusedCE(torch.autograd.Function):
             )
             grad_input[s:e] = logits @ weight
             if weight.requires_grad:
-                grad_weight = torch.addmm(grad_weight, logits.t(), _input[s:e])
+                grad_weight = torch.addmm(grad_weight, logits.t(), chunk_input)
 
         # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
         reduction = ratio * step / (n_labels - n_ignores)
@@ -243,7 +245,7 @@ class OhMaiHead(nn.Module):
         if  self.active_vocab > OhMaiHead.MAX_ACTIVE_VOCAB:
             self.active_vocab = OhMaiHead.MAX_ACTIVE_VOCAB
 
-        self.weight = torch.zeros(vocab, dim, device="cpu", pin_memory=True, dtype=torch.bfloat16)
+        self.weight = torch.zeros(vocab, dim, device="cpu", pin_memory=True)
         self.weight.requires_grad_(False)
 
         self.active = torch.arange(self.active_vocab, device='cuda')
