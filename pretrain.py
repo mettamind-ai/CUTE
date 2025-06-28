@@ -155,7 +155,7 @@ for step in range(args.steps):  # training loop
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
         tokens_per_second_K = (tokens_seen / 1e3) / (time.time() - time0)
-        tokens_per_second_K = int(tokens_per_second_K)
+        tokens_per_second_K = int(tokens_per_second_K*100)/100
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
