@@ -135,7 +135,6 @@ for step in range(args.steps):  # training loop
                 frac = min(lr_schedule.t1,  1) # momentum warmup for muon
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    if 
     muon_optim.step()
     adam_optim.step()
     model.zero_grad(set_to_none=True)
