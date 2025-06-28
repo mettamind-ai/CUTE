@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 128
 tokens_per_batch = args.bs*1024
-model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=1024, n_layers=28, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -108,7 +108,7 @@ model = model.cuda()
 model.train()
 
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
-cu_steps = 8
+cu_steps = 4
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
