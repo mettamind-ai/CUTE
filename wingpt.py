@@ -108,9 +108,9 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(dim, head_dim, self.long, layer_id)
         self.skip_mlp = ( layer_id == 0 or layer_id == n_layers - 1 ) # bỏ MLP ở 2 đầu
 
-        hdim = dim + head_dim//2 if self.skip_mlp else dim * expansion
+        hdim = dim * (expansion + 1)
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
-        self.down_proj = nn.Linear(hdim, dim, bias=False)
+        self.down_proj = nn.Linear(hdim-dim, dim, bias=False)
 
         # Add weight decay multiplier attribute to the weights
         self.  up_proj.weight.wd_mul = 2.0  # điều chỉnh hệ số weight decay
@@ -123,14 +123,15 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         D, KD = x.shape[-1], self.attn.head_dim//2
-        y = self.up_proj(norm(x))
-        q = y[..., -D      :    ]
-        k = y[..., -D - KD : -D ]
+        y = self.up_proj(norm(x))  # fused q, k, z sao cho tổng chiều dài là mũ của 2 (tối ưu GPU IO)
+        q = y[..., -D      :    ]  # `q` D giá trị cuối
+        z = y[...,         : -D ]  # `z` D*expansion giá trị đầu
+        k = y[..., -D - KD : -D ]  # `k` dùng ké 32 hoặc 64 giá trị cuối của z
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
-        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + self.down_proj(F.relu(y).square())
+        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) + self.down_proj(F.relu(z).square())
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
         super().__init__()
         def Embed(dim): return nn.Embedding(vocab_size, dim, dtype=torch.bfloat16)
         self.rotary    = Rotary(head_dim, ctxlen)
