@@ -163,7 +163,7 @@ for step in range(args.steps):  # training loop
             tokens_seen_M        = tokens_seen / 1e6,
             tokens_per_second_K  = tokens_per_second_K,
             total_docs           = total_docs,
-            avglen               = num_tokens_seen / total_docs,
+            avglen               = tokens_seen / total_docs,
             maxlen               = maxlen,
         ), step=step)
         pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m)
