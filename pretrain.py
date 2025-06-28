@@ -115,6 +115,7 @@ logger = wandb.init(dir="/tmp", config=args,)
 
 started_at = time.time()
 total_docs = maxlen = 0
+muon_lr    = lossv  = 0
 
 for step in range(args.steps):  # training loop
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
@@ -166,8 +167,7 @@ for step in range(args.steps):  # training loop
             avglen               = tokens_seen / total_docs,
             maxlen               = maxlen,
         ), step=step)
-        pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m)
-    else: pbar.set_postfix(maxlen=m)
+    pbar.set_postfix(loss=lossv, lr=muon_lr, maxlen=m)
     pbar.update()
 
 logger.finish()
