@@ -114,7 +114,7 @@ log_interval = 5
 logger = wandb.init(dir="/tmp", config=args,)
 
 started_at = time.time()
-total_samples = maxlen = 0
+total_docs = maxlen = 0
 
 for step in range(args.steps):  # training loop
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
