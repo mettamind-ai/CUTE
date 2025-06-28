@@ -113,10 +113,10 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 log_interval = 5 
 logger = wandb.init(dir="/tmp", config=args,)
 
-started_at = time.time()
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
-
 for step in range(args.steps):  # training loop
+
+    started_at = time.time()
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, c, m)
     tokens, targets = next(train_loader)
@@ -149,23 +149,23 @@ for step in range(args.steps):  # training loop
     total_docs += len(c)
     if m > maxlen: max_len = m
 
-    tokens_seen += tokens_per_batch
-    tokens_per_second_K = int(tokens_seen / (2 + time.time() - time0))/1000
 
     if step % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
+        tokens_seen = tokens_per_batch * step
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
             grad_norm            = grad_norm,
             max_memory_allocated = torch.cuda.max_memory_allocated(), 
             tokens_seen_M        = tokens_seen / 1e6,
-            tokens_per_second_K  = tokens_per_second_K,
+            tokens_per_second_K  = int(tokens_seen / (time.time() - time0))/1000,
             total_docs           = total_docs,
             avglen               = int(tokens_seen / total_docs),
             maxlen               = maxlen,
         ), step=step)
+    tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
     pbar.set_postfix(loss=lossv, kmax=m//1000, kts=tokens_per_second_K)
     pbar.update()
 
