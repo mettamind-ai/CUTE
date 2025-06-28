@@ -114,8 +114,7 @@ log_interval = 5
 logger = wandb.init(dir="/tmp", config=args,)
 
 started_at = time.time()
-total_docs = maxlen = 0
-muon_lr    = lossv  = 0
+total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
 
 for step in range(args.steps):  # training loop
     c, m = get_cu_max_seqlens_from(tokens, eot=eot)
@@ -150,12 +149,12 @@ for step in range(args.steps):  # training loop
     total_docs += len(c)
     if m > maxlen: max_len = m
 
+    tokens_seen += tokens_per_batch
+    tokens_per_second_K = int(tokens_seen / (time.time() - time0))/1000
+
     if step % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
         muon_lr = muon_optim.param_groups[0]["lr"]
-        tokens_seen = tokens_per_batch * step
-        tokens_per_second_K = (tokens_seen / 1e3) / (time.time() - time0)
-        tokens_per_second_K = int(tokens_per_second_K*100)/100
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
