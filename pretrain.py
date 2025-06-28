@@ -150,7 +150,7 @@ for step in range(args.steps):  # training loop
     if m > maxlen: max_len = m
 
     tokens_seen += tokens_per_batch
-    tokens_per_second_K = int(tokens_seen / (1 + time.time() - time0))/1000
+    tokens_per_second_K = int(tokens_seen / (2 + time.time() - time0))/1000
 
     if step % log_interval == 0 or step == args.steps - 1:
         lossv = loss.item()
