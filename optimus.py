@@ -154,19 +154,18 @@ class Int8MixedLinear(torch.autograd.Function):
 @triton.jit
 def per_label_cross_entropy(
         logits_ptr, target_ptr, loss_ptr, reduction: tl.constexpr,
-        stride:  tl.constexpr, vocab: tl.constexpr,
-        ignore:  tl.constexpr, BLOCK: tl.constexpr,
+        stride:  tl.constexpr, vocab: tl.constexpr, ignore:  tl.constexpr
     ):
-    pid  = tl.program_id(0).to(tl.int64)  # chạy từ 0 tới num_targets
-    row  = logits_ptr + pid * stride
-    offs = tl.arange(0, BLOCK)
+    pid  = tl.program_id(0).to(tl.int64)    # pid chạy từ 0 tới num_targets
+    offs = tl.arange(0, vocab)              # khoảng địa chỉ để load logits
+    row  = logits_ptr + pid * stride        # row trỏ tới vị trí đầu của target logits
 
     tgt = tl.load(target_ptr + pid)
     if tgt == ignore: tl.store(row + offs, 0.0); return
 
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x         = tl.load(row + offs, mask=offs < vocab, other=-float("inf")).to(tl.float32)
-    tgt_logit = tl.sum(tl.where(offs == tgt, x, 0.0), axis=0) # không phải load lại data
+    x         = tl.load(row + offs).to(tl.float32)
+    tgt_logit = tl.load(row + tgt ).to(tl.float32)
 
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)            # e^(xi-M)
@@ -175,8 +174,8 @@ def per_label_cross_entropy(
 
     grad = e_x / d                  # p(xi) = exp(xi-M) / Σexp(xj-M)
     grad = grad * (1 + 2e-5 * lse)  # z-loss modification
-    grad = tl.where(offs==tgt, grad-1, grad)   # Cross-entropy gradient
-    tl.store(row + offs, grad * reduction, mask=offs < vocab)
+    grad = tl.where(offs == tgt, grad-1, grad)
+    tl.store(row + offs, grad * reduction)
 
     loss  = lse - tgt_logit         # LCE = Surprise = -log(p_target) = -(x_target - lse)
     loss += 1e-5 * lse * lse        # cộng thêm z_loss penalty giúp ổn định training
@@ -194,12 +193,15 @@ class FusedCE(torch.autograd.Function):
         losses      = torch.zeros(_input.shape[0], device=_input.device, dtype=torch.float32)
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
+        assert vocab == triton.next_power_of_2(vocab), "vocab must be power of 2"
         step = min(1024*16, n_labels)
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
             chunk_input     = _input[s:e]
-            logits          = ( chunk_input @ weight.t() ).contiguous()
+            logits          = chunk_input @ weight.t()
+            logits          = logits.contiguous()
+
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr  = logits,
                 target_ptr  = target[s:e],
@@ -207,14 +209,13 @@ class FusedCE(torch.autograd.Function):
                 stride      = logits.stride(-2),
                 ignore      = ignore,
                 vocab       = vocab,
-                BLOCK       = triton.next_power_of_2(vocab), 
                 num_warps   = 16 if vocab <= 1024*8 else 32,
                 reduction   = ratio / (n_labels - n_ignores),
             )
+
             grad_input[s:e] = logits @ weight
             if weight.requires_grad: grad_weight = torch.addmm(grad_weight, logits.t(), chunk_input)
 
-        # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
         ctx.save_for_backward(grad_input.detach(), grad_weight.detach() if weight.requires_grad else None)
         return torch.sum(losses)
 
