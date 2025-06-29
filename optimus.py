@@ -215,11 +215,11 @@ class FusedCE(torch.autograd.Function):
                 num_warps   = 16 if vocab <= 1024*8 else 32,
                 reduction   = reduction,
             )
-            grad_x[s:e] = logits_x @ weight
-            grad_y[s:e] = logits_y @ weight
+            grad_x[s:e] = ( logits_x @ weight ) * alpha
+            grad_y[s:e] = ( logits_y @ weight ) * beta
             if weight.requires_grad:
-                grad_w = torch.addmm(grad_w, logits.t(), x[s:e])
-                grad_w = torch.addmm(grad_w, logits.t(), y[s:e])
+                grad_w += (logits.t() @ x[s:e]) * alpha
+                grad_w += (logits.t() @ y[s:e]) * beta
 
         # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
         
