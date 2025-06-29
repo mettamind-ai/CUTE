@@ -126,7 +126,7 @@ for step in range(args.steps):  # training loop
         n_samples += len(cu_seqlens)
         if max_seqlen > maxlen: maxlen = max_seqlen
 
-    total_docs += len(n_samples)
+    total_docs += n_samples
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
     # set optimization hyperparameters
