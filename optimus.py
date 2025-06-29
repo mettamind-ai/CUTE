@@ -221,11 +221,11 @@ class FusedCE(torch.autograd.Function):
         # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
         
         ctx.save_for_backward(
-            (grad_x * alpha).detach(), 
-            (grad_y * beta ).detach(), 
+            (grad_x * alpha * reduction).detach(), 
+            (grad_y * beta  * reduction).detach(), 
              grad_w.detach() if weight.requires_grad else None
         )
-        return torch.sum(losses)
+        return torch.sum(losses) * reduction
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
