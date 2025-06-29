@@ -228,7 +228,7 @@ class FusedCE(torch.autograd.Function):
             (grad_y * beta ).detach(), 
              grad_w.detach() if weight.requires_grad else None
         )
-        return torch.sum(losses) * ratio
+        return torch.sum(losses)
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
