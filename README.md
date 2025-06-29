@@ -103,4 +103,5 @@
     ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
   - https://www.alphaxiv.org/abs/2410.13184 router tuning biến pretrained thành MoD (finetune only)
   - https://www.alphaxiv.org/abs/2410.14268 MoDif cũng để biến pretrained thành MoD
-  - https://www.alphaxiv.org/abs/2412.20875 a-MoD
+  - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
+
