@@ -121,7 +121,7 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)   # phép rounding này rẻ
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
         return scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
 
     @staticmethod
