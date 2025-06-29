@@ -197,13 +197,13 @@ class FusedCE(torch.autograd.Function):
 
         n_labels, vocab = x.shape[0], weight.shape[0]
         step = min(1024*16, n_labels)
-        reduction = 1 / ( ratio * (n_labels - n_ignores) )
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)
             logits_x        = x[s:e] @ weight.t()
             logits_y        = y[s:e] @ weight.t()
             logits          = ( logits_x * alpha + logits_y * beta ).contiguous()
+
             per_label_cross_entropy[( logits.shape[0], )](
                 logits_ptr  = logits,
                 target_ptr  = target[s:e],
@@ -213,21 +213,16 @@ class FusedCE(torch.autograd.Function):
                 vocab       = vocab,
                 BLOCK       = triton.next_power_of_2(vocab), 
                 num_warps   = 16 if vocab <= 1024*8 else 32,
-                reduction   = reduction,
+                reduction   = ratio  / (n_labels - n_ignores),
             )
             grad_x[s:e] = ( logits_x @ weight ) * alpha
             grad_y[s:e] = ( logits_y @ weight ) * beta
+
             if weight.requires_grad:
                 grad_w += (logits.t() @ x[s:e]) * alpha
                 grad_w += (logits.t() @ y[s:e]) * beta
 
-        # Khi n_labels lớn thì chỉ chia trước step rồi cộng lại mới chia hết cho cân bằng
-        
-        ctx.save_for_backward(
-            grad_x.detach(), 
-            grad_y.detach(),
-            grad_w.detach() if weight.requires_grad else None
-        )
+        ctx.save_for_backward(grad_x.detach(), grad_y.detach(), grad_w.detach() if weight.requires_grad else None)
         return torch.sum(losses)
 
     @staticmethod
