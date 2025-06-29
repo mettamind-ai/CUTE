@@ -95,4 +95,12 @@
     - Context không thể "chữa lành" được structural problems
     - Accumulation effect làm vấn đề nghiêm trọng hơn theo thời gian
     ```
-- [ ] Huấn luyện đa GPUs với Data Parallel (chỉ trao đổi gradient => hạn chế tối thiểu IO giữa GPUs)
+
+- [ ] MoD: Mixture of Depth
+  - https://github.com/sramshetty/mixture-of-depths
+    ![](https://graphcore-research.github.io/assets/images/posts/2024-04/potm/mixture-of-depths/mixture-of-depths-schematic.png)
+  - https://www.alphaxiv.org/abs/2412.04449 p-MoD chỉ áp dụng cho visual tokens
+    ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
+  - https://www.alphaxiv.org/abs/2410.13184 router tuning biến pretrained thành MoD (finetune only)
+  - https://www.alphaxiv.org/abs/2410.14268 MoDif cũng để biến pretrained thành MoD
+  - https://www.alphaxiv.org/abs/2412.20875 a-MoD
