@@ -21,8 +21,8 @@ torch.manual_seed(1981)
 
 ## Config
 if args.bs is None: args.bs = 96
-cu_steps = 512 // args.bs
-tokens_per_batch = args.bs*1024
+tokens_per_batch =  args.bs*1024
+cu_steps =  1024 // args.bs # grad accum để đạt 1 triệu toks / step
 model = WinGPT(dim=1024, n_layers=32, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
@@ -91,11 +91,11 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params= model.embeds.parameters(),   lr=0.009 ), 
-    dict(params= model.unembeds.parameters(), lr=0.006 ),
+    dict(params= model.embeds.parameters(),   lr=0.02 ), 
+    dict(params= model.unembeds.parameters(), lr=0.01 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
-muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.2, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
