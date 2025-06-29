@@ -103,7 +103,7 @@ class Block(nn.Module):
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
         self.skip_mlp = ( layer_id == n_layers - 1 ) # bỏ MLP ở layer cuối
 
-        hdim = dim * (expansion + 1)
+        hdim = dim + head_dim//2 if self.skip_mlp else dim * (expansion + 1)
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
         self.down_proj = nn.Linear(hdim - dim, dim, bias=False)
 
@@ -113,7 +113,7 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         q, y = torch.split(self.up_proj(norm(x)), list(self.down_proj.weight.shape), dim=-1)
-        k    = y[ ..., : self.attn.head_dim // 2 ]
+        k    = y[ ..., : self.attn.head_dim//2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
         else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
 
