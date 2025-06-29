@@ -111,12 +111,15 @@
   - https://www.alphaxiv.org/abs/2312.16903 scaled embed, **small sub layers + large residuals**
   - https://www.alphaxiv.org/abs/2410.16682 ngoài pre LN, cho thêm qk norm và softcap=50
   ```js
-Để ổn định training cần:
-    1/ khởi tạo weight hợp lý + scaled embed hoặc embed norm => thần chú !! small sub layers + large residuals !!
-    2/ pre LN + QK norm + softcap
+  Để ổn định training cần:
+    1/ khởi tạo weight hợp lý + scaled embed hoặc embed norm. (Thần chú: small sub layers + large residuals)
+    2/ pre LN + QK norm + softcap (phần bất ổn chủ yếu ở attn outliers)
     3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
     4/ spec norm + auxilary loss + grad norm and clipping
     6/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
   ```
+  - Small sub-layers nghĩa là khởi tạo các tham số trong Transformer với giá trị rất nhỏ. `std_base = sqrt(2 / (5 * dim))`
+
+
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524

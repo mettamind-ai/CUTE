@@ -130,20 +130,21 @@ class Int8MixedLinear(torch.autograd.Function):
         ctx.save_for_backward(inp, weight._data)
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_out):
         inp, weight = ctx.saved_tensors
         grad_weight = grad_bias = None
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
-        A, As = quantize_int8(grad_output, dim=1, sr=False)     # rounding both để đạt độ
-        B, Bs = quantize_int8(weight, dim=0, sr=True)           # phép rounding này rẻ
-        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-        grad_input = _fp32_to_bf16_sr(grad_input)               # phép rounding này rẻ hơn rd ở quant grad_out?
+        A, As = quantize_int8(grad_out, dim=1, sr=True) # rounding both để đạt độ chính xác cao
+        B, Bs = quantize_int8(weight  , dim=0, sr=True) # phép rounding này rẻ
+        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
+
         if ctx.needs_input_grad[1]:
-            A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
-            B, Bs = quantize_int8(inp, dim=0, sr=False)
+            A, As = quantize_int8(grad_out.T, dim=1, sr=False) 
+            B, Bs = quantize_int8(inp       , dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            grad_weight = _fp32_to_bf16_sr(grad_weight)         # phép rounding này rẻ
+            grad_weight = _fp32_to_bf16_sr(grad_weight) # phép rounding này rẻ
+
         return grad_input, grad_weight, grad_bias
 
 
@@ -221,7 +222,7 @@ class FusedCE(torch.autograd.Function):
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
-    def backward(ctx, grad_output, *args): # vì ratio đã được nhân thẳng vào losses nên grad_output == 1
+    def backward(ctx, grad_out, *args): # vì ratio đã được nhân thẳng vào losses nên grad_out == 1
         return *ctx.saved_tensors, None, None, None, None
 
 #################

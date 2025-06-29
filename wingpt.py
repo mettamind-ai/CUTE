@@ -26,8 +26,8 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
 
 @torch.no_grad()
 def init_linear(w: Tensor, scale=1):
-    std = 0.5 * (w.size(-1) ** -0.5) # 0.5 is a bit better ...
-    bound = (3 ** 0.5) * std * scale # ... than default 1/sqrt(3)
+    std = 0.632 / math.sqrt(w.size(-1)) # 0.632 follow https://www.alphaxiv.org/abs/2312.16903 
+    bound = math.sqrt(3) * std * scale
     return w.uniform_(-bound, bound)
 
 class Rotary(nn.Module):
