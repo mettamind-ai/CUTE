@@ -91,7 +91,7 @@ class SlidingWindowAttention(nn.Module):
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
         o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-            window_size=(self.window, 0), softcap=50) # https://www.alphaxiv.org/abs/2410.16682
+            window_size=(self.window, 0), softcap=30) # https://www.alphaxiv.org/abs/2410.16682
         return o.view(T, H*D)
 
 ##############################
