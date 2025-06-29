@@ -90,7 +90,8 @@ class SlidingWindowAttention(nn.Module):
         k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
-        o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, window_size=(self.window, 0))
+        o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+            window_size=(self.window, 0), softcap=50) # https://www.alphaxiv.org/abs/2410.16682
         return o.view(T, H*D)
 
 ##############################
@@ -122,6 +123,7 @@ class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
         super().__init__()
         v_emb         = lambda: nn.Embedding(vocab_size, dim//2, dtype=torch.bfloat16)
+        self.dim      = dim
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim, dtype=torch.float32)] + [v_emb() for _ in range(n_layers)])
@@ -130,7 +132,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = E[0](input_seq).bfloat16()
+        x = x0 = (E[0](input_seq) * math.sqrt(self.dim)).bfloat16() # https://www.alphaxiv.org/abs/2312.16903
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return x, x0

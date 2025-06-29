@@ -66,8 +66,6 @@
 
 - [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và n-gram để score độ quan trọng của từng token, từng n-gram với training process.
 
-- [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
-
 - [ ] fast inference + hiệu chỉnh logits + sửa chữa tích luỹ sai lệch + phát hiện token "bất thường"
   - https://pytorch.org/blog/accelerating-generative-ai-2
   - hiệu chỉnh logits top-nơ https://www.alphaxiv.org/abs/2411.07641
@@ -105,4 +103,20 @@
   - https://www.alphaxiv.org/abs/2410.14268 MoDif cũng để biến pretrained thành MoD
   - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
 
+- Loss spike handling
+  - https://www.alphaxiv.org/abs/2502.17055 Stable-SPAM grad norm & clipping for 4-bit training, **can apply for bf16**
+    - (1) adaptively updates the clipping threshold
+    - (2) normalizes the gradient matrix (giống phép trực giao?)
+    - (3) momentum reset
+  - https://www.alphaxiv.org/abs/2312.16903 scaled embed
+  - https://www.alphaxiv.org/abs/2410.16682 ngoài pre LN, cho thêm qk norm và softcap=50
+  ```js
+  Để ổn định training cần:
+    1/ khởi tạo weight hợp lý + scaled embed (token embed * sqrt(dim)) + embed norm
+    2/ pre LN + QK norm + softcap
+    3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
+    4/ spec norm + auxilary loss + grad norm and clipping
+    6/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
+  ```
+- [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524

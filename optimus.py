@@ -164,8 +164,8 @@ def per_label_cross_entropy(
     if tgt == ignore: tl.store(row + offs, 0.0); return
 
     # softmax(xi) = p(xi) = e^xi / Σ(e^xj) = e^(xi-M) / Σ(e^(xj-M))
-    x         = tl.load(row + offs).to(tl.float32)
-    tgt_logit = tl.load(row + tgt ).to(tl.float32)
+    x         = tl.load(row + offs).to(tl.float32)  # load toàn bộ vocab logits liên quan tới target
+    tgt_logit = tl.load(row + tgt ).to(tl.float32)  # load true target logit
 
     M    = tl.max(x, axis=0)
     e_x  = tl.exp(x - M)            # e^(xi-M)
@@ -174,12 +174,12 @@ def per_label_cross_entropy(
 
     grad = e_x / d                  # p(xi) = exp(xi-M) / Σexp(xj-M)
     grad = grad * (1 + 2e-5 * lse)  # z-loss modification
-    grad = tl.where(offs == tgt, grad-1, grad)
-    tl.store(row + offs, grad * reduction)
+    grad = tl.where(offs == tgt, grad - 1, grad)    # điều chỉnh grad cho target
+    tl.store(row + offs, grad * reduction)          # lưu grad cho target logits
 
     loss  = lse - tgt_logit         # LCE = Surprise = -log(p_target) = -(x_target - lse)
     loss += 1e-5 * lse * lse        # cộng thêm z_loss penalty giúp ổn định training
-    tl.store(loss_ptr + pid, loss * reduction) 
+    tl.store(loss_ptr + pid, loss * reduction)      # lưu loss cho target
 
 
 class FusedCE(torch.autograd.Function):
@@ -221,8 +221,7 @@ class FusedCE(torch.autograd.Function):
 
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
-    def backward(ctx, grad_output, _unused_gi=None, _unused_gw=None):
-        ## Đảm bảo loss cuối không nhân thêm hệ số
+    def backward(ctx, grad_output, *args): # vì ratio đã được nhân thẳng vào losses nên grad_output == 1
         return *ctx.saved_tensors, None, None, None, None
 
 #################
