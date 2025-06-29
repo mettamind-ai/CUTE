@@ -148,12 +148,16 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.mtp_head(norm(xx_x0))
         return norm(x), norm(y)
+    xn, yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore
-    xn, yn = checkpoint(prepare, use_reentrant=False)
+    n_ignore += 1
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
-    return FusedCE.apply(xn, yn, w, target, n_ignore, ignore, 1.0/cu_steps) # gộp logits của NTP và MTP
+
+    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
+    return xloss + yloss
 
 
 def get_cu_max_seqlens_from(input_seq, eot):
