@@ -101,7 +101,7 @@ class Block(nn.Module):
         super().__init__()
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
-        self.skip_mlp = ( layer_id == 0 or layer_id == n_layers - 1 ) # bỏ MLP ở layer đầu và cuối
+        self.skip_mlp = ( layer_id == n_layers - 1 ) # bỏ MLP ở layer cuối
 
         hdim = dim * (expansion + 1)
         self.  up_proj = nn.Linear(dim, hdim, bias=False)
