@@ -108,11 +108,11 @@
     - (1) adaptively updates the clipping threshold
     - (2) normalizes the gradient matrix (giống phép trực giao?)
     - (3) momentum reset
-  - https://www.alphaxiv.org/abs/2312.16903 scaled embed
+  - https://www.alphaxiv.org/abs/2312.16903 scaled embed, **small sub layers + large residuals**
   - https://www.alphaxiv.org/abs/2410.16682 ngoài pre LN, cho thêm qk norm và softcap=50
   ```js
-  Để ổn định training cần:
-    1/ khởi tạo weight hợp lý + scaled embed (token embed * sqrt(dim)) + embed norm
+Để ổn định training cần:
+    1/ khởi tạo weight hợp lý + scaled embed hoặc embed norm => thần chú !! small sub layers + large residuals !!
     2/ pre LN + QK norm + softcap
     3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
     4/ spec norm + auxilary loss + grad norm and clipping

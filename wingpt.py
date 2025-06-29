@@ -11,7 +11,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, OhMaiHead
+from optimus import FusedCE, OhMaiHead, _fp32_to_bf16_sr
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -132,7 +132,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = (E[0](input_seq) * math.sqrt(self.dim)).bfloat16() # https://www.alphaxiv.org/abs/2312.16903
+        x = x0 = _fp32_to_bf16_sr( E[0](input_seq) )
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return x, x0
@@ -187,8 +187,8 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim, 2).cuda()
 
-    # from optimus import convert_int8_mixed_precision
-    # convert_int8_mixed_precision(model)
+    from optimus import convert_int8_mixed_precision
+    convert_int8_mixed_precision(model)
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     opara = [p for n, p in model.named_parameters() if "proj" in n]

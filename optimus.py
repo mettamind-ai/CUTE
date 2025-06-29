@@ -121,7 +121,7 @@ class Int8MixedLinear(torch.autograd.Function):
     @staticmethod
     def forward(inp, weight, bias=None):
         A, As = quantize_int8(inp, dim=1, sr=False)
-        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True) # phép rounding này rẻ
+        B, Bs = quantize_int8(weight._data.T, dim=0, sr=True)   # phép rounding này rẻ
         return scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
 
     @staticmethod
@@ -135,15 +135,15 @@ class Int8MixedLinear(torch.autograd.Function):
         grad_weight = grad_bias = None
 
         ## grad_input tiếp tục truyền về phía sau nên cần duy trì độ chính xác cao =>
-        A, As = quantize_int8(grad_output, dim=1, sr=True) # rounding both để đạt độ
-        B, Bs = quantize_int8(weight, dim=0, sr=True)      # ... chính xác cao hơn
-        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.bfloat16)
-
+        A, As = quantize_int8(grad_output, dim=1, sr=False)     # rounding both để đạt độ
+        B, Bs = quantize_int8(weight, dim=0, sr=True)           # phép rounding này rẻ
+        grad_input = scaled_mm(A, B, As, Bs, dtype=torch.float32)
+        grad_input = _fp32_to_bf16_sr(grad_input)               # phép rounding này rẻ hơn rd ở quant grad_out?
         if ctx.needs_input_grad[1]:
             A, As = quantize_int8(grad_output.T, dim=1, sr=False) 
             B, Bs = quantize_int8(inp, dim=0, sr=False)
             grad_weight = scaled_mm(A, B, As, Bs, dtype=torch.float32)
-            grad_weight = _fp32_to_bf16_sr(grad_weight)
+            grad_weight = _fp32_to_bf16_sr(grad_weight)         # phép rounding này rẻ
         return grad_input, grad_weight, grad_bias
 
 
