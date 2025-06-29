@@ -116,14 +116,17 @@ for step in range(args.steps):  # training loop
 
     started_at = time.time()
 
+    n_samples = lossv = 0
     for _ in range(cu_steps):
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
         loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
         tokens, targets = next(train_loader)
         loss.backward()
-        total_docs += len(cu_seqlens)
+        lossv += loss.item()
+        n_samples += len(cu_seqlens)
         if max_seqlen > maxlen: maxlen = max_seqlen
 
+    total_docs += len(n_samples)
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
     # set optimization hyperparameters
@@ -148,7 +151,6 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    lossv = loss.item() * cu_steps
     muon_lr = muon_optim.param_groups[0]["lr"]
     tokens_seen = tokens_per_batch * step * cu_steps
     logger.log(dict(
@@ -158,9 +160,8 @@ for step in range(args.steps):  # training loop
         max_memory_allocated = torch.cuda.max_memory_allocated(), 
         tokens_seen_M        = tokens_seen / 1e6,
         tokens_per_second_K  = int(tokens_seen / (1.5 + time.time() - time0))/1000,
-        total_docs           = total_docs,
-        avglen               = int(tokens_seen / total_docs),
-        maxlen               = maxlen,
+        n_samples            = n_samples,
+        kmax                 = max_seqlen//1000,
     ), step=step)
     tokens_per_second_K = int(tokens_per_batch * cu_steps / (time.time() - started_at))/1000
     pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
