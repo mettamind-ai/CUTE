@@ -145,7 +145,7 @@ class WinGPT(nn.Module):
         x = x0 = self.get_embeddings(input_seq) # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
-        return model.last_hidden_norm(x), x0
+        return self.last_hidden_norm(x), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
