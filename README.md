@@ -51,7 +51,7 @@
 
 ---
 
-# v1.x TODO
+# TODO
 
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho next of next token prediction (MTP)
   - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
@@ -121,3 +121,8 @@
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
+
+- high perf MoE
+  - https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json
+  - https://github.com/databricks/megablocks => training
+
