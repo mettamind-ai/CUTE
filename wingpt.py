@@ -134,7 +134,8 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = _fp32_to_bf16_sr( norm(E[0](input_seq)) )
+        x = norm(E[0](input_seq))    # norm emb để tạo large residuals ...
+        x = x0 = _fp32_to_bf16_sr(x) # ...  https://www.alphaxiv.org/abs/2312.16903
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return x, x0
@@ -149,8 +150,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     def prepare():
         xn    = norm(x)
         zeros = torch.zeros_like(x[:1])
-        xx    = torch.cat([zeros, xn[:-1]], dim=0) # x dịch phải
-        xx_x0 = torch.cat([xx, x0], dim=-1)
+        xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
+        xx_x0 = torch.cat([xx, x0], dim=-1)         # xx và x0 đã norm riêng
         y     = model.mtp_head(xx_x0)
         return xn, norm(y)
     xn, yn = checkpoint(prepare, use_reentrant=False)
