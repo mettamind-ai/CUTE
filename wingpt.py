@@ -28,6 +28,9 @@ def init_linear(w: Tensor, scale=1):
     bound = math.sqrt(3) * std * scale
     return w.uniform_(-bound, bound)
 
+def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
+    return F.rms_norm(x, (x.size(-1),))
+
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
@@ -88,7 +91,7 @@ class SlidingWindowAttention(nn.Module):
         k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
-        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+        o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=30) # https://www.alphaxiv.org/abs/2410.16682
         return o.view(T, H*D)
 
@@ -110,15 +113,10 @@ class Block(nn.Module):
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
-
-        # cần clone activation sang 32 bit first
-        self.norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
+        self.norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=False)
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        if self.layer_id == 0:
-                xn = x
-                x  = x.bfloat16()
-        else:   xn = self.norm(x.float())
+        xn = self.norm(x) if self.layer_id > 0 else x
         q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
         k    = y[ ..., : self.attn.head_dim//2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
@@ -140,7 +138,7 @@ class WinGPT(nn.Module):
         self.mtp_output_norm  = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
 
     def get_embeddings(self, input_seq):
-        return self.embed_norm(self.embeds[0](input_seq))
+        return self.embed_norm(self.embeds[0](input_seq)).bfloat16()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
