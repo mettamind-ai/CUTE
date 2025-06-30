@@ -134,7 +134,7 @@ class WinGPT(nn.Module):
         self.unembeds = OhMaiHead(dim, vocab_size)
 
         self.embed_norm       = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
-        self.last_hidden_norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=False)
+        self.last_hidden_norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
         self.mtp_output_norm  = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
 
     def get_embeddings(self, input_seq):
@@ -142,28 +142,26 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = self.get_embeddings(input_seq) # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        x = x0 = self.get_embeddings(input_seq) # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
-        return x
+        return model.last_hidden_norm(x), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x = model(input_seq, cu_seqlens, max_seqlen)
+    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)       # xn và x0 đều đã norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     def prepare():
-        xn    = model.last_hidden_norm(x)
-        x0    = model.get_embeddings(input_seq)
-        zeros = torch.zeros_like(x[:1])
-        xx    = torch.cat([zeros, x[:-1]], dim=0)  # x dịch phải
+        zeros = torch.zeros_like(xn[:1])
+        xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.mtp_head(xx_x0)
         yn    = model.mtp_output_norm(y)
-        return xn, yn
-    xn, yn = checkpoint(prepare, use_reentrant=False)
+        return yn
+    yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore; n_ignore += 1
