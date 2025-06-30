@@ -163,9 +163,9 @@ class FlashAttentionForwardBase:
         )
         # tQ_layout and tK_layout: thread layout for QK load
         tQK_shape_dim_1 = sQ_layout_atom.outer.shape[1] // async_copy_elems
-        assert self.num_Q_load_threads % tQK_shape_dim_1 == 0, 
+        assert self.num_Q_load_threads % tQK_shape_dim_1 == 0, \
             "num_threads must be divisible by tQK_shape_dim_1"
-        assert self.num_producer_threads % tQK_shape_dim_1 == 0, 
+        assert self.num_producer_threads % tQK_shape_dim_1 == 0, \
             "num_threads must be divisible by tQK_shape_dim_1"
         tQ_layout = cute.make_ordered_layout(
             (self.num_Q_load_threads // tQK_shape_dim_1, tQK_shape_dim_1), order=(1, 0),

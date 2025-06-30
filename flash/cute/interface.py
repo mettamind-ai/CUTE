@@ -22,11 +22,11 @@ import cutlass
 import cutlass.cute as cute
 from cutlass.cute.runtime import from_dlpack
 
-from flash_attn.cute import utils
-from flash_attn.cute.flash_fwd import FlashAttentionForwardSm80, FlashAttentionForwardSm90
-from flash_attn.cute.flash_bwd_preprocess import FlashAttentionBackwardPreprocess
-from flash_attn.cute.flash_bwd import FlashAttentionBackwardSm80
-from flash_attn.cute.flash_bwd_postprocess import FlashAttentionBackwardPostprocess
+import utils
+from flash_fwd import FlashAttentionForwardSm80
+from flash_bwd_preprocess import FlashAttentionBackwardPreprocess
+from flash_bwd import FlashAttentionBackwardSm80
+from flash_bwd_postprocess import FlashAttentionBackwardPostprocess
 
 
 def maybe_contiguous(x):
@@ -125,8 +125,8 @@ def _flash_attn_fwd(
         m_block_size, n_block_size, num_threads
     )
     if compile_key not in _flash_attn_fwd.compile_cache:
-        # fa_fwd = FlashAttentionForwardSm80(
-        fa_fwd = FlashAttentionForwardSm90(
+        fa_fwd = FlashAttentionForwardSm80(
+        # fa_fwd = FlashAttentionForwardSm90(
             dtype,
             head_dim,
             head_dim_v,
