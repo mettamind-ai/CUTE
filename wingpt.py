@@ -14,15 +14,13 @@ from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, OhMaiHead, _fp32_to_bf16_sr
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
+from liger_kernel.transformers import LigerRMSNorm
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_float32_matmul_precision('high')
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_default_dtype(torch.bfloat16)
-
-def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
-    return F.rms_norm(x, (x.size(-1),))
 
 @torch.no_grad()
 def init_linear(w: Tensor, scale=1):
@@ -113,6 +111,14 @@ class Block(nn.Module):
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
+        self.norm = LigerRMSNorm(
+            dim,
+            eps=1e-6,
+            offset=1.0,          # Gemma cần +1.0
+            casting_mode="gemma",
+            in_place=False,      # an toàn với residual share
+        )
+
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         xn = norm(x) if self.layer_id == 0 else x # đã norm ở 32 bit embeddings
         q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
@@ -149,9 +155,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     def prepare():
         xn    = norm(x)
         zeros = torch.zeros_like(x[:1])
-        xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
-        xx_x0 = torch.cat([xx, x0], dim=-1)         # xx và x0 đã norm riêng
-        y     = model.mtp_head(xx_x0)
+        xx    = torch.cat([zeros, x[:-1]], dim=0)  # x dịch phải
+        xx_x0 = torch.cat([xx, x0], dim=-1)
+        y     = model.mtp_head(norm(xx_x0))
         return xn, norm(y)
     xn, yn = checkpoint(prepare, use_reentrant=False)
 
