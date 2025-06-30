@@ -20,10 +20,11 @@
 - [x] `**int8**          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
 - [x] `**Dense Arch**    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2; MTP)
 - [x] `**OhMai**         1.5x` (Giảm vram cho huge vocab models)
-- [ ] `**MoD**           1.5x` (Mixture of Depth: Dùng routing để Skip Layers)
+- [ ] `**MoA**           1.5x` (Mixture of Anything (Depth/Expert))
 - [ ] `**Sparse Attn**   1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
-- [ ] `**LVOT**          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser representations in the hidden space)
-- [ ] `**N-gram Embedding**  ` Tăng perf, giảm sự bất thường trong không gian embeddings 
+- [ ] `**LVOT**          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)
+- [ ] `**N-gram Embedding**  ` Tăng perf, giảm sự bất thường trong không gian embeddings
+
 🌸__!!! TARGET x10 SPEEPUP !!!__🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
@@ -74,7 +75,7 @@
     - Reference-Answer-based Correction (RAC), tích hợp khả năng tự sửa lỗi vào mô hình bằng cách dạy nó cách điều chỉnh những token sai lệch dựa trên ngữ cảnh tham chiếu.
   - Tránh tokens "bất thường" trong prompt https://www.alphaxiv.org/abs/2504.01002
     ```
-    Hãy tưởng tượng token embeddings như một bản đồ 3D, nơi mỗi từ/token là một điểm trên bản đồ này. 
+    Hãy tưởng tượng token embeddings như một bản đồ 3D, token là một điểm trên bản đồ này. 
     Trong một bản đồ "bình thường", địa hình sẽ tương đối mượt mà - không có vách đá dựng đứng hay hố sâu bất ngờ.
     Token "bất thường" là những điểm có địa hình kỳ lạ - đỉnh núi nhọn hoắt, hố sâu, hoặc vách đá dựng đứng.
 
@@ -122,10 +123,7 @@
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
-- Block Sparse MoE
+- [ ] Block Sparse MoE
   - https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json
   - https://github.com/databricks/megablocks/blob/main/megablocks/backend/kernels.py
   - https://chatgpt.com/share/e/68628872-6958-800e-929c-ba114878cdaf
-
-
-
