@@ -91,7 +91,7 @@ lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 norm_params = [p for n, p in model.named_parameters() if "norm" in n]
 adam_params = [
-    dict(norm_params,                        lr=0.006 ), 
+    dict(params=norm_params,                 lr=0.006 ), 
     dict(params=model.embeds.parameters(),   lr=0.006 ), 
     dict(params=model.unembeds.parameters(), lr=0.003 ),
 ]
