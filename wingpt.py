@@ -11,7 +11,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, OhMaiHead, _fp32_to_bf16_sr
+from optimus import FusedCE, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 from liger_kernel.transformers import LigerRMSNorm
@@ -88,7 +88,7 @@ class SlidingWindowAttention(nn.Module):
         k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
-        o = flash_attn_varlen_func(q, k, norm(v), cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=30) # https://www.alphaxiv.org/abs/2410.16682
         return o.view(T, H*D)
 
@@ -111,16 +111,14 @@ class Block(nn.Module):
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
-        self.norm = LigerRMSNorm(
-            dim,
-            eps=1e-6,
-            offset=1.0,          # Gemma cần +1.0
-            casting_mode="gemma",
-            in_place=False,      # an toàn với residual share
-        )
+        # cần clone activation sang 32 bit first
+        self.norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        xn = norm(x) if self.layer_id == 0 else x # đã norm ở 32 bit embeddings
+        if self.layer_id == 0:
+                xn = x
+                x  = x.bfloat16()
+        else:   xn = self.norm(x.float())
         q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
         k    = y[ ..., : self.attn.head_dim//2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
@@ -137,33 +135,40 @@ class WinGPT(nn.Module):
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = OhMaiHead(dim, vocab_size)
 
+        self.embed_norm       = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
+        self.last_hidden_norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=False)
+        self.mtp_output_norm  = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
+
+    def get_embeddings(self, input_seq):
+        return self.embed_norm(self.embeds[0](input_seq))
+
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = norm(E[0](input_seq))    # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = x0 = _fp32_to_bf16_sr(x) # f32 -> bf16 using stochastic rounding cho kết quả tốt hơn
+        x = self.get_embeddings(input_seq) # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
-        return x, x0
+        return x
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen)       # x0 đã được norm
+    x = model(input_seq, cu_seqlens, max_seqlen)
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     def prepare():
-        xn    = norm(x)
+        xn    = model.last_hidden_norm(x)
+        x0    = model.get_embeddings(input_seq)
         zeros = torch.zeros_like(x[:1])
         xx    = torch.cat([zeros, x[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.mtp_head(norm(xx_x0))
-        return xn, norm(y)
+        y     = model.mtp_head(xx_x0)
+        yn    = model.mtp_output_norm(y)
+        return xn, yn
     xn, yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    target[0] = ignore
-    n_ignore += 1
+    target[0] = ignore; n_ignore += 1
     w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
 
     xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
