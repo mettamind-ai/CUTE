@@ -91,11 +91,11 @@ lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
 
 adam_params   = [
-    dict(params= model.embeds.parameters(),   lr=0.06 ), 
-    dict(params= model.unembeds.parameters(), lr=0.03 ),
+    dict(params= model.embeds.parameters(),   lr=0.009 ), 
+    dict(params= model.unembeds.parameters(), lr=0.006 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
-muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.025, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
