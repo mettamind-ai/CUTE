@@ -94,7 +94,7 @@ adam_params   = [
     dict(params= model.embeds.parameters(),   lr=0.009 ), 
     dict(params= model.unembeds.parameters(), lr=0.006 ),
 ]
-adam_optim  = torch.optim.AdamW(adam_params, weight_decay=0.0, fused=True)
+adam_optim  = torch.optim.AdamW(adam_params, fused=True)
 muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
