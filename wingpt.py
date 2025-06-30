@@ -100,6 +100,7 @@ class SlidingWindowAttention(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, expansion, head_dim, layer_id, n_layers):
         super().__init__()
+        self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
         self.skip_mlp = ( layer_id == n_layers - 1 ) # bỏ MLP ở layer cuối
@@ -113,7 +114,8 @@ class Block(nn.Module):
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        q, y = torch.split(self.up_proj(norm(x)), list(self.down_proj.weight.shape), dim=-1)
+        xn = norm(x) if self.layer_id == 0 else x # đã norm ở 32 bit embeddings
+        q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
         k    = y[ ..., : self.attn.head_dim//2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
         else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
@@ -132,7 +134,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = _fp32_to_bf16_sr( E[0](input_seq) )
+        x = x0 = _fp32_to_bf16_sr( norm(E[0](input_seq)) )
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return x, x0
@@ -141,15 +143,16 @@ class WinGPT(nn.Module):
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
     ohmaihead = isinstance(model.unembeds, OhMaiHead)
     if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen)
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)       # x0 đã được norm
     if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
 
     def prepare():
+        xn    = norm(x)
         zeros = torch.zeros_like(x[:1])
-        xx    = torch.cat([zeros, x[:-1]], dim=0) # x dịch phải
+        xx    = torch.cat([zeros, xn[:-1]], dim=0) # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.mtp_head(norm(xx_x0))
-        return norm(x), norm(y)
+        y     = model.mtp_head(xx_x0)
+        return xn, norm(y)
     xn, yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
@@ -175,7 +178,6 @@ def get_cu_max_seqlens_from(input_seq, eot):
 ########################
 
 if __name__ == "__main__":
-    import numpy as np
     from optimus import Muon1GPU as Muon
 
     seed = 1981
