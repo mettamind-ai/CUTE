@@ -87,12 +87,13 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-lr_schedule   = LRSchedule(args.steps, warmup=0.05, decay=0.15)
-muon_params   = [p for n, p in model.named_parameters() if "proj" in n]
-
-adam_params   = [
-    dict(params= model.embeds.parameters(),   lr=0.009 ), 
-    dict(params= model.unembeds.parameters(), lr=0.006 ),
+lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
+muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+norm_params = [p for n, p in model.named_parameters() if "norm" in n]
+adam_params = [
+    dict(norm_params,                        lr=0.006 ), 
+    dict(params=model.embeds.parameters(),   lr=0.006 ), 
+    dict(params=model.unembeds.parameters(), lr=0.003 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, fused=True)
 muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
