@@ -64,8 +64,8 @@ total_params = sum(p.numel() for p in model.parameters())
 short_names = sorted(set(find_key(x) for x in names))
 percent = (params/total_params)*100
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
-* {len(names)} INT8 {percent:.1f}% {params:,}
-* {len(list(model.parameters())) - len(names)} #### {100-percent:.1f}% {total_params - params:,}
+* {len(names)} Linear {percent:.1f}% {params:,}
+* {len(list(model.parameters())) - len(names)} Embeds {100-percent:.1f}% {total_params - params:,}
 INT8: {short_names}""")
 
 #########################
