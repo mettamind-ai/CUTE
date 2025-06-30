@@ -57,7 +57,7 @@
   - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
   - Dùng predicted next token (main head) để predict next of next token => more robust?
 
-- [ ] Nghĩ ra biến thể ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
+- [ ] Tìm độ đo ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
   Cần nhiều token để đoán => quan trọng? https://chatgpt.com/share/68595fcc-b4b0-8003-b9e3-881f4498be01
   - https://www.alphaxiv.org/abs/2405.03869 đánh giá ảnh hưởng từng mẫu dữ liệu tới hiệu suất mô hình
   - https://www.alphaxiv.org/abs/2505.19653 TI-DPO gradient-based token-importance weights
@@ -99,8 +99,6 @@
     ![](https://graphcore-research.github.io/assets/images/posts/2024-04/potm/mixture-of-depths/mixture-of-depths-schematic.png)
   - https://www.alphaxiv.org/abs/2412.04449 p-MoD chỉ áp dụng cho visual tokens
     ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
-  - https://www.alphaxiv.org/abs/2410.13184 router tuning biến pretrained thành MoD (finetune only)
-  - https://www.alphaxiv.org/abs/2410.14268 MoDif cũng để biến pretrained thành MoD
   - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
 
 - Loss spike handling
@@ -116,7 +114,7 @@
     2/ pre LN + QK norm + softcap (phần bất ổn chủ yếu ở attn outliers)
     3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
     4/ spec norm + auxilary loss + grad norm and clipping
-    6/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
+    5/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
   ```
   - Small sub-layers nghĩa là khởi tạo các tham số trong Transformer với giá trị rất nhỏ. `std_base = sqrt(2 / (5 * dim))`
 
