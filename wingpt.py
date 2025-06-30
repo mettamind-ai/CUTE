@@ -14,7 +14,6 @@ from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
-from liger_kernel.transformers import LigerRMSNorm
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -113,10 +112,9 @@ class Block(nn.Module):
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
-        self.norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=False)
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        xn = self.norm(x) if self.layer_id > 0 else x
+        xn = norm(x) if self.layer_id > 0 else x
         q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
         k    = y[ ..., : self.attn.head_dim//2 ]
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
@@ -133,19 +131,16 @@ class WinGPT(nn.Module):
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = OhMaiHead(dim, vocab_size)
 
-        self.embed_norm       = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
-        self.last_hidden_norm = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
-        self.mtp_output_norm  = LigerRMSNorm(dim, eps=1e-6, offset=1.0, casting_mode="gemma", in_place=True)
-
     def get_embeddings(self, input_seq):
-        return self.embed_norm(self.embeds[0](input_seq)).bfloat16()
+        # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        return norm(self.embeds[0](input_seq)).bfloat16()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = self.get_embeddings(input_seq) # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        x = x0 = self.get_embeddings(input_seq)
         f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
-        return self.last_hidden_norm(x), x0
+        return norm(x), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
@@ -159,8 +154,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.mtp_head(xx_x0)
-        yn    = model.mtp_output_norm(y)
-        return yn
+        return norm(y)
     yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
