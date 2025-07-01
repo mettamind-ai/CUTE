@@ -115,9 +115,10 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         xn = norm(x) if self.layer_id > 0 else x
-        q, y = torch.split(self.up_proj(xn), list(self.down_proj.weight.shape), dim=-1)
-        k    = y[ ..., : self.attn.head_dim//2 ]
-        y[ ..., : self.attn.head_dim//2 ] = 0
+        HD, ID = self.down_proj.weight.shape
+        KD = self.attn.head_dim//2
+        q, k, y = torch.split(self.up_proj(xn), [HD, KD, ID - KD], dim=-1)
+        y = F.pad(y, (KD, 0), mode='constant', value=0)
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
         else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
 

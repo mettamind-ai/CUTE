@@ -23,7 +23,7 @@ torch.manual_seed(1981)
 if args.bs is None: args.bs = 96
 tokens_per_batch =  args.bs*1024
 cu_steps =  512 // args.bs # grad accum để đạt 1 triệu toks / step
-model = WinGPT(dim=1024, n_layers=32, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=1024, n_layers=30, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):

@@ -125,4 +125,4 @@
 
 - [ ] MoA: Mixture Of Anthing
   - https://www.alphaxiv.org/abs/2202.09368 để expert chọn top-k token với k cố định sẽ đơn giản hơn để token chọn expert
-  
+  - thêm điểm attn score từ layer trước để tránh bias
