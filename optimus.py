@@ -28,8 +28,8 @@ def _scaled_mm_kernel(
     stride_am: tl.constexpr, stride_ak: tl.constexpr, stride_bk: tl.constexpr, 
     stride_bn: tl.constexpr, stride_cm: tl.constexpr, stride_cn: tl.constexpr,
     BLOCK_M:   tl.constexpr, BLOCK_N:   tl.constexpr, BLOCK_K:   tl.constexpr,
-    GROUP_M:   tl.constexpr = 8, # số khối theo chiều M được nhóm lại (để tối ưu L2 cache)
-):
+    GROUP_M:   tl.constexpr = 8 ): # số khối theo chiều M được nhóm lại (để tối ưu L2 cache)
+
     pid = tl.program_id(0)
     grid_m = (M + BLOCK_M - 1) // BLOCK_M
     grid_n = (N + BLOCK_N - 1) // BLOCK_N

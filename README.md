@@ -125,4 +125,10 @@
 
 - [ ] MoA: Mixture Of Anthing
   - https://www.alphaxiv.org/abs/2202.09368 để expert chọn top-k token với k cố định sẽ đơn giản hơn để token chọn expert
-  - thêm điểm attn score từ layer trước để tránh bias
+  - thêm điểm attn score từ layer trước để tránh bias ...
+
+- [ ] Quy MoA, Sparse Attention về chung Block Sparse Matrix & Matmul pattern
+  - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
+  - MLP  https://www.together.ai/blog/teal-training-free-activation-sparsity-in-large-language-models
+  - MegaBllock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
+  
