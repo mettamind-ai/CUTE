@@ -123,7 +123,6 @@
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
-- [ ] Block Sparse MoE
-  - https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json
-  - https://github.com/databricks/megablocks/blob/main/megablocks/backend/kernels.py
-  - https://chatgpt.com/share/e/68628872-6958-800e-929c-ba114878cdaf
+- [ ] MoA: Mixture Of Anthing
+  - https://www.alphaxiv.org/abs/2202.09368 để expert chọn top-k token với k cố định sẽ đơn giản hơn để token chọn expert
+  
