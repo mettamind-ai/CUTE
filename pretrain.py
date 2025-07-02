@@ -14,7 +14,7 @@ from torch import Tensor, nn
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
 parser.add_argument("--steps",  type=int, default=20000)
-parser.add_argument("--vocab",  type=int, default=50257)
+parser.add_argument("--vocab",  type=int, default=1024*64)
 
 args = parser.parse_args()
 torch.manual_seed(1981)
@@ -23,7 +23,7 @@ torch.manual_seed(1981)
 if args.bs is None: args.bs = 96
 tokens_per_batch =  args.bs*1024
 cu_steps =  512 // args.bs # grad accum để đạt 1 triệu toks / step
-model = WinGPT(dim=1024, n_layers=30, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=1024, n_layers=28, head_dim=64, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -167,4 +167,3 @@ for step in range(args.steps):  # training loop
     pbar.update()
 
 logger.finish()
-model.unembeds.update_async_weight()

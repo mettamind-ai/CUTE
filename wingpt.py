@@ -11,7 +11,7 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, OhMaiHead
+from optimus import FusedCE
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -115,10 +115,10 @@ class Block(nn.Module):
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         xn = norm(x) if self.layer_id > 0 else x
-        HD, ID = self.down_proj.weight.shape
         KD = self.attn.head_dim//2
+        HD, ID  = self.down_proj.weight.shape
         q, k, y = torch.split(self.up_proj(xn), [HD, KD, ID - KD], dim=-1)
-        y = F.pad(y, (KD, 0), mode='constant', value=0)
+        y  = F.pad(y, (KD, 0), mode='constant', value=0)
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
         else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
 
@@ -131,26 +131,21 @@ class WinGPT(nn.Module):
         self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim, dtype=torch.float32)] + [v_emb() for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
-        self.unembeds = OhMaiHead(dim, vocab_size)
+        self.unembeds = nn.Linear(dim, vocab_size, bias=False)
+        with torch.no_grad(): self.unembeds.weight.zero_()
 
-    def get_embeddings(self, input_seq):
-        # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        return norm(self.embeds[0](input_seq)).bfloat16()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        B, E, R = self.blocks, self.embeds, self.rotary
-        x = x0 = self.get_embeddings(input_seq)
-        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, R)
+        B, E = self.blocks, self.embeds
+        # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        x = x0 = norm(E[0](input_seq)).bfloat16()
+        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, self.rotary)
         for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
         return norm(x), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
-    ohmaihead = isinstance(model.unembeds, OhMaiHead)
-    if ohmaihead: target = model.unembeds.activate(target)  # async offload old token weight ...
     xn, x0 = model(input_seq, cu_seqlens, max_seqlen)       # xn và x0 đều đã norm
-    if ohmaihead: model.unembeds.update_new_tokens_weight() # async upload new token weight ...
-
     def prepare():
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
@@ -161,7 +156,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore; n_ignore += 1
-    w = model.unembeds.active_weight if ohmaihead else model.unembeds.weight
+    w = model.unembeds.weight
 
     xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
     yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
@@ -227,4 +222,3 @@ if __name__ == "__main__":
         aptim.step()
 
         print(f"Peak VRAM: {current_memory:.2f} MB")
-    model.unembeds.update_async_weight()
