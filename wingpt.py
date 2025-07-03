@@ -134,16 +134,13 @@ class Block(nn.Module):
         if self.skip_mlp: return x + o
 
         y = self.down_proj(F.relu(y).square()) * 0.5
-        if self.layer_id % 2 == 0:
-            x2 = x[::2]
-            y2 = self.up2_proj(x2)
-            y2 = self.down2_proj(F.relu(y2).square()) * 0.5
-            y[::2] += y2
-        else:
-            x2 = x[1::2]
-            y2 = self.up2_proj(x2)
-            y2 = self.down2_proj(F.relu(y2).square()) * 0.5
-            y[1::2] += y2
+        # làm thưa nhân tạo 25%
+        n = x.shape[0] // 4
+        s = n * (self.layer_id % 4)
+        x2 = x[s : s + n]
+        y2 = self.up2_proj(x2)
+        y2 = self.down2_proj(F.relu(y2).square()) * 0.5
+        y[s : s + n] += y2
 
         return x + o + y
 
