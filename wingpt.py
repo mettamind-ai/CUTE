@@ -84,10 +84,10 @@ class SlidingWindowAttention(nn.Module):
 
     def forward(self, q, k, v, cu_seqlens, max_seqlen, rotary):
         T, H, D = q.size(0), self.num_heads, self.head_dim
-        q = q.view(T, H   ,  D   )
-        v = v.view(T, H//2,  D   )
-        k = k.view(T, 1   ,  D//2)
-        k = repeat(k, 'T 1 d -> T h d', h=H//2)
+        q = q.view(T, H,  D)
+        v = v.view(T, H,  D)
+        k = k.view(T, 1,  D//2)
+        k = repeat(k, 'T 1 d -> T h d', h=H)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
@@ -120,21 +120,20 @@ class Block(nn.Module):
                 self.down_proj.weight.zero_()
                 self.down2_proj.weight.zero_()
 
-    def forward(self, x, ve, ge, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         def prepare():
             xn = norm(x) if self.layer_id > 0 else x
             if self.skip_mlp: q, y = self.up_proj(xn), None
             else:             q, y = tuple(torch.chunk(self.up_proj(xn), 2, dim=-1))
             k = q[..., -self.attn.head_dim//2 : ]
             v = ve(input_seq)
-            g = ge(input_seq)
-            return q, k, v, y, g
+            return q, k, v, y
 
-        q, k, v, y, g = checkpoint(prepare, use_reentrant=False)
+        q, k, v, y = checkpoint(prepare, use_reentrant=False)
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
         if self.skip_mlp: return x + o
 
-        y = self.down_proj(F.relu(y).square()) * g * 0.5
+        y = self.down_proj(F.relu(y).square()) * 0.5
         # làm thưa nhân tạo 25%
         n = x.shape[0] // 4
         s = n * (self.layer_id % 4)
@@ -152,8 +151,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.g_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim)    for _ in range(n_layers)])
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//2) for _ in range(n_layers)])
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
@@ -162,9 +160,9 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         x = x0 = norm(self.embeds(input_seq)).bfloat16()
-        B, V, G, R = self.blocks, self.v_embeds, self.g_embeds, self.rotary
+        B, V, R = self.blocks, self.v_embeds, self.rotary
         for k in range(len(B)):
-            x   = B[k](x, V[k], G[k], input_seq, cu_seqlens, max_seqlen, R)
+            x   = B[k](x, V[k], input_seq, cu_seqlens, max_seqlen, R)
         return norm(x), x0
 
 
