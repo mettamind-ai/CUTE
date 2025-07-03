@@ -133,11 +133,18 @@ class Block(nn.Module):
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
         if self.skip_mlp: return x + o
 
-        x2 = x[::2]
-        y2 = self.up2_proj(x2)
-        y2 = self.down2_proj(F.relu(y2).square())
-        y = self.down_proj(F.relu(y).square())
-        y[::2] += y2
+        y = self.down_proj(F.relu(y).square()) * 0.5
+        if self.layer_id % 2 == 0:
+            x2 = x[::2]
+            y2 = self.up2_proj(x2)
+            y2 = self.down2_proj(F.relu(y2).square()) * 0.5
+            y[::2] += y2
+        else:
+            x2 = x[1::2]
+            y2 = self.up2_proj(x2)
+            y2 = self.down2_proj(F.relu(y2).square()) * 0.5
+            y[1::2] += y2
+
         return x + o + y
 
 
