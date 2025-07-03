@@ -186,6 +186,25 @@
 
 20250623
 --------
-
 - [x] chậm, chưa gain? <= ~~Canon https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/convolution.py~~
 - [x] ~~stablemax~~ hoặc fp32 unembeddings + fp64 softmax, ortho optim đã có muon
+
+20250703
+--------
+- Loss spike handling
+  - https://www.alphaxiv.org/abs/2502.17055 Stable-SPAM grad norm & clipping for 4-bit training, **can apply for bf16**
+    - (1) adaptively updates the clipping threshold
+    - (2) normalizes the gradient matrix (giống phép trực giao?)
+    - (3) momentum reset
+  - https://www.alphaxiv.org/abs/2312.16903 scaled embed, **small sub layers + large residuals**
+  - https://www.alphaxiv.org/abs/2410.16682 ngoài pre LN, cho thêm qk norm và softcap=50
+  ```js
+  Để ổn định training cần:
+    1/ khởi tạo weight hợp lý + scaled embed hoặc embed norm. (Thần chú: small sub layers + large residuals)
+    2/ pre LN + QK norm + softcap (phần bất ổn chủ yếu ở attn outliers)
+    3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
+    4/ spec norm + auxilary loss + grad norm and clipping
+    5/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
+  ```
+  - Small sub-layers nghĩa là khởi tạo các tham số trong Transformer với giá trị rất nhỏ. `std_base = sqrt(2 / (5 * dim))`
+

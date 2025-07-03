@@ -54,19 +54,6 @@
 
 # TODO
 
-- [ ] Dùng final NTP loss của mỗi token làm weighted cho next of next token prediction (MTP)
-  - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE (early exit); token nào khó đoán thì dồn sức cho MTP
-  - Dùng predicted next token (main head) để predict next of next token => more robust?
-
-- [ ] Tìm độ đo ImportantCE, để đo độ quan trọng của các token trong input seq. How?
-  - Sử dụng điểm attention từ Long vs Short SWA? Có tương đồng LongCE?
-  - https://www.alphaxiv.org/abs/2405.03869 đánh giá ảnh hưởng từng mẫu dữ liệu tới hiệu suất mô hình
-  - https://www.alphaxiv.org/abs/2505.19653 TI-DPO gradient-based token-importance weights
-  - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
-  - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
-
-- [ ] tính và giữ lại per token `grad_score` sau mỗi lần bwd cho token và n-gram (n tokens liên tiếp trong input seq) để đo độ quan trọng của từng token, từng n-gram với training process.
-
 - [ ] fast inference + hiệu chỉnh logits + sửa chữa tích luỹ sai lệch + phát hiện token "bất thường"
   - https://pytorch.org/blog/accelerating-generative-ai-2
   - hiệu chỉnh logits top-nơ https://www.alphaxiv.org/abs/2411.07641
@@ -95,30 +82,20 @@
     - Accumulation effect làm vấn đề nghiêm trọng hơn theo thời gian
     ```
 
+- [ ] Tìm độ đo ImportantCE, để đo độ quan trọng của các token trong input seq. How?
+  - [ ] Sử dụng điểm attention từ Long vs Short SWA? Có tương đồng LongCE?
+  - [ ] **Dùng MTP loss để làm weight cho NTP**
+  - https://www.alphaxiv.org/abs/2405.03869 đánh giá ảnh hưởng từng mẫu dữ liệu tới hiệu suất mô hình
+  - https://www.alphaxiv.org/abs/2505.19653 TI-DPO gradient-based token-importance weights
+  - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
+  - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
+
 - [ ] MoD: Mixture of Depth
   - https://github.com/sramshetty/mixture-of-depths
     ![](https://graphcore-research.github.io/assets/images/posts/2024-04/potm/mixture-of-depths/mixture-of-depths-schematic.png)
   - https://www.alphaxiv.org/abs/2412.04449 p-MoD chỉ áp dụng cho visual tokens
     ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
   - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
-
-- Loss spike handling
-  - https://www.alphaxiv.org/abs/2502.17055 Stable-SPAM grad norm & clipping for 4-bit training, **can apply for bf16**
-    - (1) adaptively updates the clipping threshold
-    - (2) normalizes the gradient matrix (giống phép trực giao?)
-    - (3) momentum reset
-  - https://www.alphaxiv.org/abs/2312.16903 scaled embed, **small sub layers + large residuals**
-  - https://www.alphaxiv.org/abs/2410.16682 ngoài pre LN, cho thêm qk norm và softcap=50
-  ```js
-  Để ổn định training cần:
-    1/ khởi tạo weight hợp lý + scaled embed hoặc embed norm. (Thần chú: small sub layers + large residuals)
-    2/ pre LN + QK norm + softcap (phần bất ổn chủ yếu ở attn outliers)
-    3/ tăng dần seqlen  + suitable batch size + better warmup + careful learning rate schedule
-    4/ spec norm + auxilary loss + grad norm and clipping
-    5/ spec clipping cho cả weight https://leloykun.github.io/ponder/spectral-clipping
-  ```
-  - Small sub-layers nghĩa là khởi tạo các tham số trong Transformer với giá trị rất nhỏ. `std_base = sqrt(2 / (5 * dim))`
-
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
@@ -129,6 +106,6 @@
 
 - [ ] Quy chiếu MoA, Sparse Attention về chung Block Sparse Matrix & Matmul pattern
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
-  - MLP  https://www.together.ai/blog/teal-training-free-activation-sparsity-in-large-language-models
+  - MLP  https://www.alphaxiv.org/abs/2506.06644
   - MegaBlock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
   

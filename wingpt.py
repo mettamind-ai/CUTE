@@ -98,41 +98,53 @@ class SlidingWindowAttention(nn.Module):
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, expansion, head_dim, layer_id, n_layers):
+    def __init__(self, dim, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
-        self.skip_mlp = ( layer_id == n_layers - 1 ) # bỏ MLP ở layer cuối
+        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
 
-        hdim = dim + head_dim//2 if self.skip_mlp else dim * (expansion + 1)
-        self.  up_proj = nn.Linear(dim, hdim, bias=False)
-        self.down_proj = nn.Linear(hdim - dim, dim, bias=False)
+        if self.skip_mlp:
+            self.up_proj = nn.Linear(dim, dim, bias=False)
+            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
+        else:
+            self.up_proj = nn.Linear(dim, 2*dim, bias=False)
+            self.down_proj = nn.Linear(dim, dim, bias=False)
 
-        with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
+            self.up2_proj = nn.Linear(dim, 2*dim, bias=False)
+            self.down2_proj = nn.Linear(2*dim, dim, bias=False)
+
+            with torch.no_grad():
+                self.up_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
+                self.down_proj.weight.zero_()
+                self.down2_proj.weight.zero_()
 
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         def prepare():
             xn = norm(x) if self.layer_id > 0 else x
-            KD = self.attn.head_dim//2
-            HD, ID  = self.down_proj.weight.shape
-            q, y = torch.split(self.up_proj(xn), [HD, ID], dim=-1)
-            k    = q[..., -KD : ]
-            v    = ve(input_seq)
+            if self.skip_mlp: q, y = self.up_proj(xn), None
+            else:             q, y = tuple(torch.chunk(self.up_proj(xn), 2, dim=-1))
+            k = q[..., -self.attn.head_dim//2 : ]
+            v = ve(input_seq)
             return q, k, v, y
+
         q, k, v, y = checkpoint(prepare, use_reentrant=False)
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
-        return x + o if self.skip_mlp \
-        else   x + o +  self.down_proj(F.relu(y).square())
+
+        if not self.skip_mlp:
+                z = self.up2_proj(x)
+                z = self.down2_proj(F.relu(z).square())
+                y = self.down_proj(F.relu(y).square())
+                return x + o + (y*0.33 + z*0.66)
+        else:   return x + o
 
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers) for i in range(n_layers)])
+        self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
         self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//2) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
@@ -190,7 +202,7 @@ if __name__ == "__main__":
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
     torch.manual_seed(seed)
-    model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim, 2).cuda()
+    model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim).cuda()
 
     from optimus import convert_int8_mixed_precision
     convert_int8_mixed_precision(model)
