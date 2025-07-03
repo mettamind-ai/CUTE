@@ -105,32 +105,22 @@ class Block(nn.Module):
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
         self.skip_mlp = ( layer_id == n_layers - 1 ) # bỏ MLP ở layer cuối
 
-        if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim + head_dim//2, bias=False)
-            with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(dim + head_dim//2, dim)))
-        else:
-            self.  up_proj = nn.Linear(dim//2, dim*(expansion + 1), bias=False)
-            self.gate_proj = nn.Linear(dim//2, dim*expansion, bias=False)
-            self.down_proj = nn.Linear(dim*expansion, dim, bias=False)
-            with torch.no_grad():
-                self.  up_proj.weight.copy_(init_linear(torch.empty(dim*(expansion + 1), dim//2)))
-                self.gate_proj.weight.copy_(init_linear(torch.empty(dim*expansion, dim//2)))
-                self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
+        hdim = dim + head_dim//2 if self.skip_mlp else dim * (expansion + 1)
+        self.  up_proj = nn.Linear(dim, hdim, bias=False)
+        self.down_proj = nn.Linear(hdim - dim, dim, bias=False)
+
+        with torch.no_grad():
+            self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
+            self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
     def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
         xn = norm(x) if self.layer_id > 0 else x
         KD = self.attn.head_dim//2
-        if self.skip_mlp:
-            HD = self.up_proj.weight.shape[1]
-            q, k = torch.split(self.up_proj(xn), [HD, KD], dim=-1)
-            return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
-        else:
-            HD, ID  = self.down_proj.weight.shape
-            q, k, y = torch.split(self.up_proj(xn[..., : HD//2]), [HD, KD, ID - KD], dim=-1)
-            y = F.pad(y, (KD, 0), mode='constant', value=0) # => full ID
-            z = self.gate_proj(xn[..., HD//2 : ]) 
-            return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square()*z)
+        HD, ID  = self.down_proj.weight.shape
+        q, k, y = torch.split(self.up_proj(xn), [HD, KD, ID - KD], dim=-1)
+        y  = F.pad(y, (KD, 0), mode='constant', value=0)
+        return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
+        else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
 
 
 class WinGPT(nn.Module):
