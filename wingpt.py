@@ -135,8 +135,8 @@ class Block(nn.Module):
 
         x2 = x[::2]
         y2 = self.up2_proj(x2)
-        y2 = self.down2_proj(F.relu(y2).square()) * 0.5
-        y = self.down_proj(F.relu(y).square()) * 0.5
+        y2 = self.down2_proj(F.relu(y2).square())
+        y = self.down_proj(F.relu(y).square())
         y[::2] += y2
         return x + o + y
 
