@@ -113,12 +113,16 @@ class Block(nn.Module):
             self.  up_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
             self.down_proj.weight.zero_() # sẽ đc residual connect nên khởi tạo là 0
 
-    def forward(self, x, v, cu_seqlens, max_seqlen, rotary):
-        xn = norm(x) if self.layer_id > 0 else x
-        KD = self.attn.head_dim//2
-        HD, ID  = self.down_proj.weight.shape
-        q, k, y = torch.split(self.up_proj(xn), [HD, KD, ID - KD], dim=-1)
-        y  = F.pad(y, (KD, 0), mode='constant', value=0)
+    def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
+        def prepare():
+            xn = norm(x) if self.layer_id > 0 else x
+            KD = self.attn.head_dim//2
+            HD, ID  = self.down_proj.weight.shape
+            q, y = torch.split(self.up_proj(xn), [HD, ID], dim=-1)
+            k    = q[..., -KD : ]
+            v    = ve(input_seq)
+            return q, k, v, y
+        q, k, v, y = checkpoint(prepare, use_reentrant=False)
         return x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) if self.skip_mlp \
         else   x + self.attn(q, k, v, cu_seqlens, max_seqlen, rotary) +  self.down_proj(F.relu(y).square())
 
@@ -126,21 +130,21 @@ class Block(nn.Module):
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim, expansion=3):
         super().__init__()
-        v_emb         = lambda: nn.Embedding(vocab_size, dim//2, dtype=torch.bfloat16)
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, expansion, head_dim, i, n_layers) for i in range(n_layers)])
-        self.embeds   = nn.ModuleList([nn.Embedding(vocab_size, dim, dtype=torch.float32)] + [v_emb() for _ in range(n_layers)])
+        self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//2) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
 
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        B, E = self.blocks, self.embeds
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = x0 = norm(E[0](input_seq)).bfloat16()
-        f = lambda x, i: B[i](x, E[i+1](input_seq), cu_seqlens, max_seqlen, self.rotary)
-        for i in range(len(B)): x = checkpoint(f, x, i, use_reentrant=False)
+        x = x0 = norm(self.embeds(input_seq)).bfloat16()
+        B, V, R = self.blocks, self.v_embeds, self.rotary
+        for k in range(len(B)):
+            x   = B[k](x, V[k], input_seq, cu_seqlens, max_seqlen, R)
         return norm(x), x0
 
 
