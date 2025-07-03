@@ -84,10 +84,10 @@ class SlidingWindowAttention(nn.Module):
 
     def forward(self, q, k, v, cu_seqlens, max_seqlen, rotary):
         T, H, D = q.size(0), self.num_heads, self.head_dim
-        q = q.view(T, H,  D)
-        v = v.view(T, H,  D)
-        k = k.view(T, 1,  D//2)
-        k = repeat(k, 'T 1 d -> T h d', h=H)
+        q = q.view(T, H   ,  D   )
+        v = v.view(T, H//2,  D   )
+        k = k.view(T, 1   ,  D//2)
+        k = repeat(k, 'T 1 d -> T h d', h=H//2)
         k = torch.cat([k, v[..., D//2 : ]], dim=-1)
         if self.rope: q, k = rotary(q), rotary(k)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
@@ -151,7 +151,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers)])
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//2) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
