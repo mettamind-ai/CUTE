@@ -41,7 +41,7 @@
 
 ## Tiny Monster Models
 - `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) để tiền xử lý
-- `4k BPE vocab` + Stochastok (random phân giã) + 2,3-gram embeddings (random tổng hợp)
+- `4k hoặc 8k BPE vocab` + Stochastok (random phân giã) + 2,3-gram embeddings (random tổng hợp)
 - Bài toán bộ gõ thông minh:
   - `auto/smart-edit`
   - `auto/smart-complete` + 
@@ -55,17 +55,17 @@
 # TODO
 
 - [ ] Dùng final NTP loss của mỗi token làm weighted cho next of next token prediction (MTP)
-  - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE; token nào khó đoán thì dồn sức cho MTP
+  - `Lý do`: token nào mà final dễ đoán thì dồn sức cho EE (early exit); token nào khó đoán thì dồn sức cho MTP
   - Dùng predicted next token (main head) để predict next of next token => more robust?
 
-- [ ] Tìm độ đo ImportantCE, để đo độ quan trọng của các token trong cùng một độ dài ngữ cảnh. How?
-  Cần nhiều token để đoán => quan trọng? https://chatgpt.com/share/68595fcc-b4b0-8003-b9e3-881f4498be01
+- [ ] Tìm độ đo ImportantCE, để đo độ quan trọng của các token trong input seq. How?
+  - Sử dụng điểm attention từ Long vs Short SWA? Có tương đồng LongCE?
   - https://www.alphaxiv.org/abs/2405.03869 đánh giá ảnh hưởng từng mẫu dữ liệu tới hiệu suất mô hình
   - https://www.alphaxiv.org/abs/2505.19653 TI-DPO gradient-based token-importance weights
   - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
   - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
 
-- [ ] tính và giữ lại per token `logit_score` và `grad_score` sau mỗi lần fwd và bwd cho token và n-gram để score độ quan trọng của từng token, từng n-gram với training process.
+- [ ] tính và giữ lại per token `grad_score` sau mỗi lần bwd cho token và n-gram (n tokens liên tiếp trong input seq) để đo độ quan trọng của từng token, từng n-gram với training process.
 
 - [ ] fast inference + hiệu chỉnh logits + sửa chữa tích luỹ sai lệch + phát hiện token "bất thường"
   - https://pytorch.org/blog/accelerating-generative-ai-2
@@ -127,8 +127,8 @@
   - https://www.alphaxiv.org/abs/2202.09368 để expert chọn top-k token với k cố định sẽ đơn giản hơn để token chọn expert
   - thêm điểm attn score từ layer trước để tránh bias ...
 
-- [ ] Quy MoA, Sparse Attention về chung Block Sparse Matrix & Matmul pattern
+- [ ] Quy chiếu MoA, Sparse Attention về chung Block Sparse Matrix & Matmul pattern
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
   - MLP  https://www.together.ai/blog/teal-training-free-activation-sparsity-in-large-language-models
-  - MegaBllock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
+  - MegaBlock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
   
