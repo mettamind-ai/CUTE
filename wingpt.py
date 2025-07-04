@@ -133,16 +133,11 @@ class Block(nn.Module):
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
         if self.skip_mlp: return x + o
 
-        y = self.down_proj(F.relu(y).square()) * 0.5
-        # làm thưa nhân tạo 25%
-        n = x.shape[0] // 4
-        s = n * (self.layer_id % 4)
-        x2 = x[s : s + n]
-        y2 = self.up2_proj(x2)
+        y2 = self.up2_proj(x)
         y2 = self.down2_proj(F.relu(y2).square()) * 0.5
-        y[s : s + n] += y2
+        y = self.down_proj(F.relu(y).square()) * 0.5
 
-        return x + o + y
+        return x + o + y + y2
 
 
 class WinGPT(nn.Module):
