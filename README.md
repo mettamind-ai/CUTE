@@ -19,7 +19,7 @@
 - [x] `**Muon**          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
 - [x] `**int8**          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
 - [x] `**Dense Arch**    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2; MTP)
-- [x] `**OhMai**         1.5x` (Giảm vram cho huge vocab models)
+- [x] `**OhMai**         1.5x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [ ] `**MoA**           1.5x` (Mixture of Anything (Depth/Expert))
 - [ ] `**Sparse Attn**   1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
 - [ ] `**LVOT**          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)
