@@ -155,7 +155,7 @@ class WinGPT(nn.Module):
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
-    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)
+    x, x0 = model(input_seq, cu_seqlens, max_seqlen)
     def prepare():
         xn    = norm(x)
         zeros = torch.zeros_like(xn[:1])
