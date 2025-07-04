@@ -129,7 +129,7 @@ class Block(nn.Module):
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
 
         return x + o if self.skip_mlp else \
-               x + o + self.down_proj(F.relu(y).square())
+               x + o + checkpoint(lambda: self.down_proj(F.relu(y).square(), use_reentrant=False))
 
 
 class WinGPT(nn.Module):
