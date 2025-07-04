@@ -92,27 +92,26 @@ class Block(nn.Module):
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
         if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim, bias=False)
-            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
+            self.up_proj = nn.Linear(dim, dim + dim//2, bias=False)
+            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//2, dim)))
         else:
-            self.up_proj = nn.Linear(dim, 4*dim, bias=False)
+            self.up_proj = nn.Linear(dim, 4*dim + dim//2, bias=False)
             self.down_proj = nn.Linear(3*dim, dim, bias=False)
 
             with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
+                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2, dim)))
                 self.down_proj.weight.zero_()
 
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D    = self.up_proj.weight.shape
 
+        xn   = norm(x) if self.layer_id > 0 else x
+        qy   = self.up_proj(xn)
+
         def prepare():
-            xn   = norm(x) if self.layer_id > 0 else x
-            qy   = self.up_proj(xn)
-
-            q, y = torch.split(qy, [D, ID - D], dim=-1)
-            v    = ve(input_seq)
-
+            q, v, y = torch.split(qy, [D, D//2, ID - D - D//2], dim=-1)
+            v = torch.cat([ve(input_seq), v], dim=-1)
             q = q.view(T, H, HD)
             v = v.view(T, H, HD)
 
@@ -140,7 +139,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers)])
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//2) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
