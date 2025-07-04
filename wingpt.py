@@ -105,10 +105,10 @@ class Block(nn.Module):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D    = self.up_proj.weight.shape
 
-        def prepare():
-            xn   = norm(x) if self.layer_id > 0 else x
-            qy   = self.up_proj(xn)
+        xn   = norm(x) if self.layer_id > 0 else x
+        qy   = self.up_proj(xn)
 
+        def prepare():
             q, v, y = torch.split(qy, [D, D, ID - 2*D], dim=-1)
             # v    = ve(input_seq)
 
@@ -140,7 +140,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim) for _ in range(n_layers)])
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, 0) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
