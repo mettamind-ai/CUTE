@@ -82,7 +82,7 @@ class SlidingWindowAttention(nn.Module):
         else:    self.rope, self.window  = True,  1024
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
-    def forward(self, v, k, q, cu_seqlens, max_seqlen, rotary):
+    def forward(self, q, k, v, cu_seqlens, max_seqlen, rotary):
         T, H, D = q.size(0), self.num_heads, self.head_dim
         q = q.view(T, H   ,  D   )
         v = v.view(T, H//2,  D   )
@@ -117,7 +117,6 @@ class Block(nn.Module):
 
             with torch.no_grad():
                 self.up_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
-                self.up2_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
                 self.down_proj.weight.zero_()
                 self.down2_proj.weight.zero_()
 
@@ -134,11 +133,16 @@ class Block(nn.Module):
         o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
         if self.skip_mlp: return x + o
 
-        y2 = self.up2_proj(x)
-        y2 = self.down2_proj(F.relu(y2).square()) * 0.5
         y = self.down_proj(F.relu(y).square()) * 0.5
+        # làm thưa nhân tạo 25%
+        n = x.shape[0] // 4
+        s = n * (self.layer_id % 4)
+        x2 = x[s : s + n]
+        y2 = self.up2_proj(x2)
+        y2 = self.down2_proj(F.relu(y2).square()) * 0.5
+        y[s : s + n] += y2
 
-        return x + o + y + y2
+        return x + o + y
 
 
 class WinGPT(nn.Module):
