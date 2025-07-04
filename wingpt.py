@@ -101,7 +101,7 @@ class Block(nn.Module):
     def __init__(self, dim, head_dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
-        self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
+        self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
         self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
 
