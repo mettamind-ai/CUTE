@@ -104,9 +104,9 @@ class Block(nn.Module):
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D = self.up_proj.weight.shape 
+        qy    = self.up_proj(norm(x) if self.layer_id > 0 else x)
 
         def prepare():
-            qy   = self.up_proj(norm(x) if self.layer_id > 0 else x)
             q, y = torch.split(qy, [D, ID - D], dim=-1)
             k    = qy[..., -HD//2 : ]
             v    = ve(input_seq)
@@ -118,7 +118,7 @@ class Block(nn.Module):
             k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
-            if not self.long: q, k = rotary(q), rotary(k)
+            if not self.long:  q, k = rotary(q), rotary(k)
             if not self.skip_mlp: y = F.relu(y).square()
             return q, k, v, y
 
