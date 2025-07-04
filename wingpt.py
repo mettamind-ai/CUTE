@@ -151,18 +151,19 @@ class WinGPT(nn.Module):
         B, V, R = self.blocks, self.v_embeds, self.rotary
         for k in range(len(B)):
             x   = B[k](x, V[k], input_seq, cu_seqlens, max_seqlen, R)
-        return norm(x), x0
+        return x, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
-    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)       # xn và x0 đều đã norm
+    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)
     def prepare():
+        xn    = norm(x)
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.mtp_head(xx_x0)
-        return norm(y)
-    yn = checkpoint(prepare, use_reentrant=False)
+        return xn, norm(y)
+    xn, yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore; n_ignore += 1
