@@ -92,32 +92,30 @@ class Block(nn.Module):
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
         if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim + dim//4, bias=False)
-            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//4, dim)))
+            self.up_proj = nn.Linear(dim, dim + dim//4 + head_dim//2, bias=False)
+            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//4 + head_dim//2, dim)))
         else:
-            self.up_proj = nn.Linear(dim, 4*dim + dim//4, bias=False)
-            self.down_proj = nn.Linear(3*dim, dim, bias=False)
+            self.up_proj = nn.Linear(dim, 4*dim, bias=False)
+            self.down_proj = nn.Linear(4*dim - dim - dim//4 - head_dim//2, dim, bias=False)
 
             with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//4, dim)))
+                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
                 self.down_proj.weight.zero_()
 
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D    = self.up_proj.weight.shape
 
-        xn   = norm(x) if self.layer_id > 0 else x
-        qvy  = self.up_proj(xn)
+        xn  = norm(x) if self.layer_id > 0 else x
+        up  = self.up_proj(xn)
 
         def prepare():
-            q, v, y = torch.split(qvy, [D, D//4, ID - D - D//4], dim=-1)
-            v = torch.cat([ve(input_seq), v], dim=-1)
-            q = q.view(T, H, HD)
-            v = v.view(T, H//2, HD)
+            q, k, v, y = torch.split(up, [D, HD//2, D//4, ID - D - D//4 - HD//2], dim=-1)
+            q = q.view(T, H,    HD)
+            v = v.view(T, H//4, HD)
 
-            k = qvy[..., -HD//2 : ]
             k = k.view(T, 1, HD//2)
-            k = repeat(k, 'T 1 d -> T h d', h=H//2)
+            k = repeat(k, 'T 1 d -> T h d', h=H//4)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
             if not self.long: q, k = rotary(q), rotary(k)
@@ -139,7 +137,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, dim//4) for _ in range(n_layers)])
+        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, 0) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
