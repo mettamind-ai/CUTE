@@ -73,26 +73,6 @@ class ReLuSquareMLP(nn.Module):
         y = F.relu(self.fc1_proj(x)).square()
         return self.fc2_proj(y)
 
-class SlidingWindowAttention(nn.Module):
-    def __init__(self, dim:int, head_dim=128, long=False, layer_id=-1):
-        super().__init__() # dim = hidden = embedding = feature = representation
-        self.head_dim  = head_dim
-        self.num_heads = dim // head_dim
-        if long: self.rope, self.window  = False, 512*8
-        else:    self.rope, self.window  = True,  512
-        print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
-
-    def forward(self, v, k, q, cu_seqlens, max_seqlen, rotary):
-        T, H, D = q.size(0), self.num_heads, self.head_dim
-        q = q.view(T, H, D   )
-        v = v.view(T, H, D   )
-        k = k.view(T, 1, D//2)
-        k = repeat(k, 'T 1 d -> T h d', h=H)
-        k = torch.cat([k, v[..., D//2 : ]], dim=-1)
-        if self.rope: q, k = rotary(q), rotary(k)
-        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-            window_size=(self.window, 0), softcap=50) # https://www.alphaxiv.org/abs/2410.16682
-        return o.view(T, H*D)
 
 ##############################
 ## Transformer for the WIN  ##
@@ -102,9 +82,13 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
-        self.attn = SlidingWindowAttention(dim, head_dim, self.long, layer_id)
-        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
 
+        self.head_dim  = head_dim
+        self.num_heads = dim // head_dim
+        self.window = 512*8 if self.long else 512
+        print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
+
+        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
         if self.skip_mlp:
             self.up_proj = nn.Linear(dim, dim, bias=False)
             with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
@@ -117,19 +101,34 @@ class Block(nn.Module):
                 self.down_proj.weight.zero_()
 
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
+        T, H, HD = x.shape[0], self.num_heads, self.head_dim
+        ID, D = self.up_proj.weight.shape 
+
         def prepare():
-            xn = norm(x) if self.layer_id > 0 else x
-            ID, D = self.up_proj.weight.shape 
-            q, y  = torch.split(self.up_proj(xn), [D, ID - D], dim=-1)
-            k = q[..., -self.attn.head_dim//2 : ]
-            v = ve(input_seq)
+            qy   = self.up_proj(norm(x) if self.layer_id > 0 else x)
+            q, y = torch.split(qy, [D, ID - D], dim=-1)
+            k    = qy[..., -HD//2 : ]
+            v    = ve(input_seq)
+
+            q = q.view(T, H, HD   )
+            v = v.view(T, H, HD   )
+            k = k.view(T, 1, HD//2)
+ 
+            k = repeat(k, 'T 1 d -> T h d', h=H)
+            k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
+
+            if not self.long: q, k = rotary(q), rotary(k)
             return q, k, v, y
 
         q, k, v, y = checkpoint(prepare, use_reentrant=False)
-        o = self.attn(q, k, v, cu_seqlens, max_seqlen, rotary)
+
+        # TODO: Vì v hình thành từ embeddings và k hình thành phần lớn từ v nên có thể save nhiều vram khi
+        # fuse init v, k vào trong code tính flash attention
+        o = flash_attn_varlen_func(v, k, q, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+            window_size=(self.window, 0), softcap=50).view(T, D) # https://www.alphaxiv.org/abs/2410.16682
 
         return x + o if self.skip_mlp else \
-               x + o + checkpoint(lambda: self.down_proj(F.relu(y).square()), use_reentrant=False)
+               x + o + self.down_proj(F.relu(y).square())
 
 
 class WinGPT(nn.Module):
