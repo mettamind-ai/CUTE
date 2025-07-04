@@ -119,6 +119,7 @@ class Block(nn.Module):
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
             if not self.long: q, k = rotary(q), rotary(k)
+            if not self.skip_mlp: y = F.relu(y).square()
             return q, k, v, y
 
         q, k, v, y = checkpoint(prepare, use_reentrant=False)
@@ -129,7 +130,7 @@ class Block(nn.Module):
             window_size=(self.window, 0), softcap=50).view(T, D) # https://www.alphaxiv.org/abs/2410.16682
 
         return x + o if self.skip_mlp else \
-               x + o + self.down_proj(F.relu(y).square())
+               x + o + self.down_proj(y)
 
 
 class WinGPT(nn.Module):
