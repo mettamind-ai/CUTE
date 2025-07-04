@@ -78,8 +78,8 @@ class SlidingWindowAttention(nn.Module):
         super().__init__() # dim = hidden = embedding = feature = representation
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
-        if long: self.rope, self.window  = False, 1024*4
-        else:    self.rope, self.window  = True,  1024
+        if long: self.rope, self.window  = False, 512*8
+        else:    self.rope, self.window  = True,  512
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
     def forward(self, v, k, q, cu_seqlens, max_seqlen, rotary):
