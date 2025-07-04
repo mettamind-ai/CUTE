@@ -56,6 +56,7 @@ class Rotary(nn.Module):
         y2     = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), -1).type_as(x_THD)
 
+
 class ReLuSquareMLP(nn.Module):
     def __init__(self, dim:int, hdim=None, odim=None, expansion=2):
         super().__init__()
@@ -85,7 +86,7 @@ class Block(nn.Module):
 
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
-        self.window = 512*8 if self.long else 512
+        self.window = 512*8 if self.long else 512*2
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
