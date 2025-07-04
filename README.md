@@ -16,14 +16,14 @@
 |`096G`_4x4090    |$1.28/hr | 324    | *253.12* | 310    |  242.18  |
 |`128G`_4x5090    |$1.96/hr | 432    |  220.41  | 524    |  267.34  |
 
-- [x] `**Muon**          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
-- [x] `**int8**          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
-- [x] `**Dense Arch**    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2; MTP)
-- [x] `**OhMai**         1.5x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
-- [ ] `**MoA**           1.5x` (Mixture of Anything (Depth/Expert))
-- [ ] `**Sparse Attn**   1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
-- [ ] `**LVOT**          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)
-- [ ] `**N-gram Embedding**  ` Tăng perf, giảm sự bất thường trong không gian embeddings
+- [x] `Muon          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
+- [x] `int8          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
+- [x] `Dense Arch    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2; MTP)
+- [x] `OhMai         1.2x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
+- [ ] `MoA           1.5x` (Mixture of Anything (Depth/Expert))
+- [ ] `Sparse Attn   1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
+- [ ] `LVOT          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)
+- [ ] `N-gram Embedding  ` Tăng perf, giảm sự bất thường trong không gian embeddings
 
 🌸__!!! TARGET x10 SPEEPUP !!!__🌸
 
