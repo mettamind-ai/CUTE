@@ -82,7 +82,7 @@ class SlidingWindowAttention(nn.Module):
         else:    self.rope, self.window  = True,  1024
         print(f"Layer {layer_id} => {'RoPE' if self.rope else 'Nope'}, win {self.window}")
 
-    def forward(self, q, k, v, cu_seqlens, max_seqlen, rotary):
+    def forward(self, v, k, q, cu_seqlens, max_seqlen, rotary):
         T, H, D = q.size(0), self.num_heads, self.head_dim
         q = q.view(T, H   ,  D   )
         v = v.view(T, H//2,  D   )
@@ -117,6 +117,7 @@ class Block(nn.Module):
 
             with torch.no_grad():
                 self.up_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
+                self.up2_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
                 self.down_proj.weight.zero_()
                 self.down2_proj.weight.zero_()
 
