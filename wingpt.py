@@ -91,30 +91,32 @@ class Block(nn.Module):
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
         if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim, bias=False)
-            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
+            self.up_proj = nn.Linear(dim, 2*dim, bias=False)
+            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(2*dim, dim)))
         else:
-            self.up_proj = nn.Linear(dim, 4*dim, bias=False)
+            self.up_proj = nn.Linear(dim, 5*dim, bias=False)
             self.down_proj = nn.Linear(3*dim, dim, bias=False)
 
             with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
+                self.up_proj.weight.copy_(init_linear(torch.empty(5*dim, dim)))
                 self.down_proj.weight.zero_()
 
     def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
-        ID, D = self.up_proj.weight.shape 
+        ID, D    = self.up_proj.weight.shape
 
         def prepare():
-            qy   = self.up_proj(norm(x) if self.layer_id > 0 else x)
-            q, y = torch.split(qy, [D, ID - D], dim=-1)
-            k    = qy[..., -HD//2 : ]
-            v    = ve(input_seq)
+            xn   = norm(x) if self.layer_id > 0 else x
+            qy   = self.up_proj(xn)
 
-            q = q.view(T, H, HD   )
-            v = v.view(T, H, HD   )
+            q, v, y = torch.split(qy, [D, D, ID - 2*D], dim=-1)
+            # v    = ve(input_seq)
+
+            q = q.view(T, H, HD)
+            v = v.view(T, H, HD)
+
+            k = qy[..., -HD//2 : ]
             k = k.view(T, 1, HD//2)
- 
             k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
@@ -126,7 +128,7 @@ class Block(nn.Module):
         # TODO: Vì v hình thành từ embeddings và k hình thành phần lớn từ v nên có thể save nhiều vram khi
         # fuse init v, k vào trong code tính flash attention
         o = flash_attn_varlen_func(v, k, q, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-            window_size=(self.window, 0), softcap=50).view(T, D) # https://www.alphaxiv.org/abs/2410.16682
+            window_size=(self.window, 0), softcap=50).view(T, H*HD) # https://www.alphaxiv.org/abs/2410.16682
 
         return x + o if self.skip_mlp else \
                x + o + self.down_proj(F.relu(y).square())
