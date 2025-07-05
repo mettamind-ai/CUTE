@@ -23,9 +23,10 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_default_dtype(torch.bfloat16)
 
 @torch.no_grad()
-def init_linear(w: Tensor, scale=1):
-    std = 0.632 / math.sqrt(w.size(-1)) # 0.632 follow https://www.alphaxiv.org/abs/2312.16903 
-    bound = math.sqrt(3) * std * scale
+def init_linear(w: Tensor):
+    val = 0.5  # set to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
+    std = val * (w.size(-1) ** -0.5)
+    bound = (3 ** 0.5) * std
     return w.uniform_(-bound, bound)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
@@ -57,34 +58,14 @@ class Rotary(nn.Module):
         y2     = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), -1).type_as(x_THD)
 
-
-class ReLuSquareMLP(nn.Module):
-    def __init__(self, dim:int, hdim=None, odim=None, expansion=2):
-        super().__init__()
-        if not hdim: hdim = int(dim*expansion)
-        if not odim: odim = dim
-
-        self.fc1_proj = nn.Linear(dim, hdim, bias=False)
-        self.fc2_proj = nn.Linear(hdim, odim, bias=False)
-
-        with torch.no_grad():
-            self.fc1_proj.weight.copy_(init_linear(torch.empty(hdim, dim)))
-            self.fc2_proj.weight.copy_(init_linear(torch.empty(odim, hdim)))
-
-    def forward(self, x):
-        y = F.relu(self.fc1_proj(x)).square()
-        return self.fc2_proj(y)
-
-
 ##############################
 ## Transformer for the WIN  ##
 ##############################
 class Block(nn.Module):
-    def __init__(self, dim, head_dim, layer_id, n_layers):
+    def __init__(self, dim, head_dim, layer_id):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
-        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
 
         self.window = 512*8 if self.long else 512*2
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
@@ -108,39 +89,39 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            q, v, k, y = torch.split(up, [D, D//2, HD//2, ID], dim=-1)
+            q, k, v, y = torch.split(up, [D, HD//2, D//2, ID], dim=-1)
             q = q.view(T, H,    HD)
             v = v.view(T, H//2, HD)
-
             k = k.view(T, 1, HD//2)
             k = repeat(k, 'T 1 d -> T h d', h=H//2)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
-
             if not self.long: q, k = rotary(q), rotary(k)
             return q, k, v, F.relu(y).square()
+
         q, k, v, z = checkpoint(prepare, use_reentrant=False)
 
-        # TODO: Vì k hình thành phần lớn từ v nên có thể save nhiều vram khi fuse init k vào trong flash attention code
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        return x + o if self.skip_mlp else x + o + self.down_proj(z)
+        return x + o + self.down_proj(z)
 
 
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
-        self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
+        self.blocks   = nn.ModuleList([Block(dim, head_dim, i) for i in range(n_layers)])
+        self.embeds   = nn.Embedding(vocab_size, dim)
+        self.mtp_head = Block(dim, head_dim, -1)
+        self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
-        with torch.no_grad(): self.unembeds.weight.zero_()
-
+        with torch.no_grad():
+            self.mtp_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
+            self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = x0 = norm(self.embeds(input_seq)).bfloat16()
+        x = x0 = norm(self.embeds(input_seq))
         for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
         return x, x0
 
@@ -152,9 +133,11 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.mtp_head(xx_x0)
+        y     = model.mtp_proj(xx_x0)
         return xn, norm(y)
+
     xn, yn = checkpoint(prepare, use_reentrant=False)
+    yn = norm(model.mtp_head(yn, cu_seqlens, max_seqlen, model.rotary))
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore
