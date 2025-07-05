@@ -96,16 +96,16 @@ class Block(nn.Module):
             self.up_proj = nn.Linear(dim, dim + dim//2 + head_dim//2, bias=False)
             with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//2 + head_dim//2, dim)))
         else:
-            self.up_proj = nn.Linear(dim, 4*dim, bias=False)
-            self.down_proj = nn.Linear(4*dim - dim - dim//2 - head_dim//2, dim, bias=False)
+            self.up_proj = nn.Linear(dim, 4*dim + dim//2 + head_dim//2, bias=False)
+            self.down_proj = nn.Linear(3*dim, dim, bias=False)
 
             with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
+                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2 + head_dim//2, dim)))
                 self.down_proj.weight.zero_()
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
-        ID, D    = self.up_proj.weight.shape
+        ID, D = self.up_proj.weight.shape
 
         xn = norm(x) if self.layer_id > 0 else x
         up = self.up_proj(xn)
