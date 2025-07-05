@@ -40,13 +40,13 @@ def _load_data_shard(file: Path):
 
 def data_generator(filename_pattern: str, batch_size: int):
     files = [Path(file) for file in sorted(glob.glob(filename_pattern))]; print(files)
-    file_iter = itertools.cycle(files) # iter(files); use itertools.cycle(files) instead if you want to do multi-epoch training
+    file_iter = itertools.cycle(files)
     tokens, pos = _load_data_shard(next(file_iter)), 0
     while True:
         if pos + batch_size + 1 >= len(tokens): tokens, pos = _load_data_shard(next(file_iter)), 0
         buf     = tokens[pos + batch_size:][:batch_size + 1]
-        inputs  = buf[  :-1].to(device="cuda", dtype=torch.int32, non_blocking=True) # no sync on host side;
-        targets = buf[1 :  ].to(device="cuda", dtype=torch.int32, non_blocking=True) # H2D in another stream isn't helpful.
+        inputs  = buf[  :-1].to(device="cuda", dtype=torch.int32, non_blocking=True)
+        targets = buf[1 :  ].to(device="cuda", dtype=torch.int32, non_blocking=True)
         pos     = pos + batch_size
         yield inputs, targets
 

@@ -24,7 +24,7 @@ torch.set_default_dtype(torch.bfloat16)
 
 @torch.no_grad()
 def init_linear(w: Tensor):
-    val = 0.5  # set to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
+    val = 0.632  # change from 0.5 to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
     std = val * (w.size(-1) ** -0.5)
     bound = (3 ** 0.5) * std
     return w.uniform_(-bound, bound)
@@ -74,7 +74,7 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
-        self.down_proj = nn.Linear(3*dim - dim//2, dim, bias=False)
+        self.down_proj = nn.Linear(3*dim - dim//2 - head_dim//2, dim, bias=False)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
@@ -89,10 +89,9 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            q, v, y = torch.split(up, [D, D//2, ID], dim=-1)
+            q, v, k, y = torch.split(up, [D, D//2, HD//2, ID], dim=-1)
             q = q.view(T, H,    HD)
             v = v.view(T, H//2, HD)
-            k = up[..., -HD//2 : ]
             k = k.view(T, 1, HD//2)
             k = repeat(k, 'T 1 d -> T h d', h=H//2)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
