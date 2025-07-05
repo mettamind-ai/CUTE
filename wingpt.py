@@ -103,6 +103,10 @@ class Block(nn.Module):
                 self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2 + head_dim//2, dim)))
                 self.down_proj.weight.zero_()
 
+        self.o_proj = nn.Linear(dim, dim, bias=False)
+        with torch.no_grad(): self.o_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
+
+
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D = self.up_proj.weight.shape
@@ -120,16 +124,16 @@ class Block(nn.Module):
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
             if not self.long: q, k = rotary(q), rotary(k)
-            return q, k, v, y
-        q, k, v, y = checkpoint(prepare, use_reentrant=False)
+            return q, k, v, F.relu(y).square()
+        q, k, v, z = checkpoint(prepare, use_reentrant=False)
 
-        # TODO: Vì v hình thành từ embeddings và k hình thành phần lớn từ v nên có thể save nhiều vram khi
-        # fuse init v, k vào trong code tính flash attention
+        # TODO: Vì k hình thành phần lớn từ v nên có thể save nhiều vram khi fuse init k vào trong flash attention code
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D) # https://www.alphaxiv.org/abs/2410.16682
+        o = self.o_proj(o)
 
         return x + o if self.skip_mlp else \
-               x + o + self.down_proj(F.relu(y).square())
+               x + o + self.down_proj(z)
 
 
 class WinGPT(nn.Module):

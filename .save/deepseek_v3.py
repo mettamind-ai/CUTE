@@ -52,4 +52,5 @@
   "torch_dtype": "bfloat16",
 }
 '''
+# https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py
 
