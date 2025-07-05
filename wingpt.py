@@ -84,6 +84,7 @@ class Block(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
+        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
 
         self.window = 512*8 if self.long else 512*2
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
@@ -91,12 +92,11 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
-        self.up_proj = nn.Linear(dim, 4*dim + dim//2 + head_dim//2, bias=False)
-        self.down_proj = nn.Linear(3*dim, dim, bias=False)
+        self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
+        self.down_proj = nn.Linear(3*dim - dim//2 - head_dim//2, dim, bias=False)
 
         with torch.no_grad():
-            self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2 + head_dim//2, dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
             self.down_proj.weight.zero_()
 
 
@@ -124,8 +124,7 @@ class Block(nn.Module):
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        return x + o if self.skip_mlp else \
-               x + o + self.down_proj(z)
+        return x + o if self.skip_mlp else x + o + self.down_proj(z)
 
 
 class WinGPT(nn.Module):
