@@ -4,7 +4,7 @@
 - bỏ o_proj, inspired by https://www.alphaxiv.org/abs/2311.01906
 - Áp dụng GTA from https://arxiv.org/abs/2505.21487v1
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
-- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (Command A paper)
+- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (RNoPE paper)
 - Không norm q, k để bảo toàn NoPE (Command A paper)
 - MTP dùng concat(last_hidden, next token embedding) from DeepSeek V3
 - Các kỹ thuật tối ưu khác trong `optimus.py` (int8 mixed matmul, fused linear LCE, Muon optimizer)
@@ -112,7 +112,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, -1)
+        self.mtp_head = Block(dim, head_dim, -2) # để trở thành rope
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad():
@@ -121,15 +121,16 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = x0 = norm(self.embeds(input_seq))
+        x = norm(self.embeds(input_seq))
         for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
-        return x, x0
+        return x
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
-    x, x0 = model(input_seq, cu_seqlens, max_seqlen)
+    x = model(input_seq, cu_seqlens, max_seqlen)
     def prepare():
         xn    = norm(x)
+        x0    = norm(model.embeds(input_seq))
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
