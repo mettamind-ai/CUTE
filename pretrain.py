@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 from torch import Tensor, nn
-from bitsandbytes.optim import AdamW8bit
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)

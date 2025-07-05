@@ -92,30 +92,23 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
-        if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim + dim//2 + head_dim//2, bias=False)
-            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//2 + head_dim//2, dim)))
-        else:
-            self.up_proj = nn.Linear(dim, 4*dim + dim//2 + head_dim//2, bias=False)
-            self.down_proj = nn.Linear(3*dim, dim, bias=False)
+        self.up_proj = nn.Linear(dim, 4*dim + dim//2 + head_dim//2, bias=False)
+        self.down_proj = nn.Linear(3*dim, dim, bias=False)
 
-            with torch.no_grad():
-                self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2 + head_dim//2, dim)))
-                self.down_proj.weight.zero_()
-
-        self.o_proj = nn.Linear(dim, dim, bias=False)
-        with torch.no_grad(): self.o_proj.weight.copy_(init_linear(torch.empty(dim, dim)))
+        with torch.no_grad():
+            self.up_proj.weight.copy_(init_linear(torch.empty(4*dim + dim//2 + head_dim//2, dim)))
+            self.down_proj.weight.zero_()
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
-        ID, D = self.up_proj.weight.shape
+        D, ID = self.down_proj.weight.shape
 
         xn = norm(x) if self.layer_id > 0 else x
         up = self.up_proj(xn)
 
         def prepare():
-            q, k, v, y = torch.split(up, [D, HD//2, D//2, ID - D - D//2 - HD//2], dim=-1)
+            q, v, k, y = torch.split(up, [D, D//2, HD//2, ID], dim=-1)
             q = q.view(T, H,    HD)
             v = v.view(T, H//2, HD)
 
@@ -129,8 +122,7 @@ class Block(nn.Module):
 
         # TODO: Vì k hình thành phần lớn từ v nên có thể save nhiều vram khi fuse init k vào trong flash attention code
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-            window_size=(self.window, 0), softcap=50).view(T, D) # https://www.alphaxiv.org/abs/2410.16682
-        o = self.o_proj(o)
+            window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
         return x + o if self.skip_mlp else \
                x + o + self.down_proj(z)
