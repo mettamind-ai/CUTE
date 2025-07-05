@@ -208,3 +208,9 @@
   ```
   - Small sub-layers nghĩa là khởi tạo các tham số trong Transformer với giá trị rất nhỏ. `std_base = sqrt(2 / (5 * dim))`
 
+20250705
+--------
+Huấn luyện model lớn:
+- https://www.youtube.com/watch?v=__eeLqSlZ0w
+- https://wandb.ai/craiyon/report/reports/Recipe-Training-Large-Models--VmlldzozNjc4MzQz
+- 

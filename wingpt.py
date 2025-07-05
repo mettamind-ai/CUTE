@@ -4,9 +4,10 @@
 - bỏ o_proj, inspired by https://www.alphaxiv.org/abs/2311.01906
 - Áp dụng GTA from https://arxiv.org/abs/2505.21487v1
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
-- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (Command A)
-- Không norm q, k để bảo toàn NoPE (Command A)
-- MTP dùng concat(last_hidden, next token embedding) DeepSeek v3
+- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (Command A paper)
+- Không norm q, k để bảo toàn NoPE (Command A paper)
+- MTP dùng concat(last_hidden, next token embedding) from DeepSeek V3
+- Các kỹ thuật tối ưu khác trong `optimus.py` (int8 mixed matmul, fused linear LCE, Muon optimizer)
 '''
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
@@ -92,30 +93,30 @@ class Block(nn.Module):
 
         self.skip_mlp = layer_id == n_layers - 1 # bỏ MLP ở layer cuối
         if self.skip_mlp:
-            self.up_proj = nn.Linear(dim, dim + dim//4 + head_dim//2, bias=False)
-            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//4 + head_dim//2, dim)))
+            self.up_proj = nn.Linear(dim, dim + dim//2 + head_dim//2, bias=False)
+            with torch.no_grad(): self.up_proj.weight.copy_(init_linear(torch.empty(dim + dim//2 + head_dim//2, dim)))
         else:
             self.up_proj = nn.Linear(dim, 4*dim, bias=False)
-            self.down_proj = nn.Linear(4*dim - dim - dim//4 - head_dim//2, dim, bias=False)
+            self.down_proj = nn.Linear(4*dim - dim - dim//2 - head_dim//2, dim, bias=False)
 
             with torch.no_grad():
                 self.up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
                 self.down_proj.weight.zero_()
 
-    def forward(self, x, ve, input_seq, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
         ID, D    = self.up_proj.weight.shape
 
-        xn  = norm(x) if self.layer_id > 0 else x
-        up  = self.up_proj(xn)
+        xn = norm(x) if self.layer_id > 0 else x
+        up = self.up_proj(xn)
 
         def prepare():
-            q, k, v, y = torch.split(up, [D, HD//2, D//4, ID - D - D//4 - HD//2], dim=-1)
+            q, k, v, y = torch.split(up, [D, HD//2, D//2, ID - D - D//2 - HD//2], dim=-1)
             q = q.view(T, H,    HD)
-            v = v.view(T, H//4, HD)
+            v = v.view(T, H//2, HD)
 
             k = k.view(T, 1, HD//2)
-            k = repeat(k, 'T 1 d -> T h d', h=H//4)
+            k = repeat(k, 'T 1 d -> T h d', h=H//2)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
 
             if not self.long: q, k = rotary(q), rotary(k)
@@ -137,7 +138,6 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim, dtype=torch.float32)
-        self.v_embeds = nn.ModuleList([nn.Embedding(vocab_size, 0) for _ in range(n_layers)])
         self.mtp_head = ReLuSquareMLP(2*dim, hdim=3*dim, odim=dim) # predict next of next token
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad(): self.unembeds.weight.zero_()
@@ -146,9 +146,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         x = x0 = norm(self.embeds(input_seq)).bfloat16()
-        B, V, R = self.blocks, self.v_embeds, self.rotary
-        for k in range(len(B)):
-            x   = B[k](x, V[k], input_seq, cu_seqlens, max_seqlen, R)
+        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
         return x, x0
 
 
@@ -164,7 +162,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xn, yn = checkpoint(prepare, use_reentrant=False)
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    target[0] = ignore; n_ignore += 1
+    target[0] = ignore
+    n_ignore += 1
     w = model.unembeds.weight
 
     xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction

@@ -95,10 +95,9 @@ adam_params = [
     dict(params=model.unembeds.parameters(), lr=0.003 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, fused=True)
-ada8_optim  = AdamW8bit(model.v_embeds.parameters())
 muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
 
-for opt in [muon_optim, adam_optim, ada8_optim]:
+for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups:
         group["init_lr"] = group["lr"]
 
@@ -131,7 +130,7 @@ for step in range(args.steps):  # training loop
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
     # set optimization hyperparameters
-    for opt in [muon_optim, adam_optim, ada8_optim]:
+    for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
@@ -140,7 +139,6 @@ for step in range(args.steps):  # training loop
 
     muon_optim.step()
     adam_optim.step()
-    ada8_optim.step()
     model.zero_grad(set_to_none=True)
     
     if   step == 0:
