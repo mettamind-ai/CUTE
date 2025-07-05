@@ -74,7 +74,7 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
-        self.down_proj = nn.Linear(3*dim - dim//2 - head_dim//2, dim, bias=False)
+        self.down_proj = nn.Linear(3*dim - dim//2, dim, bias=False)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
@@ -89,9 +89,10 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            q, k, v, y = torch.split(up, [D, HD//2, D//2, ID], dim=-1)
+            q, v, y = torch.split(up, [D, D//2, ID], dim=-1)
             q = q.view(T, H,    HD)
             v = v.view(T, H//2, HD)
+            k = up[..., -HD//2 : ]
             k = k.view(T, 1, HD//2)
             k = repeat(k, 'T 1 d -> T h d', h=H//2)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
@@ -112,7 +113,7 @@ class WinGPT(nn.Module):
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, i) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, -2) # để trở thành rope
+        self.mtp_head = Block(dim, head_dim, -2)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad():
