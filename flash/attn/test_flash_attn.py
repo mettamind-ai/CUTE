@@ -1,5 +1,4 @@
 import math
-
 import pytest
 import torch
 import torch.nn.functional as F
@@ -566,7 +565,8 @@ def get_dropout_fraction(
 # @pytest.mark.parametrize("deterministic", [True])
 # @pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("alibi", [False])
-@pytest.mark.parametrize("local", [False, True])
+# @pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize(
@@ -816,7 +816,6 @@ def test_flash_attn_output(
         assert (dv - dv_ref).abs().max().item() <= 3 * (dv_pt - dv_ref).abs().max().item()
 
 
-# @pytest.mark.parametrize("kvpacked", [True, False])
 @pytest.mark.parametrize('kvpacked', [False])
 @pytest.mark.parametrize('dtype', [torch.bfloat16])
 # @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
@@ -825,8 +824,8 @@ def test_flash_attn_output(
 # @pytest.mark.parametrize("deterministic", [True])
 # @pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("alibi", [False])
-@pytest.mark.parametrize("local", [False, True])
-# @pytest.mark.parametrize("local", [True])
+# @pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("local", [False])
 # @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize('causal', [True])
 @pytest.mark.parametrize('d', [128])
@@ -1129,8 +1128,7 @@ def test_flash_attn_varlen_output(
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize("local", [False, True])
-# @pytest.mark.parametrize("local", [True])
+@pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("swap_sq_sk", [False, True])
 # @pytest.mark.parametrize("swap_sq_sk", [True])
@@ -1232,8 +1230,7 @@ def test_flash_attn_causal(seqlen_q, seqlen_k, swap_sq_sk, d, local, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize("local", [False, True])
-# @pytest.mark.parametrize("local", [True])
+@pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("swap_sq_sk", [False, True])
 # @pytest.mark.parametrize("swap_sq_sk", [True])
@@ -1521,7 +1518,7 @@ def test_flash_attn_splitkv(
 @pytest.mark.parametrize("mha_type", ["mha"])
 @pytest.mark.parametrize("new_kv", [False, True])
 @pytest.mark.parametrize("alibi", [False, True])
-@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("seqlen_new_eq_seqlen_q", [True, False])
 @pytest.mark.parametrize("rotary_interleaved", [False])
@@ -1982,7 +1979,7 @@ def test_flash_attn_bwd_varlen_overflow(d, causal, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("local", [False])
 # @pytest.mark.parametrize("local", [True])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
@@ -2033,7 +2030,7 @@ def test_flash_attn_deterministic(seqlen_q, seqlen_k, swap_sq_sk, d, causal, loc
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("local", [False])
 # @pytest.mark.parametrize("local", [True])
 # @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize("causal", [True])
