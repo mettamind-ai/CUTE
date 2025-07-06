@@ -7,39 +7,20 @@ import pytest
 import torch
 
 from einops import rearrange, repeat
-try:
-    from flash_attn.layers.rotary import apply_rotary_emb
-except ImportError:
-    apply_rotary_emb = None
 
-# from padding import pad_input, unpad_input
-from flash_attn.utils.testing import attention_ref, generate_qkv, generate_random_padding_mask
-from flash_attn.cute.interface import flash_attn_func, flash_attn_varlen_func
+from testing import attention_ref, generate_qkv, generate_random_padding_mask
+from interface import flash_attn_func, flash_attn_varlen_func
 
 
-# @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float8_e4m3fn])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
-# @pytest.mark.parametrize("mha_type", ["mha"])
-# @pytest.mark.parametrize("has_qv", [False, True])
 @pytest.mark.parametrize("has_qv", [False])
-# @pytest.mark.parametrize("deterministic", [False, True])
 @pytest.mark.parametrize("deterministic", [False])
-# @pytest.mark.parametrize("softcap", [0.0, 15.0])
 @pytest.mark.parametrize("softcap", [0.0])
 @pytest.mark.parametrize("local", [False, True])
-# @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [False, True])
-# @pytest.mark.parametrize("causal", [False])
-# @pytest.mark.parametrize("d", [32, 64, 96, 128, 160, 192, 224, 256])
 # @pytest.mark.parametrize('d', [32, 40, 64, 80, 96, 128, 160, 192, 256])
-# @pytest.mark.parametrize('d', [32, 64, 96, 128, 160, 192])
-# @pytest.mark.parametrize('d', [56, 80])
-# @pytest.mark.parametrize("d", [64, 128, 256])
-# @pytest.mark.parametrize('d', [32, 40, 64, 80, 96, 128])
-# @pytest.mark.parametrize("d", [64, 96, 128, 192])
-# @pytest.mark.parametrize("d", [64, 128])
-@pytest.mark.parametrize("d", [128])
+@pytest.mark.parametrize("d", [64, 128])
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [
@@ -228,29 +209,15 @@ def test_flash_attn_output(
             assert (dv - dv_ref).abs().max().item() <= rtol * (dv_pt - dv_ref).abs().max().item() + dv_atol
 
 
-# @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float8_e4m3fn])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
-# @pytest.mark.parametrize("mha_type", ["mha"])
-# @pytest.mark.parametrize("has_qv", [False, True])
 @pytest.mark.parametrize("has_qv", [False])
-# @pytest.mark.parametrize("deterministic", [False, True])
 @pytest.mark.parametrize("deterministic", [False])
-# @pytest.mark.parametrize("softcap", [0.0, 15.0])
 @pytest.mark.parametrize("softcap", [0.0])
-# @pytest.mark.parametrize("local", [False, True])
 @pytest.mark.parametrize("local", [False])
-# @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize("causal", [False])
-# @pytest.mark.parametrize("add_unused_qkv", [False, True])
 @pytest.mark.parametrize("add_unused_qkv", [False])
-# @pytest.mark.parametrize("d", [32, 64, 96, 128, 160, 192, 224, 256])
-# @pytest.mark.parametrize('d', [32, 40, 64, 80, 96, 128, 160, 192, 256])
-# @pytest.mark.parametrize('d', [32, 64, 96, 128, 160, 192])
-# @pytest.mark.parametrize('d', [56, 80])
-# @pytest.mark.parametrize('d', [32, 40, 64, 80, 96, 128])
-# @pytest.mark.parametrize("d", [64, 96, 128])
-@pytest.mark.parametrize("d", [128])
+@pytest.mark.parametrize("d", [64, 128])
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [

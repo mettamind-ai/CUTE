@@ -5,7 +5,7 @@
 # wget https://developer.download.nvidia.com/compute/cuda/12.9.1/local_installers/cuda_12.9.1_575.57.08_linux.run
 # sudo sh cuda_12.9.1_575.57.08_linux.run
 # conda create -n cute python=3.12; conda activate cute
-# pip install nvidia-cutlass-dsl==4.0.0
+# pip install nvidia-cutlass-dsl==4.1.0.dev0
 # python -m pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128 -U
 
 ######################################################################

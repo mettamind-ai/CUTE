@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cutlass
 import cutlass.cute as cute
 
-from flash_attn.cute.seqlen_info import SeqlenInfo
+from seqlen_info import SeqlenInfo
 
 
 @dataclass(frozen=True)

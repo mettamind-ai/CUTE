@@ -10,8 +10,8 @@ import cutlass
 import cutlass.cute as cute
 from cutlass.cute.nvgpu import cpasync, warp
 
-from flash_attn.cute import ampere_helpers as sm80_utils
-from flash_attn.cute import utils
+import ampere_helpers as sm80_utils
+import utils
 
 
 class FlashAttentionBackwardPostprocess:
