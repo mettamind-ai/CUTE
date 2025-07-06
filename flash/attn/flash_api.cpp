@@ -237,28 +237,29 @@ void set_params_dgrad(Flash_bwd_params &params,
 }
 
 void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
-    FP16_SWITCH(!params.is_bf16, [&] {
-        HEADDIM_SWITCH(params.d, [&] {
-            BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-    //             if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
-    //                 printf(">>> run_mha_fwd (no splitkv)");
-                    run_mha_fwd_<elem_type, kHeadDim, true>(params, stream);
-    //             }  else {
+    // FP16_SWITCH(!params.is_bf16, [&] {
+    //     HEADDIM_SWITCH(params.d, [&] {
+    //         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+                if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
+                    printf(">>> run_mha_fwd (no splitkv)\n");
+                    run_mha_fwd_<cutlass::bfloat16_t, 128, true>(params, stream);
+                } 
+    //             else {
     //                 run_mha_fwd_splitkv_dispatch<elem_type, kHeadDim, Is_causal>(params, stream);
     //             }
-            });
-        });
-    });
+    //         });
+    //     });
+    // });
 }
 
 void run_mha_bwd(Flash_bwd_params &params, cudaStream_t stream) {
-    FP16_SWITCH(!params.is_bf16, [&] {
-        HEADDIM_SWITCH(params.d, [&] {
-            BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-                run_mha_bwd_<elem_type, Is_causal>(params, stream);
-            });
-        });
-    });
+    // FP16_SWITCH(!params.is_bf16, [&] {
+    //     HEADDIM_SWITCH(params.d, [&] {
+    //         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+                run_mha_bwd_<cutlass::bfloat16_t, 128, true>(params, stream);
+    //         });
+    //     });
+    // });
 }
 
 

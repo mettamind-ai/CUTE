@@ -1,6 +1,7 @@
 /******************************************************************************
  * Copyright (c) 2023, Tri Dao.
  ******************************************************************************/
+// https://github.com/Dao-AILab/flash-attention/blob/89c5a7dd4e6a8644575bd0c04a286f48c42763ec/csrc/flash_attn/src/flash_fwd_launch_template.h
 
 #pragma once
 #include <c10/cuda/CUDAException.h>  // For C10_CUDA_CHECK and C10_CUDA_KERNEL_LAUNCH_CHECK
@@ -103,7 +104,7 @@ void run_mha_fwd_hdim128(Flash_fwd_params &params, cudaStream_t stream) {
     DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
         // For sm86 or sm89, 64 x 64 is the fastest for causal (because it's square),
         if (is_sm8x) {
-            run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 32, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+            run_flash_fwd<Flash_fwd_kernel_traits<Headdim,  64, 64, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
         } else {
             run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 64, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
         }   // good for A100
@@ -111,7 +112,7 @@ void run_mha_fwd_hdim128(Flash_fwd_params &params, cudaStream_t stream) {
 }
 
 
-/* Tạm ẩn đi splitkv vì không dùng MQA và hdim 64
+/* Tạm ẩn đi splitkv vì không dùng MQA và hdim64
 
 template<typename T, bool Is_causal>
 void run_mha_fwd_hdim64(Flash_fwd_params &params, cudaStream_t stream) {
