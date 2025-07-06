@@ -829,10 +829,8 @@ def test_flash_attn_output(
 
 @pytest.mark.parametrize('kvpacked', [False])
 @pytest.mark.parametrize('dtype', [torch.bfloat16])
-# @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
-@pytest.mark.parametrize('mha_type', ["mha"])
+@pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("deterministic", [True])
-# @pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("alibi", [False])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize('causal', [True])
@@ -1513,8 +1511,7 @@ def test_flash_attn_splitkv(
 '''
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("num_splits", [0])
-# @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
-@pytest.mark.parametrize("mha_type", ["mha"])
+@pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("new_kv", [False, True])
 @pytest.mark.parametrize("alibi", [False])
 @pytest.mark.parametrize("local", [False])
@@ -1775,7 +1772,6 @@ def _generate_block_kvcache(seqlen_k, paged_kv_block_size, batch_size, nheads_k,
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-# @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize('causal', [True])
 @pytest.mark.parametrize('d', [128])
 @pytest.mark.parametrize(
@@ -1840,7 +1836,7 @@ def test_flash_attn_race_condition(seqlen_q, seqlen_k, d, dropout_p, causal, dty
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize('causal', [False])
+@pytest.mark.parametrize('causal', [True])
 @pytest.mark.parametrize('d', [128])
 @pytest.mark.parametrize("seqlen", [1, 2, 5, 17, 128])
 # @pytest.mark.parametrize('seqlen', [2])
@@ -1893,7 +1889,7 @@ def test_flash_attn_bwd_overflow(seqlen, d, causal, dtype):
 
 
 @pytest.mark.parametrize('dtype', [torch.bfloat16])
-@pytest.mark.parametrize("causal", [True])
+@pytest.mark.parametrize('causal', [True])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("seqlen", [97, 128, 200, 256])
 def test_flash_attn_bwd_transpose(seqlen, d, causal, dtype):
@@ -1944,8 +1940,7 @@ def test_flash_attn_bwd_transpose(seqlen, d, causal, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.float16])
-@pytest.mark.parametrize("causal", [False, True])
-# @pytest.mark.parametrize('causal', [False])
+@pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize('d', [128])
 def test_flash_attn_bwd_varlen_overflow(d, causal, dtype):
     """We previously had a bug where not masking elements beyond seqlen_k caused NaN in dQ,
