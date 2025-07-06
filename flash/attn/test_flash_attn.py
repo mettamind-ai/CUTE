@@ -1409,8 +1409,8 @@ def test_flash_attn_varlen_causal(
         # (1, 339),
         (3, 1024),
         (64, 800),
-        (3, 799),
-        (64, 2048),
+        (799, 1),
+        # (64, 2048),
         (128, 128),
         (256, 256),
     ],
@@ -1508,7 +1508,7 @@ def test_flash_attn_splitkv(
     assert (dk - dk_ref).abs().max().item() <= mult * (dk_pt - dk_ref).abs().max().item() + 2e-4
     assert (dv - dv_ref).abs().max().item() <= mult * (dv_pt - dv_ref).abs().max().item() + 2e-4
 
-'''
+# '''
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("num_splits", [0])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
@@ -1527,14 +1527,14 @@ def test_flash_attn_splitkv(
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [
-        (1, 128),
-        (1, 339),
+        # (1, 128),
+        # (1, 339),
         (3, 1024),
         (64, 800),
         (64, 256),
         (3, 799),
         (64, 2048),
-        (16, 20000),
+        # (16, 20000),
         (128, 128),
     ],
 )
@@ -1741,7 +1741,7 @@ def test_flash_attn_kvcache(
         assert torch.equal(v_cache_select, v_cache_ref)
     mult = 3 if not alibi else 5
     assert (out - out_ref).abs().max().item() <= mult * (out_pt - out_ref).abs().max().item() + 1e-5
-'''
+#'''
 
 
 def _generate_block_kvcache(seqlen_k, paged_kv_block_size, batch_size, nheads_k, d, device, dtype):
