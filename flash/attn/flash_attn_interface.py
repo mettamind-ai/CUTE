@@ -35,15 +35,13 @@ started_at = time.time()
 CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
-        abspath/"flash_api.cpp",
-        # abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
-        abspath/"flash_fwd_hdim128_bf16_causal_sm80.cu",
-        abspath/"flash_bwd_hdim128_bf16_causal_sm80.cu",
+        abspath/"flash_api.cpp", 
+        abspath/"hdim128_bf16_causal_sm80.cu", 
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ str(abspath), str(abspath/"cutlass/include"),],
 )
-# ~/.cache/torch_extensions/py310_cu126/CUTE_flash_attn_2_cuda/
+# ~/.cache/torch_extensions/...
 print(f"flash_attn_2.7.1: DONE. In {int(time.time() - started_at)} seconds.")
 #########################################################################
 
