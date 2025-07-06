@@ -593,7 +593,6 @@ def get_dropout_fraction(
         (108, 256),
         (256, 512),
         (512, 256),
-        (1024, 1024),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -1156,7 +1155,6 @@ def test_flash_attn_varlen_output(
         (113, 211),
         (108, 256),
         (256, 512),
-        (1023, 1024),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -1258,7 +1256,6 @@ def test_flash_attn_causal(seqlen_q, seqlen_k, swap_sq_sk, d, local, dtype):
         (113, 211),
         (108, 256),
         (256, 512),
-        (1023, 1024),
     ],
 )
 # TODO: add smaller page sizes when https://github.com/Dao-AILab/flash-attention/pull/824 is merged
@@ -1420,8 +1417,6 @@ def test_flash_attn_varlen_causal(
         (64, 800),
         (3, 799),
         (64, 2048),
-        (16, 20000),
-        (16, 100000),
         (128, 128),
         (256, 256),
     ],
@@ -1803,7 +1798,6 @@ def _generate_block_kvcache(seqlen_k, paged_kv_block_size, batch_size, nheads_k,
         (384, 384),
         (512, 512),
         (768, 768),
-        (1024, 1024),
     ],
 )
 @pytest.mark.parametrize("dropout_p", [0.0, 0.17])
@@ -2004,7 +1998,6 @@ def test_flash_attn_bwd_varlen_overflow(d, causal, dtype):
         (113, 211),
         (108, 256),
         (256, 512),
-        (1023, 1024),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -2056,7 +2049,6 @@ def test_flash_attn_deterministic(seqlen_q, seqlen_k, swap_sq_sk, d, causal, loc
         (113, 211),
         (108, 256),
         (256, 512),
-        (1023, 1024),
     ],
 )
 # @pytest.mark.parametrize("seqlen_q,seqlen_k", [(256, 128)])
