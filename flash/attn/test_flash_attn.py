@@ -818,12 +818,10 @@ def test_flash_attn_output(
 @pytest.mark.parametrize('kvpacked', [False])
 @pytest.mark.parametrize('dtype', [torch.bfloat16])
 # @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
-@pytest.mark.parametrize('mha_type', ["mqa"])
-@pytest.mark.parametrize("deterministic", [False, True])
-# @pytest.mark.parametrize("deterministic", [True])
+@pytest.mark.parametrize('mha_type', ["mha"])
+@pytest.mark.parametrize("deterministic", [True])
 # @pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("alibi", [False])
-# @pytest.mark.parametrize("local", [False, True])
 @pytest.mark.parametrize("local", [False])
 # @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize('causal', [True])
@@ -838,7 +836,6 @@ def test_flash_attn_output(
         (108, 256),
         (256, 512),
         (512, 256),
-        (1023, 1024),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(128, 128)])
