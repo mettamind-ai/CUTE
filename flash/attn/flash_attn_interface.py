@@ -26,8 +26,8 @@ NVCC_FLAGS = [
 ]
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
-NVCC_FLAGS += ["-gencode", f"arch=compute_86,code=sm_86"]
-os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
+NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.0" # A100, RTX 30xx, RTX 40xx
 
 abspath = Path(__file__).parent
 started_at = time.time()
@@ -36,7 +36,7 @@ CUTE_EXT = torch.utils.cpp_extension.load(
     "CUTE_flash_attn_2_cuda",
     sources=[
         abspath/"flash_api.cpp",
-        abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
+        # abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
         abspath/"flash_fwd_hdim128_bf16_causal_sm80.cu",
         abspath/"flash_bwd_hdim128_bf16_causal_sm80.cu",
     ],
