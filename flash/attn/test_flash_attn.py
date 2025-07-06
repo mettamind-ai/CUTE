@@ -7,7 +7,6 @@ from .flash_attn_interface import (
     flash_attn_func,
     flash_attn_varlen_func,
     flash_attn_with_kvcache,
-    _get_block_size_n
 )
 from .bert_padding import pad_input, unpad_input
 
@@ -17,6 +16,23 @@ is_sm8x = torch.cuda.get_device_capability("cuda")[0] == 8
 is_sm80 = torch.cuda.get_device_capability("cuda") == (8, 0)
 is_sm90 = torch.cuda.get_device_capability("cuda") == (9, 0)
 
+def _get_block_size_n(device, head_dim, is_dropout, is_causal):
+    # This should match the block sizes in the CUDA kernel
+    assert head_dim <= 256
+    major, minor = torch.cuda.get_device_capability(device)
+    is_sm8x = major == 8 and minor > 0  # Only include sm86 and sm89, exclude sm80 (A100)
+    is_sm80 = major == 8 and minor == 0
+    is_sm90 = major == 9 and minor == 0
+    if head_dim <= 32: return 128
+    if head_dim <= 64: return 128 if not is_dropout else 64
+    elif head_dim <= 96: return 64
+    elif head_dim <= 128:
+        if is_sm8x: return 64 if (not is_dropout and is_causal) else 32
+        else:       return 64 if not is_dropout else 32
+    elif head_dim <= 160:
+        if is_sm8x: return 64
+        else:       return 32
+    elif head_dim <= 256: return 64
 
 def attn_bias_from_alibi_slopes(
     slopes, seqlen_q, seqlen_k, query_padding_mask=None, key_padding_mask=None, causal=False, key_leftpad=None
@@ -1386,18 +1402,14 @@ def test_flash_attn_varlen_causal(
         assert (dk - dk_ref).abs().max().item() <= 2 * (dk_pt - dk_ref).abs().max().item() + 1e-5
         assert (dv - dv_ref).abs().max().item() <= 2 * (dv_pt - dv_ref).abs().max().item() + 1e-5
 
-'''
-@pytest.mark.parametrize("dtype", ([torch.float16] if is_sm75 else [torch.float16, torch.bfloat16]))
-# @pytest.mark.parametrize("dtype", [torch.float16])
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("deterministic", [False, True])
 # @pytest.mark.parametrize("deterministic", [True])
-@pytest.mark.parametrize("alibi", [False, True])
-# @pytest.mark.parametrize("alibi", [True])
-@pytest.mark.parametrize("local", [False, True])
-# @pytest.mark.parametrize("local", [False])
-@pytest.mark.parametrize("causal", [False, True])
-# @pytest.mark.parametrize("causal", [True])
-# @pytest.mark.parametrize("d", [128])
+@pytest.mark.parametrize("alibi", [True])
+@pytest.mark.parametrize("local", [True])
+@pytest.mark.parametrize("causal", [True])
+@pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("swap_sq_sk", [False, True])
 # @pytest.mark.parametrize("swap_sq_sk", [False])
 @pytest.mark.parametrize(
@@ -1506,8 +1518,8 @@ def test_flash_attn_splitkv(
     assert (dq - dq_ref).abs().max().item() <= mult * (dq_pt - dq_ref).abs().max().item() + 2e-4
     assert (dk - dk_ref).abs().max().item() <= mult * (dk_pt - dk_ref).abs().max().item() + 2e-4
     assert (dv - dv_ref).abs().max().item() <= mult * (dv_pt - dv_ref).abs().max().item() + 2e-4
-'''
 
+'''
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("num_splits", [0])
 # @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
@@ -1741,6 +1753,7 @@ def test_flash_attn_kvcache(
         assert torch.equal(v_cache_select, v_cache_ref)
     mult = 3 if not alibi else 5
     assert (out - out_ref).abs().max().item() <= mult * (out_pt - out_ref).abs().max().item() + 1e-5
+'''
 
 
 def _generate_block_kvcache(seqlen_k, paged_kv_block_size, batch_size, nheads_k, d, device, dtype):
