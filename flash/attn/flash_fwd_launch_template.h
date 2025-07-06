@@ -111,9 +111,6 @@ void run_mha_fwd_hdim128(Flash_fwd_params &params, cudaStream_t stream) {
     });
 }
 
-
-/* Tạm ẩn đi splitkv vì không dùng MQA và hdim64
-
 template<typename T, bool Is_causal>
 void run_mha_fwd_hdim64(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr static int Headdim = 64;
