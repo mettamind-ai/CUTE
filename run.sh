@@ -6,11 +6,11 @@
 # sudo sh cuda_12.9.1_575.57.08_linux.run
 # conda create -n cute python=3.12; conda activate cute
 # pip install nvidia-cutlass-dsl==4.0.0
+# python -m pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128 -U
 
 ######################################################################
 ## Others, data, test run ...
 ######################################################################
-# python -m pip install --pre torch==2.9.0.dev20250704 --index-url https://download.pytorch.org/whl/nightly/cu128 -U
 pip install numpy tqdm wandb einops ninja huggingface_hub torch==2.6.0 -U --user
 git clone https://github.com/NVIDIA/cutlass.git flash/attn/cutlass
 cd flash/attn/cutlass; git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../../.. # flash_attn 2.7.3

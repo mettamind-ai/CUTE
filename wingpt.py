@@ -12,14 +12,12 @@
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE
+from optimus import FusedCE, convert_int8_mixed_precision
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
-torch.set_float32_matmul_precision('high')
-torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_default_dtype(torch.bfloat16)
 
 @torch.no_grad()
@@ -98,12 +96,12 @@ class Block(nn.Module):
             if not self.long: q, k = rotary(q), rotary(k)
             return q, k, v, F.relu(y).square()
 
-        q, k, v, z = checkpoint(prepare, use_reentrant=False)
+        q, k, v, y = checkpoint(prepare, use_reentrant=False)
 
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        return x + o + self.down_proj(z)
+        return x + o + self.down_proj(y)
 
 
 class WinGPT(nn.Module):
@@ -153,7 +151,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
 def get_cu_max_seqlens_from(input_seq, eot):
         mask       = (input_seq == eot)
         mask[-1]   = True
-        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1,])
+        cu_seqlens = torch.cat([torch.zeros(1, dtype=torch.int32, device=input_seq.device), torch.where(mask)[0].to(torch.int32) + 1])
         max_seqlen = int(torch.max(torch.diff(cu_seqlens)))
         return cu_seqlens, max_seqlen
 
@@ -161,34 +159,27 @@ def get_cu_max_seqlens_from(input_seq, eot):
 ########################
 ##  TESTING  TESTING  ##
 ########################
-
 if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
 
-    seed = 1981
     ctxlen = 1024
     vocab_size = 32*1024
     dim, head_dim, n_layers = 256, 64, 8
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
-    torch.manual_seed(seed)
+    torch.manual_seed(1981)
     model = WinGPT(vocab_size, n_layers, dim, ctxlen, head_dim).cuda()
-
-    from optimus import convert_int8_mixed_precision
     convert_int8_mixed_precision(model)
 
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
-    opara = [p for n, p in model.named_parameters() if "proj" in n]
-
+    mpara = [p for n, p in model.named_parameters() if "proj" in n]
     print("\nAdam:", apara.keys())
-    apara = list(apara.values())
 
-    aptim = torch.optim.AdamW(apara)
-    optim = Muon(opara)
+    aptim = torch.optim.AdamW(apara.values())
+    optim = Muon(mpara)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
-
     model.train()
 
     for step in range(10):
@@ -197,15 +188,11 @@ if __name__ == "__main__":
         target    = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
         cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq, eot=0)
 
-        optim.zero_grad()
-        aptim.zero_grad()
+        optim.zero_grad(); aptim.zero_grad()
 
         loss_model     = fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
-        print(f"step {step}, loss_model {loss_model.item():.4f}, ", end="")
+        print(f"step {step}, loss_model {loss_model.item():.4f}, Peak VRAM: {current_memory:.2f} MB")
 
         loss_model.backward()
-        optim.step()
-        aptim.step()
-
-        print(f"Peak VRAM: {current_memory:.2f} MB")
+        optim.step(); aptim.step()

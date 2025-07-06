@@ -213,4 +213,6 @@
 Huấn luyện model lớn:
 - https://www.youtube.com/watch?v=__eeLqSlZ0w
 - https://wandb.ai/craiyon/report/reports/Recipe-Training-Large-Models--VmlldzozNjc4MzQz
-- 
+- https://www.jeremyjordan.me/distributed-training
+- muP ...
+- Multi step learning rate https://x.com/spiraldalat/status/1941661273990758471

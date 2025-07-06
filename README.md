@@ -108,4 +108,8 @@
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
   - MLP  https://www.alphaxiv.org/abs/2506.06644
   - MegaBlock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
-  
+
+- Linear Attn
+  - https://sustcsonglin.github.io/blog/2024/deltanet-1
+  - https://people.csail.mit.edu/yoonkim/data/efficient_architectures_talk.pdf
+  - https://leloykun.github.io/ponder/test-time-regression
