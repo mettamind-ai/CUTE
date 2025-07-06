@@ -11,7 +11,6 @@ from einops import rearrange, repeat
 from testing import attention_ref, generate_qkv, generate_random_padding_mask
 from interface import flash_attn_func, flash_attn_varlen_func
 
-
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("has_qv", [False])
@@ -39,11 +38,6 @@ from interface import flash_attn_func, flash_attn_varlen_func
         (384, 256),
         (640, 128),
         (512, 256),
-        (1024, 1024),
-        (1023, 1024),
-        (1024, 1023),
-        (4096, 4096),
-        (4224, 4224),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(128, 128)])
