@@ -80,30 +80,27 @@ class Block(nn.Module):
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
-        T, H, HD = x.shape[0], self.num_heads, self.head_dim
-        D = self.down_proj.weight.shape[0]
-        QD_VD_KD = [D, D, HD//2]
+        T, D  = x.shape
+        H, HD = self.num_heads, self.head_dim
 
         xn = norm(x) if self.layer_id > 0 else x
         up = self.up_proj(xn)
 
         def prepare():
-            q, v, k = torch.split(up[..., : sum(QD_VD_KD)], QD_VD_KD, dim=-1)
+            q, v, k = torch.split(up[..., : 2*D + HD//2 ], [D, D, HD//2], dim=-1)
             q = q.view(T, H, HD)
             v = v.view(T, H, HD)
             k = k.view(T, 1, HD//2)
             k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
             if not self.long: q, k = rotary(q), rotary(k)
-            y = F.relu(up).square()
-            return q, k, v, y
+            return q, k, v
 
-        q, k, v, y = checkpoint(prepare, use_reentrant=False)
-
+        q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        return x + o + self.down_proj(y)
+        return x + o + self.down_proj(F.relu(up).square())
 
 
 class WinGPT(nn.Module):

@@ -37,9 +37,9 @@ CUTE_EXT = torch.utils.cpp_extension.load(
     sources=[
         abspath/"flash_api.cpp",
         abspath/"flash_fwd_split_hdim128_bf16_causal_sm80.cu",
-        abspath/"flash_fwd_split_hdim64_bf16_causal_sm80.cu",
         abspath/"flash_bwd_hdim128_bf16_causal_sm80.cu",
-        abspath/"flash_bwd_hdim64_bf16_causal_sm80.cu",
+        # abspath/"flash_fwd_split_hdim64_bf16_causal_sm80.cu",
+        # abspath/"flash_bwd_hdim64_bf16_causal_sm80.cu",
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ str(abspath), str(abspath/"cutlass/include"),],
