@@ -565,7 +565,6 @@ def get_dropout_fraction(
 # @pytest.mark.parametrize("deterministic", [True])
 # @pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("alibi", [False])
-# @pytest.mark.parametrize("local", [False, True])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
@@ -1980,7 +1979,7 @@ def test_flash_attn_bwd_varlen_overflow(d, causal, dtype):
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("local", [False])
-# @pytest.mark.parametrize("local", [True])
+# @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("swap_sq_sk", [False, True])
@@ -2031,7 +2030,7 @@ def test_flash_attn_deterministic(seqlen_q, seqlen_k, swap_sq_sk, d, causal, loc
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("local", [False])
-# @pytest.mark.parametrize("local", [True])
+# @pytest.mark.parametrize("local", [False])
 # @pytest.mark.parametrize("causal", [False, True])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
