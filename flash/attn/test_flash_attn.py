@@ -4,13 +4,13 @@ import pytest
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from flash_attn_interface import (
+from .flash_attn_interface import (
     flash_attn_func,
     flash_attn_varlen_func,
     flash_attn_with_kvcache,
     _get_block_size_n
 )
-from bert_padding import pad_input, unpad_input
+from .bert_padding import pad_input, unpad_input
 
 MAX_HEADDIM_SM8x = 192
 
