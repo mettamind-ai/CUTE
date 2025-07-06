@@ -72,7 +72,7 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
-        self.down_proj = nn.Linear(3*dim - dim//2 - head_dim//2, dim, bias=False)
+        self.down_proj = nn.Linear(4*dim, dim, bias=False)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
@@ -81,20 +81,22 @@ class Block(nn.Module):
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, H, HD = x.shape[0], self.num_heads, self.head_dim
-        D, ID = self.down_proj.weight.shape
+        D = self.down_proj.weight.shape[0]
+        QD_VD_KD = [D, D, HD//2]
 
         xn = norm(x) if self.layer_id > 0 else x
         up = self.up_proj(xn)
 
         def prepare():
-            q, v, k, y = torch.split(up, [D, D//2, HD//2, ID], dim=-1)
-            q = q.view(T, H,    HD)
-            v = v.view(T, H//2, HD)
+            q, v, k = torch.split(up[..., : sum(QD_VD_KD)], QD_VD_KD, dim=-1)
+            q = q.view(T, H, HD)
+            v = v.view(T, H, HD)
             k = k.view(T, 1, HD//2)
-            k = repeat(k, 'T 1 d -> T h d', h=H//2)
+            k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
             if not self.long: q, k = rotary(q), rotary(k)
-            return q, k, v, F.relu(y).square()
+            y = F.relu(up).square()
+            return q, k, v, y
 
         q, k, v, y = checkpoint(prepare, use_reentrant=False)
 
