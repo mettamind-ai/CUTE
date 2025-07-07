@@ -97,8 +97,7 @@ adam_optim  = torch.optim.AdamW(adam_params, fused=True)
 muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
-    for group in opt.param_groups:
-        group["init_lr"] = group["lr"]
+    for group in opt.param_groups: group["init_lr"] = group["lr"]
 
 ################
 ##  TRAINING  ##
@@ -131,12 +130,16 @@ for step in range(args.steps):  # training loop
     total_docs += n_samples
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
+
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
+            if step == (arg.steps * 0.3): group["init_lr"] = group["init_lr"] / 2
+            if step == (arg.steps * 0.6): group["init_lr"] = group["init_lr"] / 2
+
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
-                frac = min(lr_schedule.t1,  1) # momentum warmup for muon
+                frac = min(lr_schedule.t1, 1) # momentum warmup for muon
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
