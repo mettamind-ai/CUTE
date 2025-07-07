@@ -33,12 +33,12 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
-        base, half, dtype = 1/10000, dim//4, torch.float32
-        angular_freq = base  **  torch.linspace(0, 1, steps=half, dtype=dtype)
-        angular_freq = torch.cat([angular_freq, torch.zeros(half, dtype=dtype)])
+        base, half   = 1/10000, dim//4
+        angular_freq = base  **  torch.linspace(0, 1, steps=half, dtype=torch.float32)
+        angular_freq = torch.cat([angular_freq, torch.zeros(half, dtype=torch.float32)])
         # Tần số góc, nửa đầu giảm dần từ 1 tới base và nửa còn lại là zeros
 
-        positions = torch.arange(ctxlen, dtype=dtype)
+        positions = torch.arange(ctxlen, dtype=torch.float32)
         theta = torch.einsum("i,j -> ij", positions, angular_freq)
 
         self.cos = nn.Buffer(theta.cos(), persistent=False)

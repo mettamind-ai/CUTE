@@ -113,3 +113,6 @@
   - https://sustcsonglin.github.io/blog/2024/deltanet-1
   - https://people.csail.mit.edu/yoonkim/data/efficient_architectures_talk.pdf
   - https://leloykun.github.io/ponder/test-time-regression
+
+- [ ] Batch size Warmup giống MiMo7B
+- [ ] Mutliple step learning rates giống DeepSeek và MiMo7B

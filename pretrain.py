@@ -107,6 +107,9 @@ lossf = torch.compile(lossf)
 model = model.cuda()
 model.train()
 
+save_dir = Path("runs/") / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+save_dir.mkdir(parents=True, exist_ok=True)
+
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 logger = wandb.init(dir="/tmp", config=args,)
 
@@ -165,5 +168,14 @@ for step in range(args.steps):  # training loop
     ), step=step)
     pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
     pbar.update()
+
+    if step % 100 == 0:
+        ckpt = dict(
+            model=model.state_dict(),
+            muon_optim=muon_optim.state_dict(),
+            adam_optim=adam_optim.state_dict(),
+            step=step,
+        )
+        torch.save(ckpt, args.save_dir / "last.pth")
 
 logger.finish()

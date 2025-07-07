@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import triton, torch, torch.nn.functional as F
 
-# from moba import moba_attn_varlen
 from sagefwd import sageattn_varlen
 from attn import flash_attn_func, flash_attn_varlen_func
 
@@ -72,7 +71,6 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
 
     def attn_fn(provider, q, k, v):
         if provider == "FA_varlen": return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
-        # if provider == "moba_varlen": return lambda: moba_attn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, moba_chunk_size=256, moba_topk=4)
         if provider == "sage_varlen": return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
         if provider == "FA": return lambda: flash_attn_func(q=q, k=k, v=v, dropout_p=float(0.0), softmax_scale=1.3, causal=True,)
 
