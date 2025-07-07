@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 32
 tokens_per_batch =  args.bs*1024
-cu_steps =  512 // args.bs # grad accum để đạt 1 triệu toks / step
+args.cu_steps = 512 // args.bs # grad accum để đạt 1 triệu toks / step
 model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
@@ -113,6 +113,8 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
+cu_steps = 1
+
 for step in range(args.steps):  # training loop
 
     started_at = time.time()
@@ -138,9 +140,9 @@ for step in range(args.steps):  # training loop
             if step == int(args.steps * 0.6): group["init_lr"] *= 0.6
 
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-            if opt == muon_optim:
-                frac = min(lr_schedule.t1, 1) # momentum warmup for muon
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+            frac = min(step / lr_schedule.t1, 1) # momentum warmup for muon
+            cu_steps = int(frac * args.cu_steps)
+            if opt == muon_optim: group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
     adam_optim.step()
