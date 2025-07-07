@@ -172,13 +172,13 @@ for step in range(args.steps):  # training loop
     pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
     pbar.update()
 
-    if step % 100 == 0:
+    if step % 300 == 0:
         ckpt = dict(
             model=model.state_dict(),
             muon_optim=muon_optim.state_dict(),
             adam_optim=adam_optim.state_dict(),
             step=step,
         )
-        torch.save(ckpt, args.save_dir / "last.pth")
+        torch.save(ckpt, save_dir / "last.pth")
 
 logger.finish()

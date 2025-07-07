@@ -4,7 +4,7 @@
 - bỏ o_proj, inspired by https://www.alphaxiv.org/abs/2311.01906
 - Áp dụng GTA from https://arxiv.org/abs/2505.21487v1
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
-- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE (RNoPE paper)
+- 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE paper
 - Không norm q, k để bảo toàn NoPE (Command A paper)
 - MTP dùng concat(last_hidden, next token embedding) from DeepSeek V3
 - Các kỹ thuật tối ưu khác trong `optimus.py` (int8 mixed matmul, fused linear LCE, Muon optimizer)
@@ -44,17 +44,17 @@ class Rotary(nn.Module):
         self.cos = nn.Buffer(theta.cos(), persistent=False)
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
-    def forward(self, x_THD: Tensor):
-        ctxlen = x_THD.size(-3) # T ctxlen, head, dim (of head)
+    def forward(self, x: Tensor):
+        ctxlen = x.size(0) # ctxlen, head, dim (of head)
         assert self.cos.size(0) >= ctxlen, f"{self.cos.size(0)} >= {ctxlen}?"
 
         cos = self.cos[:ctxlen, None, :] # [ctxlen, 1, dim]
         sin = self.sin[:ctxlen, None, :] # [ctxlen, 1, dim]
 
-        x1, x2 = x_THD.to(dtype=torch.float32).chunk(2, dim=-1)
+        x1, x2 = x.to(dtype=torch.float32).chunk(2, dim=-1)
         y1     = x1 * (+cos) + x2 * sin
         y2     = x1 * (-sin) + x2 * cos
-        return torch.cat((y1, y2), -1).type_as(x_THD)
+        return torch.cat((y1, y2), -1).type_as(x)
 
 ##############################
 ## Transformer for the WIN  ##
