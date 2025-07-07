@@ -173,12 +173,10 @@ for step in range(args.steps):  # training loop
     pbar.update()
 
     if step % 300 == 0:
-        ckpt = dict(
-            model=model.state_dict(),
-            muon_optim=muon_optim.state_dict(),
-            adam_optim=adam_optim.state_dict(),
-            step=step,
-        )
-        torch.save(ckpt, save_dir / "last.pth")
+        args.current_step = step
+        torch.save(args, save_dir / "hyperparams.pth")
+        torch.save(model     .state_dict(), save_dir / "model.pth")
+        torch.save(muon_optim.state_dict(), save_dir / "muon_optim.pth")
+        torch.save(adam_optim.state_dict(), save_dir / "adam_optim.pth")
 
 logger.finish()
