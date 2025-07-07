@@ -134,8 +134,8 @@ for step in range(args.steps):  # training loop
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
-            if step == (arg.steps * 0.3): group["init_lr"] = group["init_lr"] / 2
-            if step == (arg.steps * 0.6): group["init_lr"] = group["init_lr"] / 2
+            if step == int(args.steps * 0.3): group["init_lr"] = group["init_lr"] / 2
+            if step == int(args.steps * 0.6): group["init_lr"] = group["init_lr"] / 2
 
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
