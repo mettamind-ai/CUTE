@@ -90,11 +90,11 @@ class LRSchedule:
 lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
-    dict(params=model.embeds.parameters(),   lr=0.006 ), 
-    dict(params=model.unembeds.parameters(), lr=0.003 ),
+    dict(params=model.embeds.parameters(),   lr=0.004 ), 
+    dict(params=model.unembeds.parameters(), lr=0.002 ),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, fused=True)
-muon_optim  = Muon(muon_params, lr=0.03, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -134,8 +134,8 @@ for step in range(args.steps):  # training loop
     # set optimization hyperparameters
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
-            if step == int(args.steps * 0.3): group["init_lr"] = group["init_lr"] / 2
-            if step == int(args.steps * 0.6): group["init_lr"] = group["init_lr"] / 2
+            if step == int(args.steps * 0.3): group["init_lr"] *= 0.6
+            if step == int(args.steps * 0.6): group["init_lr"] *= 0.6
 
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:
