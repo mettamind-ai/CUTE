@@ -5,25 +5,23 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 from transformers.cache_utils import Cache
-from transformers.models.qwen2.modeling_qwen2 import (Qwen2Attention,
-                                                      Qwen2ForCausalLM,
-                                                      Qwen2MLP, Qwen2Model,
-                                                      Qwen2RMSNorm)
-
+from transformers.models.qwen2.modeling_qwen2 import (Qwen2Attention, Qwen2ForCausalLM, Qwen2MLP, Qwen2Model, Qwen2RMSNorm)
 from .configuration_mimo import MiMoConfig
 
 
 class MiMoMTPLayers(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.token_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.hidden_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.token_layernorm    = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.hidden_layernorm   = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.input_layernorm    = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.pre_mlp_layernorm  = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.final_layernorm    = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
         self.input_proj = nn.Linear(config.hidden_size * 2, config.hidden_size, bias=False)
-        self.final_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.self_attn = Qwen2Attention(config, layer_idx=0)
-        self.mlp = Qwen2MLP(config)
+        self.self_attn  = Qwen2Attention(config, layer_idx=0)
+        self.mlp        = Qwen2MLP(config)
+
 
     def forward(self, input_embeds,
                     hidden_states,
@@ -35,6 +33,7 @@ class MiMoMTPLayers(nn.Module):
                     position_embedding: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
                     cache_position=None,
                     **kwargs):
+
         input_embeds = self.token_layernorm(input_embeds)
         previous_hidden_states = self.hidden_layernorm(hidden_states)
         hidden_states = self.input_proj(torch.cat([previous_hidden_states, input_embeds], dim=-1))
@@ -51,7 +50,8 @@ class MiMoMTPLayers(nn.Module):
                                        **kwargs)
         hidden_states = residual + hidden_states
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
+
+        hidden_states = self.pre_mlp_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
         hidden_states = self.final_layernorm(hidden_states)

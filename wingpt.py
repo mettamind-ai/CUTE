@@ -83,13 +83,15 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
 
-        xn = norm(x) if self.layer_id > 0 else x
+        xn = norm(x) if self.layer_id != 0 else x
         up = self.up_proj(xn)
 
         def prepare():
             q, v, k = torch.split(up[..., : 2*D + HD//2 ], [D, D, HD//2], dim=-1)
             q = q.view(T, H, HD)
             v = v.view(T, H, HD)
+
+            # https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             k = k.view(T, 1, HD//2)
             k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
@@ -132,10 +134,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         xx_x0 = torch.cat([xx, x0], dim=-1)
         y     = model.mtp_proj(xx_x0)
-        return xn, norm(y)
+        return xn, y
 
-    xn, yn = checkpoint(prepare, use_reentrant=False)
-    yn = norm(model.mtp_head(yn, cu_seqlens, max_seqlen, model.rotary))
+    xn, y = checkpoint(prepare, use_reentrant=False)
+    yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, model.rotary))
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore
