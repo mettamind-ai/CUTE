@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
-parser.add_argument("--steps",  type=int, default=20000)
+parser.add_argument("--steps",  type=int, default=40000)
 parser.add_argument("--vocab",  type=int, default=1024*64)
 
 args = parser.parse_args()
@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 32
 tokens_per_batch =  args.bs*1024
-args.cu_steps = 512 // args.bs # grad accum để đạt 1 triệu toks / step
+args.cu_steps = 256 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
 model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
@@ -87,11 +87,10 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [
-    dict(params=model.embeds.parameters(),   lr=0.004 ), 
-    dict(params=model.unembeds.parameters(), lr=0.002 ),
+    dict(params=model.embeds.parameters(),   lr=0.003, weight_decay=0),  
+    dict(params=model.unembeds.parameters(), lr=0.002, weight_decay=0),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, fused=True)
 muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
@@ -113,6 +112,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
+lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
 cu_steps = 1
 
 for step in range(args.steps):  # training loop
@@ -134,15 +134,17 @@ for step in range(args.steps):  # training loop
 
 
     # set optimization hyperparameters
+    frac = min(step / lr_schedule.t1, 1)
+    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps))  # batch size warmup
+
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
             if step == int(args.steps * 0.3): group["init_lr"] *= 0.6
             if step == int(args.steps * 0.6): group["init_lr"] *= 0.6
-
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-            frac = min(step / lr_schedule.t1, 1) # momentum warmup for muon
-            cu_steps = math.ceil(frac * args.cu_steps)
-            if opt == muon_optim: group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+
+            if opt == muon_optim:  # muon momentum warmup
+                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
     adam_optim.step()
