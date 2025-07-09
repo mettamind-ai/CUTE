@@ -5,7 +5,7 @@
 - Áp dụng GTA from https://arxiv.org/abs/2505.21487v1
 - parallel transformer x = x + attn(norm(x)) + mlp(norm(x))
 - 1 long NoPE : 4 short RoPE SWA; idea từ Gemma và RNoPE paper
-- Không norm q, k để bảo toàn NoPE (Command A paper)
+- Không norm q, k để bảo toàn Q @ K (Command A paper)
 - MTP dùng concat(last_hidden, next token embedding) from DeepSeek V3
 - Các kỹ thuật tối ưu khác trong `optimus.py` (int8 mixed matmul, fused linear LCE, Muon optimizer)
 '''
@@ -30,42 +30,50 @@ def init_linear(w: Tensor):
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
 
+SLIDING_WINDOW = 1024
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
-        base, half   = 1/10000, dim//4
-        angular_freq = base  **  torch.linspace(0, 1, steps=half, dtype=torch.float32)
-        angular_freq = torch.cat([angular_freq, torch.zeros(half, dtype=torch.float32)])
-        # Tần số góc, nửa đầu giảm dần từ 1 tới base và nửa còn lại là zeros
-
+        self.rotary_dim = dim // 2
+        base, half = 1/10_000, self.rotary_dim // 2
+        angular_freq = base ** torch.linspace(0, 1, steps=half, dtype=torch.float32)
         positions = torch.arange(ctxlen, dtype=torch.float32)
-        theta = torch.einsum("i,j -> ij", positions, angular_freq)
-
+        theta = torch.einsum("i,j -> ij", positions, angular_freq)  # theta[i, j] = p[i] * a[j]
         self.cos = nn.Buffer(theta.cos(), persistent=False)
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
-    def forward(self, x: Tensor):
-        ctxlen = x.size(0) # ctxlen, head, dim (of head)
-        assert self.cos.size(0) >= ctxlen, f"{self.cos.size(0)} >= {ctxlen}?"
 
-        cos = self.cos[:ctxlen, None, :] # [ctxlen, 1, dim]
-        sin = self.sin[:ctxlen, None, :] # [ctxlen, 1, dim]
+    def forward(self, x: Tensor, half=True):
+        ctxlen = x.shape[0]
+        assert self.cos.shape[0] >= ctxlen
 
-        x1, x2 = x.to(dtype=torch.float32).chunk(2, dim=-1)
-        y1     = x1 * (+cos) + x2 * sin
-        y2     = x1 * (-sin) + x2 * cos
-        return torch.cat((y1, y2), -1).type_as(x)
+        if half:
+            assert self.rotary_dim == x.shape[-1] // 2
+            x_rot, x_pass = x.chunk(2, dim=-1)
+        else:
+            assert self.rotary_dim == x.shape[-1]
+            x_rot = x
 
-##############################
-## Transformer for the WIN  ##
-##############################
+        cos = self.cos[:ctxlen, None, :]
+        sin = self.sin[:ctxlen, None, :]
+
+        # Áp dụng phép quay cho nửa đầu (x_rot)
+        x1, x2  = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
+        y1      = x1 * (+cos) + x2 * sin
+        y2      = x1 * (-sin) + x2 * cos
+        rotated = torch.cat((y1, y2), -1).type_as(x)
+
+        if half: return torch.cat((rotated, x_pass), dim=-1)
+        else:    return rotated
+
+
 class Block(nn.Module):
     def __init__(self, dim, head_dim, layer_id):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
 
-        self.window = 512*8 if self.long else 512*2
+        self.window = SLIDING_WINDOW * 4 if self.long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
 
         self.head_dim  = head_dim
@@ -90,12 +98,13 @@ class Block(nn.Module):
             q, v, k = torch.split(up[..., : 2*D + HD//2 ], [D, D, HD//2], dim=-1)
             q = q.view(T, H, HD)
             v = v.view(T, H, HD)
+            k = k.view(T, 1, HD//2)
 
             # https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
-            k = k.view(T, 1, HD//2)
+            if not self.long:  # chỉ áp dụng rope cho short layers
+                q, k = rotary(q, half=True), rotary(k, half=False)
             k = repeat(k, 'T 1 d -> T h d', h=H)
             k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
-            if not self.long: q, k = rotary(q), rotary(k)
             return q, k, v
 
         q, k, v = checkpoint(prepare, use_reentrant=False)
