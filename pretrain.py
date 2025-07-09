@@ -135,7 +135,7 @@ for step in range(args.steps):  # training loop
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
-    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps))  # batch size warmup
+    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
 
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
