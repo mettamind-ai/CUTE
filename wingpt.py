@@ -63,7 +63,7 @@ class Block(nn.Module):
     def __init__(self, dim, head_dim, layer_id):
         super().__init__()
         self.layer_id = layer_id
-        self.long = layer_id % 5 == 4 # 4 ngắn + 1 dài
+        self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
 
         self.window = 512*8 if self.long else 512*2
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")

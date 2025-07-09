@@ -90,13 +90,6 @@
   - https://www.alphaxiv.org/abs/2003.11963 Token Loss Dynamic Reweighting (TLDR)
   - https://www.alphaxiv.org/abs/2407.10114 TokenSHAP đánh giá tầm quan trọng của từng token hoặc chuỗi con trong đầu vào
 
-- [ ] MoD: Mixture of Depth
-  - https://github.com/sramshetty/mixture-of-depths
-    ![](https://graphcore-research.github.io/assets/images/posts/2024-04/potm/mixture-of-depths/mixture-of-depths-schematic.png)
-  - https://www.alphaxiv.org/abs/2412.04449 p-MoD chỉ áp dụng cho visual tokens
-    ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
-  - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
-
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
@@ -113,6 +106,9 @@
   - https://sustcsonglin.github.io/blog/2024/deltanet-1
   - https://people.csail.mit.edu/yoonkim/data/efficient_architectures_talk.pdf
   - https://leloykun.github.io/ponder/test-time-regression
+  - https://goombalab.github.io/blog/2025/tradeoffs
 
-- [ ] Batch size Warmup giống MiMo7B
-- [ ] Mutliple step learning rates giống DeepSeek và MiMo7B
+- [ ] Hyper param tuning
+  - [x] Batch size Warmup giống MiMo7B
+  - [x] Mutliple step learning rates giống DeepSeek và MiMo7B
+  - [x] bỏ weight decay ở embedding và lm_head

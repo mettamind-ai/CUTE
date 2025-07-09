@@ -216,3 +216,11 @@ Huấn luyện model lớn:
 - https://www.jeremyjordan.me/distributed-training
 - muP ...
 - Multi step learning rate https://x.com/spiraldalat/status/1941661273990758471
+
+- ~~MoD: Mixture of Depth~~ chưa tổng quát hoá bằng MoE
+  - https://github.com/sramshetty/mixture-of-depths
+    ![](https://graphcore-research.github.io/assets/images/posts/2024-04/potm/mixture-of-depths/mixture-of-depths-schematic.png)
+  - https://www.alphaxiv.org/abs/2412.04449 p-MoD chỉ áp dụng cho visual tokens
+    ![](https://github.com/MCG-NJU/p-MoD/raw/main/img/p-mod.png)
+  - https://www.alphaxiv.org/abs/2412.20875 a-MoD dùng attn score để routing, tập trung ViT, bi-directional
+
