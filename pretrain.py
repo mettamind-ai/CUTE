@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
-parser.add_argument("--steps",  type=int, default=40000)
+parser.add_argument("--steps",  type=int, default=20000)
 parser.add_argument("--vocab",  type=int, default=1024*64)
 
 args = parser.parse_args()
@@ -139,6 +139,7 @@ for step in range(args.steps):  # training loop
 
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
+            # Mutliple step learning rates
             if step == int(args.steps * 0.3): group["init_lr"] *= 0.6
             if step == int(args.steps * 0.6): group["init_lr"] *= 0.6
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)

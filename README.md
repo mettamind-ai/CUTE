@@ -92,6 +92,7 @@
 
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
+- [ ] Tìm vocab cân bằng https://arxiv.org/abs/2402.18376
 
 - [ ] MoA: Mixture Of Anthing
   - https://www.alphaxiv.org/abs/2202.09368 để expert chọn top-k token với k cố định sẽ đơn giản hơn để token chọn expert
