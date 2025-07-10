@@ -112,7 +112,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
+lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
 cu_steps = 1
 
 for step in range(args.steps):  # training loop
@@ -140,8 +140,8 @@ for step in range(args.steps):  # training loop
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
             # Mutliple step learning rates
-            if step == int(args.steps * 0.3): group["init_lr"] *= 0.6
-            if step == int(args.steps * 0.6): group["init_lr"] *= 0.6
+            if step == int(args.steps * 0.3): group["init_lr"] *= 0.5
+            if step == int(args.steps * 0.6): group["init_lr"] *= 0.5
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
 
             if opt == muon_optim:  # muon momentum warmup
