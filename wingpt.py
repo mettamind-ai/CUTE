@@ -48,8 +48,8 @@ class Rotary(nn.Module):
         assert self.cos.shape[0] >= ctxlen
 
         if half:
-            assert self.rotary_dim == x.shape[-1] // 2
-            x_rot, x_pass = x.chunk(2, dim=-1)
+            assert self.rotary_dim == x.shape[-1] // 2 and x.shape[-1] % 2 == 0
+            x_pass, x_rot = x.chunk(2, dim=-1)
         else:
             assert self.rotary_dim == x.shape[-1]
             x_rot = x
@@ -63,7 +63,7 @@ class Rotary(nn.Module):
         y2      = x1 * (-sin) + x2 * cos
         rotated = torch.cat((y1, y2), -1).type_as(x)
 
-        if half: return torch.cat((rotated, x_pass), dim=-1)
+        if half: return torch.cat((x_pass, rotated), dim=-1)
         else:    return rotated
 
 
@@ -94,18 +94,21 @@ class Block(nn.Module):
         xn = norm(x) if self.layer_id != 0 else x
         up = self.up_proj(xn)
 
+        # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
         def prepare():
-            q, v, k = torch.split(up[..., : 2*D + HD//2 ], [D, D, HD//2], dim=-1)
-            q = q.view(T, H, HD)
-            v = v.view(T, H, HD)
-            k = k.view(T, 1, HD//2)
-
-            # https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
+            q = up[...,     : D          ]
+            v = up[..., D   : D*2        ]
+            k = up[..., D*2 : D*2 + HD//2]
+            q = q.view(T, H, HD   )  # Q  ∈ R^(ctxlen, head_q, dim)
+            v = v.view(T, H, HD   )  # KV ∈ R^(ctxlen, head_kv, dim)
+            k = k.view(T, 1, HD//2)  # K_RoPE ∈ R^(ctxlen, 1, dim/2)
             if not self.long:  # chỉ áp dụng rope cho short layers
-                q, k = rotary(q, half=True), rotary(k, half=False)
-            k = repeat(k, 'T 1 d -> T h d', h=H)
-            k = torch.cat([k, v[..., HD//2 : ]], dim=-1)
-            return q, k, v
+                q  = rotary(q, half=True)   # quay nửa sau dim
+                k  = rotary(k, half=False)  # quay toàn bộ dim//2
+            k_half = repeat(k, 'T 1 d -> T h d', h=H)  # broadcast toàn bộ heads
+            k_nope = v[..., : HD//2 ]
+            k_full = torch.cat([k_nope, k_half], dim=-1)
+            return q, k_full, v
 
         q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
