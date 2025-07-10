@@ -22,3 +22,21 @@ V      = KV
 K      = concat( K_NoPE, broadcast(K_RoPE, head_kv) )
 ```
 Bằng cách liên kết các trạng thái KV, chúng ta tải một trạng thái duy nhất vào bộ nhớ on-chip, tái sử dụng nó cho cả khóa và giá trị, và chia sẻ nó qua một nhóm nhỏ các đầu truy vấn. Việc tái sử dụng này giảm chuyển dữ liệu bộ nhớ, **tăng gần gấp đôi cường độ tính toán và giảm một nửa dung lượng bộ nhớ đệm KV** so với phiên bản GQA tương ứng với cùng số nhóm. GQA-4 biểu thị 4 đầu khóa và giá trị riêng biệt, trong khi GTA-4 biểu thị 4 đầu KV liên kết. Các thí nghiệm cho thấy độ bất định (xem 5.1.1) và hiệu suất trong các tác vụ downstream (xem 5.1.2) vẫn tương đương với phiên bản GQA tương ứng.
+
+---
+
+Trên các bài kiểm tra, với mô hình medium 433M (trong Bảng 3), GLA-2 đạt độ chính xác trung bình cao nhất là 55.4%, `GLA-2 vượt nhẹ MLA` ở mức 54.9%. Ở quy mô mô hình large 876M (Bảng 4), `GTA-4 nhỉnh hơn GLA-2` (GLA-2 cho độ chính xác trung bình 57.5%, chỉ thấp hơn GTA-4 0.1 điểm và tương đương GQA-4), cho thấy việc nhóm hoặc liên kết không làm giảm chất lượng. Xu hướng này tiếp tục ở quy mô XL 1.471B, nơi GLA-2 đạt 60.0% so với 59.1% của MLA, trong khi `GTA-4 và GQA-4 cùng đạt 60.2%` (Bảng 5). Các kết quả này khẳng định các biến thể tiết kiệm phần cứng của chúng tôi **bảo toàn hoặc cải thiện hiệu suất tác vụ downstream từ quy mô medium tới XL**. Chi tiết đánh giá downstream xem Phụ lục B.2.2. Các thí nghiệm ablation ở quy mô nhỏ và medium xem Phụ lục B.3.
+
+Chúng tôi đánh giá hiệu suất zero-shot trên các benchmark tiêu chuẩn: SciQ (Welbl et al., 2017), OpenBookQA (Mihaylov et al., 2018), ARC-Easy subset (Yadav et al., 2019), HellaSwag (Zellers et al., 2019), PIQA (Bisk et al., 2020), WinoGrande (Sakaguchi et al., 2020) và MMLU (Hendrycks et al., 2021).
+
+| Attn   | Winogrande |   SciQ   |   PiQA   | OpenBookQA |   MMLU   | HellaSwag | Arc Easy |   Avg    |
+|--------|------------|----------|----------|------------|----------|-----------|----------|----------|
+| GLA𝑞-2 |   55.2     |   84.9   | **70.5** |   35.6     |   25.2   |  _47.9_   | **66.3** |  _55.1_  |
+| GQA-4  |   53.8     |  _85.7_  |   69.7   |   36.2     |   25.4   |   46.3    |   64.6   |   54.5   |
+| GTA-4  |   54.2     |   85.5   |   69.0   |   34.0     |  _25.9_  |   46.8    |   64.2   |   54.2   |
+| MQA    |  _55.5_    |   84.6   |   69.5   |  _37.0_    | **26.2** |   45.9    |   60.5   |   54.2   |
+| GLA-2  | **56.7**   |   84.1   |  _70.3_  | **37.2**   | **26.2** | **48.2**  |  _65.3_  | **55.4** |
+| MLA    |   54.5     | **86.1** |   70.2   |   36.8     |   25.1   |   47.2    |   64.2   |   54.9   |
+| MHA    |   55.2     |   84.8   |   69.3   |   35.0     |   25.5   |   46.2    |   63.0   |   54.1   |
+
+*Bảng 3*: Đánh giá các mô hình `433M`. Độ chính xác cao nhất được in đậm, cao thứ hai được gạch chân.

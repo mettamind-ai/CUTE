@@ -90,22 +90,21 @@ class Block(nn.Module):
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
+        group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
 
         xn = norm(x) if self.layer_id != 0 else x
         up = self.up_proj(xn)
 
-        # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
         def prepare():
-            q = up[...,     : D          ]
-            v = up[..., D   : D*2        ]
-            k = up[..., D*2 : D*2 + HD//2]
-            q = q.view(T, H, HD   )  # Q  ∈ R^(ctxlen, head_q, dim)
-            v = v.view(T, H, HD   )  # KV ∈ R^(ctxlen, head_kv, dim)
-            k = k.view(T, 1, HD//2)  # K_RoPE ∈ R^(ctxlen, 1, dim/2)
-            if not self.long:  # chỉ áp dụng rope cho short layers
+            q, v, k = torch.split(up[..., : D + D//group + HD//2], [D, D//group, HD//2], dim=-1)
+            # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
+            q = q.view(T, H       , HD   )  # Q  ∈ R^(ctxlen, head_q, dim)
+            v = v.view(T, H//group, HD   )  # KV ∈ R^(ctxlen, head_kv, dim)
+            k = k.view(T, 1       , HD//2)  # K_RoPE ∈ R^(ctxlen, 1, dim/2)
+            if not self.long:               # chỉ áp dụng rope cho short layers
                 q  = rotary(q, half=True)   # quay nửa sau dim
                 k  = rotary(k, half=False)  # quay toàn bộ dim//2
-            k_half = repeat(k, 'T 1 d -> T h d', h=H)  # broadcast toàn bộ heads
+            k_half = repeat(k, 'T 1 d -> T h d', h=H//group)
             k_nope = v[..., : HD//2 ]
             k_full = torch.cat([k_nope, k_half], dim=-1)
             return q, k_full, v
