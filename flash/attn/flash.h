@@ -132,9 +132,6 @@ struct Flash_fwd_params : public Qkv_params {
 
     int num_splits;  // For split-KV version
 
-    void * __restrict__ alibi_slopes_ptr;
-    index_t alibi_slopes_batch_stride;
-
     bool unpadded_lse;  // For varlen paths: LSE is in [nheads, total_seqlen_q] format instead of [b, nheads, seqlen_q].
     bool seqlenq_ngroups_swapped;  // q has been transposed from (b, 1, (nheads_kv ngroups), d) to (b, ngroups, nheads_kv, d).
 };

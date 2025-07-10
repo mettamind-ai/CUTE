@@ -34,34 +34,6 @@ def _get_block_size_n(device, head_dim, is_dropout, is_causal):
         else:       return 32
     elif head_dim <= 256: return 64
 
-def attn_bias_from_alibi_slopes(
-    slopes, seqlen_q, seqlen_k, query_padding_mask=None, key_padding_mask=None, causal=False, key_leftpad=None
-):
-    batch, nheads = slopes.shape
-    device = slopes.device
-    slopes = rearrange(slopes, "b h -> b h 1 1")
-    if causal:
-        return torch.arange(-seqlen_k + 1, 1, device=device, dtype=torch.float32) * slopes
-    else:
-        row_idx = rearrange(torch.arange(seqlen_q, device=device, dtype=torch.long), "s -> s 1")
-        col_idx = torch.arange(seqlen_k, device=device, dtype=torch.long)
-        if key_leftpad is not None:
-            key_leftpad = rearrange(key_leftpad, "b -> b 1 1 1")
-            col_idx = repeat(col_idx, "s -> b 1 1 s", b=key_leftpad.shape[0])
-            col_idx = torch.where(col_idx >= key_leftpad, col_idx - key_leftpad, 2**32)
-        sk = (
-            seqlen_k
-            if key_padding_mask is None
-            else rearrange(key_padding_mask.sum(-1), "b -> b 1 1 1")
-        )
-        sq = (
-            seqlen_q
-            if query_padding_mask is None
-            else rearrange(query_padding_mask.sum(-1), "b -> b 1 1 1")
-        )
-        relative_pos = torch.abs(row_idx + sk - sq - col_idx)
-        return -slopes * relative_pos.to(dtype=slopes.dtype)
-
 
 def generate_random_padding_mask(max_seqlen, batch_size, device, mode="random"):
     assert mode in ["full", "random", "third"]
@@ -577,7 +549,6 @@ def get_dropout_fraction(
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("deterministic", [False, True])
-@pytest.mark.parametrize("alibi", [False, True])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
@@ -596,7 +567,7 @@ def get_dropout_fraction(
 @pytest.mark.parametrize("dropout_p", [0.0])
 @pytest.mark.parametrize("softcap", [0.0, 50.0])
 def test_flash_attn_output(
-    seqlen_q, seqlen_k, d, dropout_p, causal, local, alibi, deterministic, mha_type, dtype, kvpacked, softcap
+    seqlen_q, seqlen_k, d, dropout_p, causal, local, deterministic, mha_type, dtype, kvpacked, softcap
 ):
     if (
         max(seqlen_q, seqlen_k) >= 2048
@@ -628,11 +599,7 @@ def test_flash_attn_output(
         v = torch.randn(
             batch_size, seqlen_k, nheads_k, d, device=device, dtype=dtype, requires_grad=True
         )
-    if alibi:
-        alibi_slopes = torch.rand(batch_size, nheads, device=device, dtype=torch.float32) * 0.3
-        attn_bias = attn_bias_from_alibi_slopes(alibi_slopes, seqlen_q, seqlen_k, causal=causal)
-    else:
-        alibi_slopes, attn_bias = None, None
+        attn_bias = None
 
     if kvpacked:
         out, lse, S_dmask = flash_attn_kvpacked_func(
@@ -642,7 +609,6 @@ def test_flash_attn_output(
             causal=causal,
             window_size=window_size,
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             deterministic=deterministic,
             return_attn_probs=True,
         )
@@ -655,7 +621,6 @@ def test_flash_attn_output(
             causal=causal,
             window_size=window_size,
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             deterministic=deterministic,
             return_attn_probs=True,
         )
@@ -817,9 +782,7 @@ def test_flash_attn_output(
 
     if dropout_p > 0.0:
         assert (attn - attn_ref).abs().max().item() <= 2 * (attn_pt - attn_ref).abs().max().item()
-        # With alibi, many of the prob values are 0.0 & -0.0 so dropout_fraction isn't accurate
-        if not alibi:
-            assert abs(dropout_fraction - dropout_p) <= (0.01 if not local else 0.025)
+        assert abs(dropout_fraction - dropout_p) <= (0.01 if not local else 0.025)
 
     if (d <= MAX_HEADDIM_SM8x or dropout_p == 0) or (is_sm80 or is_sm90):
         assert (dq - dq_ref).abs().max().item() <= 3 * (dq_pt - dq_ref).abs().max().item()
@@ -831,7 +794,6 @@ def test_flash_attn_output(
 @pytest.mark.parametrize('dtype', [torch.bfloat16])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("deterministic", [True])
-@pytest.mark.parametrize("alibi", [False])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize('causal', [True])
 @pytest.mark.parametrize('d', [128])
@@ -851,7 +813,7 @@ def test_flash_attn_output(
 @pytest.mark.parametrize("softcap", [0.0, 50.0])
 @pytest.mark.parametrize('dropout_p', [0.0])
 def test_flash_attn_varlen_output(
-    seqlen_q, seqlen_k, d, dropout_p, causal, local, alibi, deterministic, mha_type, dtype, kvpacked, softcap
+    seqlen_q, seqlen_k, d, dropout_p, causal, local, deterministic, mha_type, dtype, kvpacked, softcap
 ):
     if (
         max(seqlen_q, seqlen_k) >= 2048
@@ -888,13 +850,7 @@ def test_flash_attn_varlen_output(
     query_padding_mask = generate_random_padding_mask(seqlen_q, batch_size, device, mode="random")
     key_padding_mask = generate_random_padding_mask(seqlen_k, batch_size, device, mode="random")
     # key_padding_mask = generate_random_padding_mask(seqlen_k, batch_size, device, mode='full')
-    if alibi:
-        alibi_slopes = torch.rand(batch_size, nheads, device=device, dtype=torch.float32) * 0.3
-        attn_bias = attn_bias_from_alibi_slopes(
-            alibi_slopes, seqlen_q, seqlen_k, query_padding_mask, key_padding_mask, causal=causal
-        )
-    else:
-        alibi_slopes, attn_bias = None, None
+    attn_bias = None
 
     if kvpacked:
         (
@@ -921,7 +877,6 @@ def test_flash_attn_varlen_output(
             causal=causal,
             window_size=window_size,
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             deterministic=deterministic,
             return_attn_probs=True,
         )
@@ -953,7 +908,6 @@ def test_flash_attn_varlen_output(
             causal=causal,
             window_size=window_size,
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             deterministic=deterministic,
             return_attn_probs=True,
         )
@@ -1122,9 +1076,7 @@ def test_flash_attn_varlen_output(
 
     if dropout_p > 0.0:
         assert (attn - attn_ref).abs().max().item() <= 2 * (attn_pt - attn_ref).abs().max().item()
-        # With alibi, many of the prob values are 0.0 & -0.0 so dropout_fraction isn't accurate
-        if not alibi:
-            assert abs(dropout_fraction - dropout_p) <= (0.01 if not local else 0.04)
+        assert abs(dropout_fraction - dropout_p) <= (0.01 if not local else 0.04)
 
     if (d <= MAX_HEADDIM_SM8x or dropout_p == 0) or (is_sm80 or is_sm90):
         assert (dq - dq_ref).abs().max().item() <= 3 * (dq_pt - dq_ref).abs().max().item()
@@ -1396,32 +1348,29 @@ def test_flash_attn_varlen_causal(
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("deterministic", [False, True])
-# @pytest.mark.parametrize("deterministic", [True])
-@pytest.mark.parametrize("alibi", [True])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("d", [128])
 @pytest.mark.parametrize("swap_sq_sk", [False, True])
-# @pytest.mark.parametrize("swap_sq_sk", [False])
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [
         # (1, 339),
+        # (799, 1),
         (3, 1024),
         (64, 800),
-        (799, 1),
         (128, 128),
         (256, 256),
+        (255, 2),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
 def test_flash_attn_splitkv(
-    seqlen_q, seqlen_k, swap_sq_sk, d, causal, local, alibi, deterministic, dtype
+    seqlen_q, seqlen_k, swap_sq_sk, d, causal, local, deterministic, dtype
 ):
     if swap_sq_sk:
         seqlen_q, seqlen_k = seqlen_k, seqlen_q
     device = "cuda"
-    # set seed
     torch.random.manual_seed(0)
     batch_size = 1
     nheads = 12
@@ -1429,11 +1378,7 @@ def test_flash_attn_splitkv(
     q = torch.randn(batch_size, seqlen_q, nheads, d, device=device, dtype=dtype, requires_grad=True)
     k = torch.randn(batch_size, seqlen_k, nheads, d, device=device, dtype=dtype, requires_grad=True)
     v = torch.randn(batch_size, seqlen_k, nheads, d, device=device, dtype=dtype, requires_grad=True)
-    if alibi:
-        alibi_slopes = torch.rand(batch_size, nheads, device=device, dtype=torch.float32) * 0.3
-        attn_bias = attn_bias_from_alibi_slopes(alibi_slopes, seqlen_q, seqlen_k, causal=causal)
-    else:
-        alibi_slopes, attn_bias = None, None
+    attn_bias = None
     out, lse, _ = flash_attn_func(
         q,
         k,
@@ -1441,7 +1386,6 @@ def test_flash_attn_splitkv(
         0.0,
         causal=causal,
         window_size=window_size,
-        alibi_slopes=alibi_slopes,
         deterministic=deterministic,
         return_attn_probs=True,
     )
@@ -1502,7 +1446,7 @@ def test_flash_attn_splitkv(
     # of a Pytorch implementation.
     assert (out - out_ref).abs().max().item() <= 2 * (out_pt - out_ref).abs().max().item() + 1e-5
 
-    mult = 2 if not alibi else 8
+    mult = 2
     assert (dq - dq_ref).abs().max().item() <= mult * (dq_pt - dq_ref).abs().max().item() + 2e-4
     assert (dk - dk_ref).abs().max().item() <= mult * (dk_pt - dk_ref).abs().max().item() + 2e-4
     assert (dv - dv_ref).abs().max().item() <= mult * (dv_pt - dv_ref).abs().max().item() + 2e-4
@@ -1512,7 +1456,6 @@ def test_flash_attn_splitkv(
 @pytest.mark.parametrize("num_splits", [0])
 @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("new_kv", [False, True])
-@pytest.mark.parametrize("alibi", [False])
 @pytest.mark.parametrize("local", [False])
 @pytest.mark.parametrize("causal", [True])
 @pytest.mark.parametrize("seqlen_new_eq_seqlen_q", [True, False])
@@ -1550,7 +1493,6 @@ def test_flash_attn_kvcache(
     seqlen_new_eq_seqlen_q,
     causal,
     local,
-    alibi,
     new_kv,
     mha_type,
     num_splits,
@@ -1622,20 +1564,9 @@ def test_flash_attn_kvcache(
         key_padding_mask = torch.logical_and(
             key_padding_mask, arange >= cache_leftpad.unsqueeze(-1).expand(-1, seqlen_k)
         )
-    if has_batch_idx:
-        cache_batch_idx = torch.randperm(batch_size_cache, dtype=torch.int32, device=device)[
-            :batch_size
-        ]
-    else:
-        cache_batch_idx = None
-    if alibi:
-        alibi_slopes = torch.rand(batch_size, nheads, device=device, dtype=torch.float32) * 0.3
-        attn_bias = attn_bias_from_alibi_slopes(
-            alibi_slopes, seqlen_q, seqlen_k, None, key_padding_mask, causal=causal, key_leftpad=cache_leftpad
-        )
-    else:
-        alibi_slopes, attn_bias = None, None
-    # cache_seqlens = torch.tensor([64], dtype=torch.int32, device=device)
+    cache_batch_idx = None if not has_batch_idx else \
+        torch.randperm(batch_size_cache, dtype=torch.int32, device=device)[:batch_size]
+    attn_bias = None
     if True: # rotary_dim > 0:
         cos, sin = None, None
         q_ro, k_ro = q, k
@@ -1669,7 +1600,6 @@ def test_flash_attn_kvcache(
         causal=causal,
         window_size=window_size,
         rotary_interleaved=rotary_interleaved,
-        alibi_slopes=alibi_slopes,
         num_splits=num_splits,
     )
     # out = flash_attn_with_kvcache(
@@ -1738,7 +1668,7 @@ def test_flash_attn_kvcache(
             )[:, :seqlen_k]
         assert torch.allclose(k_cache_select, k_cache_ref, rtol=1e-3, atol=1e-3)
         assert torch.equal(v_cache_select, v_cache_ref)
-    mult = 3 if not alibi else 5
+    mult = 3
     assert (out - out_ref).abs().max().item() <= mult * (out_pt - out_ref).abs().max().item() + 1e-5
 #'''
 

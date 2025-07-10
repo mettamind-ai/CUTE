@@ -77,7 +77,6 @@ def _flash_attn_varlen_forward(
     window_size_left: int = -1,
     window_size_right: int = -1,
     softcap: float = 0.0,
-    alibi_slopes: Optional[torch.Tensor] = None,
     return_softmax: bool = False,
     block_table: Optional[torch.Tensor] = None,
     leftpad_k: Optional[torch.Tensor] = None,
@@ -95,7 +94,6 @@ def _flash_attn_varlen_forward(
         seqused_k,
         leftpad_k,
         block_table,
-        alibi_slopes,
         max_seqlen_q,
         max_seqlen_k,
         dropout_p,
@@ -128,7 +126,6 @@ def _flash_attn_varlen_forward_fake(
     window_size_left: int = -1,
     window_size_right: int = -1,
     softcap: float = 0.0,
-    alibi_slopes: Optional[torch.Tensor] = None,
     return_softmax: bool = False,
     block_table: Optional[torch.Tensor] = None,
     leftpad_k: Optional[torch.Tensor] = None,
@@ -174,7 +171,6 @@ def _flash_attn_varlen_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
@@ -198,7 +194,6 @@ def _flash_attn_varlen_backward(
         dv,
         cu_seqlens_q,
         cu_seqlens_k,
-        alibi_slopes,
         max_seqlen_q,
         max_seqlen_k,
         dropout_p,
@@ -238,7 +233,6 @@ def _flash_attn_varlen_backward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
@@ -277,7 +271,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
         causal,
         window_size,
         softcap,
-        alibi_slopes,
         deterministic,
         return_softmax,
         block_table,
@@ -307,7 +300,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             window_size_left=window_size[0],
             window_size_right=window_size[1],
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             return_softmax=return_softmax and dropout_p > 0,
             block_table=block_table,
         )
@@ -322,7 +314,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             ctx.causal = causal
             ctx.window_size = window_size
             ctx.softcap = softcap
-            ctx.alibi_slopes = alibi_slopes
             ctx.deterministic = deterministic
 
         out = out_padded[..., :head_size_og]
@@ -356,7 +347,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             ctx.window_size[0],
             ctx.window_size[1],
             ctx.softcap,
-            ctx.alibi_slopes,
             ctx.deterministic,
             rng_state=rng_state,
         )
@@ -379,7 +369,6 @@ def flash_attn_varlen_func(
     causal=True,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
-    alibi_slopes=None,
     deterministic=False,
     return_attn_probs=False,
     block_table=None,
@@ -422,9 +411,6 @@ def flash_attn_varlen_func(
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
         softcap: float. Anything > 0 activates softcapping attention.
-        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
-            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
-            is added to the attention score of query i and key j.
         deterministic: bool. Whether to use the deterministic implementation of the backward pass,
             which is slightly slower and uses more memory. The forward pass is always deterministic.
         return_attn_probs: bool. Whether to return the attention probabilities. This option is for
@@ -452,7 +438,6 @@ def flash_attn_varlen_func(
         causal,
         window_size,
         softcap,
-        alibi_slopes,
         deterministic,
         return_attn_probs,
         block_table,
@@ -477,7 +462,6 @@ def flash_attn_with_kvcache(
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
     rotary_interleaved=True,
-    alibi_slopes=None,
     num_splits=0,
     return_softmax_lse=False,
 ):
@@ -553,9 +537,6 @@ def flash_attn_with_kvcache(
             If True, rotary embedding will combine dimensions 0 & 1, 2 & 3, etc. If False,
             rotary embedding will combine dimensions 0 & rotary_dim / 2, 1 & rotary_dim / 2 + 1
             (i.e. GPT-NeoX style).
-        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
-            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
-            is added to the attention score of query i and key j.
         num_splits: int. If > 1, split the key/value into this many chunks along the sequence.
            If num_splits == 1, we don't split the key/value. If num_splits == 0, we use a heuristic
            to automatically determine the number of splits.
@@ -592,7 +573,6 @@ def flash_attn_with_kvcache(
         cache_batch_idx,
         cache_leftpad,
         block_table,
-        alibi_slopes,
         None,
         softmax_scale,
         causal,
@@ -616,7 +596,6 @@ def _flash_attn_forward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     return_softmax: bool
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
@@ -625,7 +604,6 @@ def _flash_attn_forward(
         k,
         v,
         None,
-        alibi_slopes,
         dropout_p,
         softmax_scale,
         causal,
@@ -649,7 +627,6 @@ def _flash_attn_forward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     return_softmax: bool
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
@@ -684,7 +661,6 @@ def _flash_attn_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
@@ -705,7 +681,6 @@ def _flash_attn_backward(
         dq,
         dk,
         dv,
-        alibi_slopes,
         dropout_p,
         softmax_scale,
         causal,
@@ -736,7 +711,6 @@ def _flash_attn_backward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    alibi_slopes: Optional[torch.Tensor],
     deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
@@ -766,7 +740,6 @@ class FlashAttnFunc(torch.autograd.Function):
         causal,
         window_size,
         softcap,
-        alibi_slopes,
         deterministic,
         return_softmax,
         is_grad_enabled,
@@ -791,7 +764,6 @@ class FlashAttnFunc(torch.autograd.Function):
             window_size_left=window_size[0],
             window_size_right=window_size[1],
             softcap=softcap,
-            alibi_slopes=alibi_slopes,
             return_softmax=return_softmax and dropout_p > 0,
         )
         if is_grad:
@@ -801,7 +773,6 @@ class FlashAttnFunc(torch.autograd.Function):
             ctx.causal = causal
             ctx.window_size = window_size
             ctx.softcap = softcap
-            ctx.alibi_slopes = alibi_slopes
             ctx.deterministic = deterministic
         out = out_padded[..., :head_size_og]
         return out if not return_softmax else (out, softmax_lse, S_dmask)
@@ -830,7 +801,6 @@ class FlashAttnFunc(torch.autograd.Function):
             ctx.window_size[0],
             ctx.window_size[1],
             ctx.softcap,
-            ctx.alibi_slopes,
             ctx.deterministic,
             rng_state=rng_state,
         )
@@ -849,7 +819,6 @@ def flash_attn_func(
     causal=False,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
-    alibi_slopes=None,
     deterministic=False,
     return_attn_probs=False,
 ):
@@ -884,9 +853,6 @@ def flash_attn_func(
             Default to 1 / sqrt(headdim).
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
-        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
-            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
-            is added to the attention score of query i and key j.
         deterministic: bool. Whether to use the deterministic implementation of the backward pass,
             which is slightly slower and uses more memory. The forward pass is always deterministic.
         return_attn_probs: bool. Whether to return the attention probabilities. This option is for
@@ -910,7 +876,6 @@ def flash_attn_func(
         causal,
         window_size,
         softcap,
-        alibi_slopes,
         deterministic,
         return_attn_probs,
         torch.is_grad_enabled(),

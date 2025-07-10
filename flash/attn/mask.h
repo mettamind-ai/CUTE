@@ -107,21 +107,18 @@ __forceinline__ __device__ void apply_mask_causal_w_idx(
     }
 }
 
-template <bool Is_causal, bool Is_local, bool Has_alibi>
+template <bool Is_causal, bool Is_local>
 struct Mask {
 
     const int max_seqlen_k, max_seqlen_q;
     const int window_size_left, window_size_right;
-    const float alibi_slope;
 
     __forceinline__ __device__ Mask(const int max_seqlen_k, const int max_seqlen_q,
-                                    const int window_size_left, const int window_size_right,
-                                    const float alibi_slope=0.f)
+                                    const int window_size_left, const int window_size_right)
         : max_seqlen_k(max_seqlen_k)
         , max_seqlen_q(max_seqlen_q)
         , window_size_left(window_size_left)
-        , window_size_right(window_size_right)
-        , alibi_slope(!Has_alibi ? 0.0 : alibi_slope) {
+        , window_size_right(window_size_right) {
     };
 
     // Causal_mask: whether this particular iteration needs causal masking
@@ -133,13 +130,13 @@ struct Mask {
         static_assert(!(Causal_mask && Is_local), "Cannot be both causal and local");
         static_assert(Layout::rank == 3, "Only support 3D Tensor");
         static_assert(decltype(size<0>(tensor_))::value == 4, "First dimension must be 4");
-        static constexpr bool Need_masking = Has_alibi || Causal_mask || Is_local || !Is_even_MN;
-        // if (cute::thread0()) { printf("Has_alibi = %d, Causal_mask=%d, Is_local=%d, Is_even_MN = %d, Need_masking = %d\n", Has_alibi, Causal_mask, Is_local, Is_even_MN, Need_masking); }
+        static constexpr bool Need_masking = Causal_mask || Is_local || !Is_even_MN;
+        // if (cute::thread0()) { printf("Causal_mask=%d, Is_local=%d, Is_even_MN = %d, Need_masking = %d\n", Causal_mask, Is_local, Is_even_MN, Need_masking); }
         if constexpr (Need_masking) {
             // Reshape tensor_ from (MMA=4, MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, MMA_N))
             Tensor tensor = make_tensor(tensor_.data(), flash::convert_layout_acc_rowcol(tensor_.layout()));
             // Do we need both row and column indices, or just column incides?
-            static constexpr bool Col_idx_only = !(Has_alibi && !Is_causal) && !Is_local && !Causal_mask;
+            static constexpr bool Col_idx_only = !Is_local && !Causal_mask;
             const int lane_id = threadIdx.x % 32;
             const int col_idx_offset = col_idx_offset_ + (lane_id % 4) * 2;
             if constexpr (Col_idx_only) {
@@ -152,9 +149,6 @@ struct Mask {
                         #pragma unroll
                         for (int mi = 0; mi < size<0>(tensor); ++mi) {
                             // No causal, no local
-                            if constexpr (Has_alibi) {
-                                tensor(mi, make_coord(j, nj)) += alibi_slope * col_idx;
-                            }
                             if constexpr (!Is_even_MN) {
                                 if (col_idx >= max_seqlen_k) { tensor(mi, make_coord(j, nj)) = -INFINITY; }
                             }
@@ -176,14 +170,6 @@ struct Mask {
                             #pragma unroll
                             for (int j = 0; j < size<1, 0>(tensor); ++j) {
                                 const int col_idx = col_idx_base + j;
-                                if constexpr (Has_alibi) {
-                                    if constexpr (Is_causal) {
-                                        tensor(make_coord(i, mi), make_coord(j, nj)) += alibi_slope * col_idx;
-                                    } else {
-                                        tensor(make_coord(i, mi), make_coord(j, nj)) -= alibi_slope * abs(row_idx + max_seqlen_k - max_seqlen_q - col_idx);
-
-                                    }
-                                }
                                 if constexpr (Causal_mask) {
                                     if (col_idx >= col_idx_limit_right) {
                                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
