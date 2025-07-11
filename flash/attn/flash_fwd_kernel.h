@@ -336,7 +336,6 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = flash::convert_type<Element>(acc_s);
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
-        int block_col_idx = n_block * (kBlockN / 32);
 
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
         // if using m16n8k16 or (4, MMA_M, MMA_N) if using m16n8k8.
@@ -386,7 +385,6 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
         Tensor rP = flash::convert_type<Element>(acc_s);
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
-        int block_col_idx = n_block * (kBlockN / 32);
 
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
         // if using m16n8k16 or (4, MMA_M, MMA_N) if using m16n8k8.

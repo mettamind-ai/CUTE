@@ -439,7 +439,6 @@ mha_varlen_fwd(
 
     auto opts = q.options();
     auto softmax_lse = torch::empty({num_heads, total_q}, opts.dtype(at::kFloat));
-    at::Tensor p;
 
     if (zero_tensors) {
         out.zero_();
@@ -447,24 +446,26 @@ mha_varlen_fwd(
     }
 
     Flash_fwd_params params;
-    set_params_fprop(params,
-                     batch_size,
-                     max_seqlen_q, max_seqlen_k,
-                     seqlen_q_rounded, seqlen_k_rounded,
-                     num_heads, num_heads_k,
-                     head_size, head_size_rounded,
-                     q, k, v, out,
-                     cu_seqlens_q_d,
-                     cu_seqlens_k.data_ptr(),
-                     seqused_k.has_value() ? seqused_k.value().data_ptr() : nullptr,
-                     nullptr, // p_ptr = null => do not return softmax
-                     softmax_lse.data_ptr(),
-                     softmax_scale,
-                     window_size_left,
-                     window_size_right,
-                     softcap,
-                     seqlenq_ngroups_swapped,
-                     /*unpadded_lse*/true);
+    set_params_fprop(
+        params,
+        batch_size,
+        max_seqlen_q, max_seqlen_k,
+        seqlen_q_rounded, seqlen_k_rounded,
+        num_heads, num_heads_k,
+        head_size, head_size_rounded,
+        q, k, v, out,
+        cu_seqlens_q_d,
+        cu_seqlens_k.data_ptr(),
+        seqused_k.has_value() ? seqused_k.value().data_ptr() : nullptr,
+        nullptr, // p_ptr = null
+        softmax_lse.data_ptr(),
+        softmax_scale,
+        window_size_left,
+        window_size_right,
+        softcap,
+        seqlenq_ngroups_swapped,
+        /*unpadded_lse*/true
+    );
     params.total_q = total_q;
 
     if (paged_KV) {
@@ -494,13 +495,7 @@ mha_varlen_fwd(
         params.leftpad_k = static_cast<int *>(leftpad_k.data_ptr());
     }
 
-    // number of times random will be generated per thread, to offset philox counter in thc random state
-    // We use a custom RNG that increases the offset by batch_size * nheads * 32.
-    int64_t counter_offset = params.b * params.h * 32;
     auto options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
-    auto rng_state = torch::empty({2}, options.dtype(torch::kInt64));
-    // Forward kernel will populate memory with the seed and offset.
-    params.rng_state = reinterpret_cast<uint64_t*>(rng_state.data_ptr());
 
     if (max_seqlen_k > 0) {
         auto stream = at::cuda::getCurrentCUDAStream().stream();
@@ -519,7 +514,7 @@ mha_varlen_fwd(
         softmax_lse = softmax_lse.reshape({num_heads * max_seqlen_q, batch_size});
     }
 
-    return {out, softmax_lse, p, rng_state};
+    return {out, softmax_lse};
 }
 
 std::vector<at::Tensor>
@@ -543,13 +538,8 @@ mha_varlen_bwd(
     int window_size_left,
     int window_size_right,
     const float softcap,
-    c10::optional<at::Generator> gen_,
-    c10::optional<at::Tensor> &rng_state
-) {
+    c10::optional<at::Generator> gen_) {
 
-    #ifdef FLASHATTENTION_DISABLE_BACKWARD
-        TORCH_CHECK(false, "This flash attention build does not support backward.");
-    #endif
     if (is_causal) { window_size_right = 0; }
 
     // Otherwise the kernel will be launched from cuda:0 device
@@ -705,13 +695,6 @@ mha_varlen_bwd(
 
     auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
         gen_, at::cuda::detail::getDefaultCUDAGenerator());
-
-    // We use a custom RNG that increases the offset by batch_size * nheads * 32.
-    int64_t counter_offset = params.b * params.h * 32;
-
-    if ( rng_state.has_value() ) {
-        params.rng_state = reinterpret_cast<uint64_t*>(rng_state.value().data_ptr());
-    }
 
     if (max_seqlen_q > 0) {
         launch(params, stream);
@@ -1089,28 +1072,27 @@ mha_fwd(
     const int seqlen_k_rounded = round_multiple(seqlen_k, 128);
 
     auto opts = q.options();
-
     auto softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
-    at::Tensor p;
 
     Flash_fwd_params params;
-    set_params_fprop(params,
-                     batch_size,
-                     seqlen_q, seqlen_k,
-                     seqlen_q_rounded, seqlen_k_rounded,
-                     num_heads, num_heads_k,
-                     head_size, head_size_rounded,
-                     q, k, v, out,
-                     /*cu_seqlens_q_d=*/nullptr,
-                     /*cu_seqlens_k_d=*/nullptr,
-                     /*seqused_k=*/nullptr,
-                     /*p_ptr=*/nullptr,
-                     softmax_lse.data_ptr(),
-                     softmax_scale,
-                     window_size_left,
-                     window_size_right,
-                     softcap
-                     );
+    set_params_fprop(
+        params,
+        batch_size,
+        seqlen_q, seqlen_k,
+        seqlen_q_rounded, seqlen_k_rounded,
+        num_heads, num_heads_k,
+        head_size, head_size_rounded,
+        q, k, v, out,
+        /*cu_seqlens_q_d=*/nullptr,
+        /*cu_seqlens_k_d=*/nullptr,
+        /*seqused_k=*/nullptr,
+        /*p_ptr=*/nullptr,
+        softmax_lse.data_ptr(),
+        softmax_scale,
+        window_size_left,
+        window_size_right,
+        softcap
+    );
 
     // Keep references to these tensors to extend their lifetime
     at::Tensor softmax_lse_accum, out_accum;
@@ -1118,14 +1100,7 @@ mha_fwd(
         params, batch_size, num_heads, head_size, seqlen_k, seqlen_q,
         head_size_rounded, /*num_splits*/ 0, get_num_sm(get_current_device()), opts);
 
-    // number of times random will be generated per thread, to offset philox counter in thc random
-    // state
-    // We use a custom RNG that increases the offset by batch_size * nheads * 32.
-    int64_t counter_offset = params.b * params.h * 32;
     auto options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
-    auto rng_state = torch::empty({2}, options.dtype(torch::kInt64));
-    // Forward kernel will populate memory with the seed and offset.
-    params.rng_state = reinterpret_cast<uint64_t*>(rng_state.data_ptr());
 
     if (seqlen_k > 0) {
         auto stream = at::cuda::getCurrentCUDAStream().stream();
@@ -1141,7 +1116,7 @@ mha_fwd(
         q = q.transpose(1, 2).reshape({batch_size, 1, num_heads_k * seqlen_q, head_size});
         softmax_lse = softmax_lse.reshape({batch_size, num_heads_k * seqlen_q, 1});
     }
-    return {out, softmax_lse, p, rng_state};
+    return {out, softmax_lse};
 }
 
 
@@ -1160,12 +1135,8 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
         int window_size_left,
         int window_size_right,
         const float softcap,
-        std::optional<at::Generator> gen_,
-        std::optional<at::Tensor> &rng_state) {
+        std::optional<at::Generator> gen_) {
 
-    #ifdef FLASHATTENTION_DISABLE_BACKWARD
-        TORCH_CHECK(false, "This flash attention build does not support backward.");
-    #endif
     if (is_causal) { window_size_right = 0; }
 
     // Otherwise the kernel will be launched from cuda:0 device
@@ -1272,38 +1243,33 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
 
     Flash_bwd_params params;
 
-    set_params_dgrad(params,
-                     batch_size,
-                     seqlen_q, seqlen_k,
-                     seqlen_q_rounded, seqlen_k_rounded,
-                     num_heads, num_heads_k,
-                     head_size, head_size_rounded,
-                     q, k, v, out,
-                     dout, dq, dk_expanded, dv_expanded,
-                     nullptr,
-                     nullptr,
-                     loop ? dq_accum.data_ptr() : nullptr,
-                     nullptr,
-                     nullptr,
-                     softmax_lse.data_ptr(),
-                     softmax_d.data_ptr(),
-                     softmax_scale,
-                     window_size_left,
-                     window_size_right,
-                     softcap,
-                     /*unpadded_lse*/false);
+    set_params_dgrad(
+        params,
+        batch_size,
+        seqlen_q, seqlen_k,
+        seqlen_q_rounded, seqlen_k_rounded,
+        num_heads, num_heads_k,
+        head_size, head_size_rounded,
+        q, k, v, out,
+        dout, dq, dk_expanded, dv_expanded,
+        nullptr,
+        nullptr,
+        loop ? dq_accum.data_ptr() : nullptr,
+        nullptr,
+        nullptr,
+        softmax_lse.data_ptr(),
+        softmax_d.data_ptr(),
+        softmax_scale,
+        window_size_left,
+        window_size_right,
+        softcap,
+        /*unpadded_lse*/false
+    );
 
     auto launch = &run_mha_bwd;
 
     auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
         gen_, at::cuda::detail::getDefaultCUDAGenerator());
-
-    // We use a custom RNG that increases the offset by batch_size * nheads * 32.
-    int64_t counter_offset = params.b * params.h * 32;
-
-    if ( rng_state.has_value() ) {
-        params.rng_state = reinterpret_cast<uint64_t*>(rng_state.value().data_ptr());
-    }
 
     if (seqlen_q > 0) {
         launch(params, stream);
