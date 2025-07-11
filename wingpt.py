@@ -44,14 +44,14 @@ class Rotary(nn.Module):
 
 
     def forward(self, x: Tensor, half=True):
-        ctxlen = x.shape[0]
+        ctxlen, head, dim = x.shape
         assert self.cos.shape[0] >= ctxlen
 
         if half:
-            assert self.rotary_dim == x.shape[-1] // 2 and x.shape[-1] % 2 == 0
+            assert self.rotary_dim == dim // 2 and dim % 2 == 0
             x_pass, x_rot = x.chunk(2, dim=-1)
         else:
-            assert self.rotary_dim == x.shape[-1]
+            assert self.rotary_dim == dim
             x_rot = x
 
         cos = self.cos[:ctxlen, None, :]
@@ -68,10 +68,14 @@ class Rotary(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, head_dim, layer_id):
+    def __init__(self, dim, head_dim, vocab_size, layer_id):
         super().__init__()
         self.layer_id = layer_id
         self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
+
+        self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
+        self.vdim = dim//(2 * self.group)
+        self.ple = nn.Embedding(vocab_size, self.vdim)
 
         self.window = SLIDING_WINDOW * 4 if self.long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
@@ -87,27 +91,32 @@ class Block(nn.Module):
             self.down_proj.weight.zero_()
 
 
-    def forward(self, x, cu_seqlens, max_seqlen, rotary):
+    def forward(self, x, cu_seqlens, max_seqlen, input_seq, rotary):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
-        group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
+        G, VD = self.group, self.vdim
 
         xn = norm(x) if self.layer_id != 0 else x
         up = self.up_proj(xn)
 
         def prepare():
-            q, v, k = torch.split(up[..., : D + D//group + HD//2], [D, D//group, HD//2], dim=-1)
+            e       = self.ple(input_seq)       # get per-layer embedding
+            q, v, k = torch.split(up[..., : D + VD + HD//2], [D, VD, HD//2], dim=-1)
+
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
-            q = q.view(T, H       , HD   )  # Q  ∈ R^(ctxlen, head_q, dim)
-            v = v.view(T, H//group, HD   )  # KV ∈ R^(ctxlen, head_kv, dim)
-            k = k.view(T, 1       , HD//2)  # K_RoPE ∈ R^(ctxlen, 1, dim/2)
-            if not self.long:               # chỉ áp dụng rope cho short layers
-                q  = rotary(q, half=True)   # quay nửa sau dim
-                k  = rotary(k, half=False)  # quay toàn bộ dim//2
-            k_half = repeat(k, 'T 1 d -> T h d', h=H//group)
-            k_nope = v[..., : HD//2 ]
-            k_full = torch.cat([k_nope, k_half], dim=-1)
-            return q, k_full, v
+            q       = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q, dim)
+            kv_half = v.view(T, H//G, HD//2)    # KV_half ∈ R^(ctxlen, head_kv, dim//2)
+            v_half  = e.view(T, H//G, HD//2)    # Nửa còn lại của value lấy từ PLE (per layer embedding)
+            k       = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1, dim/2)
+
+            if not self.long:  # Chỉ áp dụng rope cho short layers
+                q   = rotary(q, half=True)      # quay nửa sau dim
+                k   = rotary(k, half=False)     # quay toàn bộ dim//2
+
+            k_half  = repeat(k, 'T 1 d -> T h d', h=H//G)
+            k_full  = torch.cat([kv_half, k_half], dim=-1)
+            v_full  = torch.cat([kv_half, v_half], dim=-1)
+            return q, k_full, v_full
 
         q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
@@ -120,9 +129,9 @@ class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, head_dim, i) for i in range(n_layers)])
+        self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, -2)
+        self.mtp_head = Block(dim, head_dim, vocab_size, -2)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = nn.Linear(dim, vocab_size, bias=False)
         with torch.no_grad():
@@ -132,7 +141,7 @@ class WinGPT(nn.Module):
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
         x = norm(self.embeds(input_seq))
-        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
+        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, input_seq, self.rotary)
         return x
 
 
@@ -148,7 +157,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
         return xn, y
 
     xn, y = checkpoint(prepare, use_reentrant=False)
-    yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, model.rotary))
+    yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, input_seq, model.rotary))
 
     ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore
