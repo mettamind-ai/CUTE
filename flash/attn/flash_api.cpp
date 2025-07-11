@@ -82,9 +82,6 @@ void set_params_fprop(Flash_fwd_params &params,
     params.cu_seqlens_k = static_cast<int *>(cu_seqlens_k_d);
     params.seqused_k    = static_cast<int *>(seqused_k);
 
-    // P = softmax(QK^T)
-    params.p_ptr = p_d;
-
     // Softmax sum
     params.softmax_lse_ptr = softmax_lse_d;
 

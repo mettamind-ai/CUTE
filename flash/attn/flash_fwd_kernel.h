@@ -144,9 +144,6 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                             make_stride(params.v_row_stride, params.v_head_stride, _1{}));
     Tensor gV = local_tile(mV(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));  // (kBlockN, kHeadDim, nblocksN)
-    Tensor gP = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.p_ptr) + row_offset_p),
-                            Shape<Int<kBlockM>, Int<kBlockN>>{},
-                            make_stride(params.seqlen_k_rounded, _1{}));
 
     Tensor sQ = make_tensor(make_smem_ptr(reinterpret_cast<Element *>(smem_)),
                             typename Kernel_traits::SmemLayoutQ{});
@@ -172,9 +169,6 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor tSrQ  = thr_mma.partition_fragment_A(sQ);                           // (MMA,MMA_M,MMA_K)
     Tensor tSrK  = thr_mma.partition_fragment_B(sK);                           // (MMA,MMA_N,MMA_K)
     Tensor tOrVt  = thr_mma.partition_fragment_B(sVtNoSwizzle);                // (MMA, MMA_K,MMA_N)
-
-    Tensor tSgS  = thr_mma.partition_C(gP);
-
     Tensor acc_o = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kHeadDim>>{});  // MMA, MMA_M, MMA_K
 
     //
