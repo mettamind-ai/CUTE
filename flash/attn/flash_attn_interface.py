@@ -9,9 +9,7 @@ import os, time, psutil, torch.utils.cpp_extension
 from pathlib import Path
 
 free_memory_gb = round(psutil.virtual_memory().available / (1024 ** 3))
-if not os.environ.get("MAX_JOBS"):
-    max_jobs = int(free_memory_gb / 6)
-    os.environ["MAX_JOBS"] = str(max_jobs)
+if not os.environ.get("MAX_JOBS"): os.environ["MAX_JOBS"] = str(int(free_memory_gb / 6))
 print(f"flash_attn_2.7.1: free_memory_gb {free_memory_gb}, max_jobs {os.environ['MAX_JOBS']}")
 
 NVCC_FLAGS = [
@@ -40,6 +38,9 @@ CUTE_EXT = torch.utils.cpp_extension.load(
         abspath/"hdim128_bf16_causal_sm80_fwd_splitkv.cu", 
         abspath/"hdim128_bf16_causal_sm80_fwd.cu", 
         abspath/"hdim128_bf16_causal_sm80_bwd.cu", 
+        abspath/"hdim128_bf16_sm80_fwd_splitkv.cu", 
+        abspath/"hdim128_bf16_sm80_fwd.cu", 
+        abspath/"hdim128_bf16_sm80_bwd.cu", 
     ],
     extra_cuda_cflags=NVCC_FLAGS,
     extra_include_paths=[ str(abspath), str(abspath/"../cutlass/include"),],
@@ -56,8 +57,6 @@ def maybe_contiguous(x): return x.contiguous() if x is not None and x.stride(-1)
 def round_multiple(x, m): return (x + m - 1) // m * m
 
 # torch.compile() support is only enabled for pytorch >= 2.4
-# The reason for this is that we are using the new custom_op and register_fake
-# APIs, which support inplace modification of inputs in the function itself
 assert torch.__version__ >= "2.4.0"
 _torch_custom_op_wrapper = torch.library.custom_op
 _torch_register_fake_wrapper = torch.library.register_fake
@@ -561,9 +560,7 @@ def _flash_attn_forward(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
     out, softmax_lse, S_dmask, rng_state = CUTE_EXT.fwd(
-        q,
-        k,
-        v,
+        q, k, v,
         None,
         softmax_scale,
         causal,

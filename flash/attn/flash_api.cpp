@@ -20,32 +20,32 @@
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 
 void set_params_fprop(Flash_fwd_params &params,
-                      // sizes
-                      const size_t b,
-                      const size_t seqlen_q,
-                      const size_t seqlen_k,
-                      const size_t seqlen_q_rounded,
-                      const size_t seqlen_k_rounded,
-                      const size_t h,
-                      const size_t h_k,
-                      const size_t d,
-                      const size_t d_rounded,
-                      // device pointers
-                      const at::Tensor q,
-                      const at::Tensor k,
-                      const at::Tensor v,
-                            at::Tensor out,
-                      void *cu_seqlens_q_d,
-                      void *cu_seqlens_k_d,
-                      void *seqused_k,
-                      void *p_d,
-                      void *softmax_lse_d,
-                      float softmax_scale,
-                      int window_size_left,
-                      int window_size_right,
-                      const float softcap,
-                      bool seqlenq_ngroups_swapped=false,
-                      const bool unpadded_lse=false) {
+    // sizes
+    const size_t b,
+    const size_t seqlen_q,
+    const size_t seqlen_k,
+    const size_t seqlen_q_rounded,
+    const size_t seqlen_k_rounded,
+    const size_t h,     // head_q
+    const size_t h_k,   // head_k
+    const size_t d,     // dim of head
+    const size_t d_rounded,
+    // device pointers
+    const at::Tensor q,
+    const at::Tensor k, 
+    const at::Tensor v,
+        at::Tensor out,
+    void *cu_seqlens_q_d,
+    void *cu_seqlens_k_d,
+    void *seqused_k,        // sử dụng cho KV cache?
+    void *p_d,              // softmax or attn score
+    void *softmax_lse_d,
+    float softmax_scale,
+    int window_size_left,
+    int window_size_right,
+    const float softcap,
+    bool seqlenq_ngroups_swapped=false,
+    const bool unpadded_lse=false) {
 
     // Reset the parameters
     params = {};
@@ -73,14 +73,14 @@ void set_params_fprop(Flash_fwd_params &params,
         params.v_batch_stride = v.stride(0);
         params.o_batch_stride = out.stride(0);
         if (seqlenq_ngroups_swapped) {
-             params.q_batch_stride *= seqlen_q;
-             params.o_batch_stride *= seqlen_q;
+            params.q_batch_stride *= seqlen_q;
+            params.o_batch_stride *= seqlen_q;
         }
     }
 
     params.cu_seqlens_q = static_cast<int *>(cu_seqlens_q_d);
     params.cu_seqlens_k = static_cast<int *>(cu_seqlens_k_d);
-    params.seqused_k = static_cast<int *>(seqused_k);
+    params.seqused_k    = static_cast<int *>(seqused_k);
 
     // P = softmax(QK^T)
     params.p_ptr = p_d;
@@ -101,9 +101,6 @@ void set_params_fprop(Flash_fwd_params &params,
     params.d_rounded = d_rounded;
 
     // Set the different scale values.
-    #ifdef FLASHATTENTION_DISABLE_SOFTCAP
-        TORCH_CHECK(softcap <= 0.0, "This flash attention build does not support softcap.");
-    #endif
     if (softcap > 0.0) {
         params.softcap = softmax_scale / softcap;
         params.scale_softmax = softcap;
@@ -220,28 +217,19 @@ void set_params_dgrad(Flash_bwd_params &params,
 }
 
 void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
-    // FP16_SWITCH(!params.is_bf16, [&] {
-    //     HEADDIM_SWITCH(params.d, [&] {
-    //         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-                if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
-                    run_mha_fwd_<cutlass::bfloat16_t, 128, true>(params, stream);
-                } else {
-                    run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, 128, true>(params, stream);
-                    // run_mha_fwd_splitkv_dispatch<elem_type, kHeadDim, Is_causal>(params, stream);
-                }
-    //         });
-    //     });
-    // });
+    BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+        if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
+            run_mha_fwd_<cutlass::bfloat16_t, 128, Is_causal>(params, stream);
+        } else {
+            run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, 128, Is_causal>(params, stream);
+        }
+    });
 }
 
 void run_mha_bwd(Flash_bwd_params &params, cudaStream_t stream) {
-    // FP16_SWITCH(!params.is_bf16, [&] {
-    //     HEADDIM_SWITCH(params.d, [&] {
-    //         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-                run_mha_bwd_<cutlass::bfloat16_t, 128, true>(params, stream);
-    //         });
-    //     });
-    // });
+    BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+        run_mha_bwd_<cutlass::bfloat16_t, 128, Is_causal>(params, stream);
+    });
 }
 
 
