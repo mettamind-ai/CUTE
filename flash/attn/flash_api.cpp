@@ -136,54 +136,56 @@ void set_params_fprop(Flash_fwd_params &params,
     params.seqlenq_ngroups_swapped = seqlenq_ngroups_swapped;
 }
 
-void set_params_dgrad(Flash_bwd_params &params,
-                      // sizes
-                      const size_t b,
-                      const size_t seqlen_q,
-                      const size_t seqlen_k,
-                      const size_t seqlen_q_rounded,
-                      const size_t seqlen_k_rounded,
-                      const size_t h,
-                      const size_t h_k,
-                      const size_t d,
-                      const size_t d_rounded,
-                      // device pointers
-                      const at::Tensor q,
-                      const at::Tensor k,
-                      const at::Tensor v,
-                      const at::Tensor out,
-                      const at::Tensor dout,
-                      at::Tensor dq,
-                      at::Tensor dk,
-                      at::Tensor dv,
-                      void *cu_seqlens_q_d,
-                      void *cu_seqlens_k_d,
-                      void *dq_accum_d,
-                      void *dk_accum_d,
-                      void *dv_accum_d,
-                      void *softmax_lse_d,
-                      void *dsoftmax_sum_d,
-                      float softmax_scale,
-                      int window_size_left,
-                      int window_size_right,
-                      const float softcap,
-                      bool deterministic,
-                      const bool unpadded_lse) {
+void set_params_dgrad(
+    Flash_bwd_params &params,
+    // sizes
+    const size_t b,
+    const size_t seqlen_q,
+    const size_t seqlen_k,
+    const size_t seqlen_q_rounded,
+    const size_t seqlen_k_rounded,
+    const size_t h,
+    const size_t h_k,
+    const size_t d,
+    const size_t d_rounded,
+    // device pointers
+    const at::Tensor q,
+    const at::Tensor k,
+    const at::Tensor v,
+    const at::Tensor out,
+    const at::Tensor dout,
+    at::Tensor dq,
+    at::Tensor dk,
+    at::Tensor dv,
+    void *cu_seqlens_q_d,
+    void *cu_seqlens_k_d,
+    void *dq_accum_d,
+    void *dk_accum_d,
+    void *dv_accum_d,
+    void *softmax_lse_d,
+    void *dsoftmax_sum_d,
+    float softmax_scale,
+    int window_size_left,
+    int window_size_right,
+    const float softcap,
+    const bool unpadded_lse) {
 
-    set_params_fprop(params,
-                     b, seqlen_q, seqlen_k, seqlen_q_rounded, seqlen_k_rounded, h, h_k, d, d_rounded,
-                     q, k, v, out,
-                     cu_seqlens_q_d,
-                     cu_seqlens_k_d,
-                     nullptr,
-                     nullptr,
-                     softmax_lse_d,
-                     softmax_scale,
-                     window_size_left,
-                     window_size_right,
-                     softcap,
-                     false, // seqlenq_ngroups_swapped
-                     unpadded_lse);
+    set_params_fprop(
+        params,
+        b, seqlen_q, seqlen_k, seqlen_q_rounded, seqlen_k_rounded, h, h_k, d, d_rounded,
+        q, k, v, out,
+        cu_seqlens_q_d,
+        cu_seqlens_k_d,
+        nullptr,
+        nullptr,
+        softmax_lse_d,
+        softmax_scale,
+        window_size_left,
+        window_size_right,
+        softcap,
+        false, // seqlenq_ngroups_swapped
+        unpadded_lse
+    );
 
     // Set the pointers and strides.
     params.do_ptr = dout.data_ptr();
@@ -212,8 +214,6 @@ void set_params_dgrad(Flash_bwd_params &params,
 
     // Softmax sum
     params.dsoftmax_sum = dsoftmax_sum_d;
-
-    params.deterministic = deterministic;
 }
 
 void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
@@ -543,7 +543,6 @@ mha_varlen_bwd(
     int window_size_left,
     int window_size_right,
     const float softcap,
-    const bool deterministic,
     c10::optional<at::Generator> gen_,
     c10::optional<at::Tensor> &rng_state
 ) {
@@ -659,12 +658,7 @@ mha_varlen_bwd(
         // be at least 128 apart. It's ok for us to do atomicAdds up to 128 rows beyond what we're normally
         // allowed to do. So we won't have to do any bound checking, and performance should stay the same.
         // Same holds for softmax_d, since LSE is stored in unpadded format.
-        if (!deterministic) {
-            dq_accum = torch::empty({total_q + 128 * batch_size, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
-        } else {
-            const int nsplits = (get_num_sm(get_current_device()) + batch_size * num_heads - 1) / (batch_size * num_heads);
-            dq_accum = torch::zeros({nsplits, total_q + 128 * batch_size, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
-        }
+        dq_accum = torch::empty({total_q + 128 * batch_size, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
     }
 
     at::Tensor dk_expanded, dv_expanded;
@@ -704,9 +698,7 @@ mha_varlen_bwd(
                      window_size_left,
                      window_size_right,
                      softcap,
-                     deterministic,
                      /*unpadded_lse*/true);
-    params.dq_accum_split_stride = !deterministic ? 0 : dq_accum.stride(0);
     params.total_q = total_q;
 
     auto launch = &run_mha_bwd;
@@ -1168,7 +1160,6 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
         int window_size_left,
         int window_size_right,
         const float softcap,
-        const bool deterministic,
         std::optional<at::Generator> gen_,
         std::optional<at::Tensor> &rng_state) {
 
@@ -1266,16 +1257,8 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
     auto opts = q.options();
     auto softmax_d = torch::empty({batch_size, num_heads, seqlen_q_rounded}, opts.dtype(at::kFloat));
     at::Tensor dq_accum;
-    at::Tensor dk_accum, dv_accum;
     if (loop) {
-        if (!deterministic) {
-            dq_accum = torch::empty({batch_size, seqlen_q_rounded, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
-        } else {
-            const int nsplits = (get_num_sm(get_current_device()) + batch_size * num_heads - 1) / (batch_size * num_heads);
-            dq_accum = torch::zeros({nsplits, batch_size, seqlen_q_rounded, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
-        }
-        // dk_accum = torch::empty({batch_size, num_heads_k, seqlen_k_rounded, head_size_rounded}, opts.dtype(at::kFloat));
-        // dv_accum = torch::empty({batch_size, num_heads_k, seqlen_k_rounded, head_size_rounded}, opts.dtype(at::kFloat));
+        dq_accum = torch::empty({batch_size, seqlen_q_rounded, num_heads, head_size_rounded}, opts.dtype(at::kFloat));
     }
 
     at::Tensor dk_expanded, dv_expanded;
@@ -1300,8 +1283,6 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
                      nullptr,
                      nullptr,
                      loop ? dq_accum.data_ptr() : nullptr,
-                     // loop ? dk_accum.data_ptr() : nullptr,
-                     // loop ? dv_accum.data_ptr() : nullptr,
                      nullptr,
                      nullptr,
                      softmax_lse.data_ptr(),
@@ -1310,9 +1291,7 @@ mha_bwd(const at::Tensor &dout,     // batch_size x seqlen_q x num_heads,  x mul
                      window_size_left,
                      window_size_right,
                      softcap,
-                     deterministic,
                      /*unpadded_lse*/false);
-    params.dq_accum_split_stride = !deterministic ? 0 : dq_accum.stride(0);
 
     auto launch = &run_mha_bwd;
 

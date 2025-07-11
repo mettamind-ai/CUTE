@@ -236,7 +236,6 @@ inline __device__ void convert_dQ(const Params &params, const int nsplits) {
         cute::copy(gmem_tiled_copy_dQaccum, tdQgdQaccum, tdQrdQaccum);
         #pragma unroll
         for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) += tdQrdQaccum(i); }
-        tdQgdQaccum.data() = tdQgdQaccum.data() + params.dq_accum_split_stride;
     }
     #pragma unroll
     for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) *= params.scale_softmax; }

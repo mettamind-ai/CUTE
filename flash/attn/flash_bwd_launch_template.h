@@ -64,17 +64,8 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, cudaStream_t stream) 
     dim3 grid_m(num_m_block, params.b, params.h);
     const int num_n_block = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
     int gridDimx = num_n_block;
-    if (params.deterministic) {
-        int num_sm = get_num_sm(get_current_device());
-        gridDimx = (num_sm + params.b * params.h - 1) / (params.b * params.h);
-    }
     dim3 grid_n(gridDimx, params.b, params.h);
-
-    if (!params.deterministic) {
-        flash_bwd_dot_do_o_kernel<true, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
-    } else {
-        flash_bwd_dot_do_o_kernel<false, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
-    }
+    flash_bwd_dot_do_o_kernel<true, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     // We want to specialize to is_even_MN and not just is_even_M, since in the case where N is not
@@ -107,7 +98,7 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, cudaStream_t stream) 
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel_dq, cudaFuncAttributeMaxDynamicSharedMemorySize, Kernel_traits::kSmemdQSize));
     }
-    kernel_dq<<<grid_m, Kernel_traits::kNThreads, Kernel_traits::kSmemdQSize, stream>>>(params, !params.deterministic ? 1 : gridDimx);
+    kernel_dq<<<grid_m, Kernel_traits::kNThreads, Kernel_traits::kSmemdQSize, stream>>>(params, 1);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 

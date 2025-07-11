@@ -160,7 +160,6 @@ def _flash_attn_varlen_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
 ) -> torch.Tensor:
@@ -191,12 +190,9 @@ def _flash_attn_varlen_backward(
         window_size_left,
         window_size_right,
         softcap,
-        deterministic,
         None,
         rng_state,
     )
-    # if dk.isnan().any() or dk.isnan().any() or dv.isnan().any() or softmax_d.isnan().any():
-    #     breakpoint()
     return softmax_d
 
 
@@ -220,7 +216,6 @@ def _flash_attn_varlen_backward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
 ) -> torch.Tensor:
@@ -257,7 +252,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
         causal,
         window_size,
         softcap,
-        deterministic,
         block_table,
         is_grad_enabled,
     ):
@@ -296,7 +290,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             ctx.causal = causal
             ctx.window_size = window_size
             ctx.softcap = softcap
-            ctx.deterministic = deterministic
 
         out = out_padded[..., :head_size_og]
         return out
@@ -328,7 +321,6 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             ctx.window_size[0],
             ctx.window_size[1],
             ctx.softcap,
-            ctx.deterministic,
             rng_state=rng_state,
         )
         dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension
@@ -349,7 +341,6 @@ def flash_attn_varlen_func(
     causal=True,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
-    deterministic=False,
     block_table=None,
 ):
     """
@@ -389,8 +380,6 @@ def flash_attn_varlen_func(
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
         softcap: float. Anything > 0 activates softcapping attention.
-        deterministic: bool. Whether to use the deterministic implementation of the backward pass,
-            which is slightly slower and uses more memory. The forward pass is always deterministic.
     Return:
         out: (total, nheads, headdim).
     """
@@ -406,7 +395,6 @@ def flash_attn_varlen_func(
         causal,
         window_size,
         softcap,
-        deterministic,
         block_table,
         torch.is_grad_enabled(),
     )
@@ -613,7 +601,6 @@ def _flash_attn_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     # dq, dk, dv are allocated by us so they should already be contiguous
@@ -638,7 +625,6 @@ def _flash_attn_backward(
         window_size_left,
         window_size_right,
         softcap,
-        deterministic,
         None,
         rng_state,
     )
@@ -661,7 +647,6 @@ def _flash_attn_backward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
-    deterministic: bool,
     rng_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
@@ -686,7 +671,6 @@ class FlashAttnFunc(torch.autograd.Function):
         causal,
         window_size,
         softcap,
-        deterministic,
         is_grad_enabled,
     ):
         is_grad = is_grad_enabled and any(
@@ -715,7 +699,6 @@ class FlashAttnFunc(torch.autograd.Function):
             ctx.causal = causal
             ctx.window_size = window_size
             ctx.softcap = softcap
-            ctx.deterministic = deterministic
         out = out_padded[..., :head_size_og]
         return out
 
@@ -742,7 +725,6 @@ class FlashAttnFunc(torch.autograd.Function):
             ctx.window_size[0],
             ctx.window_size[1],
             ctx.softcap,
-            ctx.deterministic,
             rng_state=rng_state,
         )
         dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension
@@ -759,7 +741,6 @@ def flash_attn_func(
     causal=False,
     window_size=(-1, -1),  # -1 means infinite context window
     softcap=0.0, # 0.0 means deactivated
-    deterministic=False,
 ):
     """
     Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
@@ -791,8 +772,6 @@ def flash_attn_func(
             Default to 1 / sqrt(headdim).
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
-        deterministic: bool. Whether to use the deterministic implementation of the backward pass,
-            which is slightly slower and uses more memory. The forward pass is always deterministic.
     Return:
         out: (batch_size, seqlen, nheads, headdim).
     """
@@ -804,6 +783,5 @@ def flash_attn_func(
         causal,
         window_size,
         softcap,
-        deterministic,
         torch.is_grad_enabled(),
     )
