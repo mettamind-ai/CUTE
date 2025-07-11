@@ -22,7 +22,7 @@ using namespace cute;
 
 template <int THREADS_PER_ROW, typename Engine0, typename Layout0, typename Engine1, typename Layout1>
 inline __device__ void dot_do_o(Tensor<Engine0, Layout0> const &do_, Tensor<Engine0, Layout0> const &o,
-                                Tensor<Engine1, Layout1> &dP_sum, const int gdP_col_stride, const float scale) {
+                                Tensor<Engine1, Layout1> &dP_sum, const int gdP_col_stride) {
     static_assert(Layout0::rank == 3, "Only support 3D Tensor");
     static_assert(Layout1::rank == 1, "Only support 1D Tensor");
     CUTE_STATIC_ASSERT_V(do_.layout() == o.layout());
@@ -42,7 +42,7 @@ inline __device__ void dot_do_o(Tensor<Engine0, Layout0> const &do_, Tensor<Engi
             dP_sum_cur += do_fp32(mi, ni) * o_fp32(mi, ni);
         }
         flash::SumOp<float> sum_op;
-        dP_sum_cur = flash::Allreduce<THREADS_PER_ROW>::run(dP_sum_cur, sum_op) * scale;
+        dP_sum_cur = flash::Allreduce<THREADS_PER_ROW>::run(dP_sum_cur, sum_op);
         if (threadIdx.x % THREADS_PER_ROW == 0) {
             dP_sum(mi * gdP_col_stride + threadIdx.x / THREADS_PER_ROW) = dP_sum_cur;
         }
@@ -122,11 +122,8 @@ inline __device__ void compute_dot_do_o(const Params &params) {
     flash::copy</*Is_even_MN=*/false, /*Is_even_K=*/false, /*Clear_OOB_MN=*/true>(
         gmem_tiled_copy_dO, tdOgO, tdOrO, tdOcdO, tdOpdO, binfo.actual_seqlen_q - m_block * kBlockM
     );
-    // By right we need to scale dP up by 1/p_dropout, but instead we don't and only scale the final
-    // results (dQ and dK) by 1/p_dropout. So we need to keep dP_sum scaled down by p_dropout here,
-    // so that (dP - dP_sum) is on the same scale.
     dot_do_o<Kernel_traits::kGmemThreadsPerRow>(tdOrdO, tdOrO, dP_sum,
-                                                Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow), params.p_dropout);
+        Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow));
     if (Clear_dQaccum) {
         // We're actually not zero'ing out all of dQaccum, but only the part that we're going to
         // do atomicAdds on.
@@ -242,7 +239,7 @@ inline __device__ void convert_dQ(const Params &params, const int nsplits) {
         tdQgdQaccum.data() = tdQgdQaccum.data() + params.dq_accum_split_stride;
     }
     #pragma unroll
-    for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) *= params.scale_softmax_rp_dropout; }
+    for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) *= params.scale_softmax; }
     // Convert acc_dq from fp32 to fp16
     Tensor rdQ = flash::convert_type<Element>(acc_dq);
     Tensor taccdQrdQ = smem_thr_copy_dQ.retile_S(rdQ);  // ((Atom,AtomNum), MMA_N, MMA_N)
@@ -342,11 +339,11 @@ inline __device__ void convert_dKV(const Params &params) {
     cute::copy(gmem_tiled_copy_dKVaccum, tdVgdVaccum, tdVrdVaccum);
     #pragma unroll
     for (int i = 0; i < size(acc_dk); ++i) {
-        acc_dk(i) = tdKrdKaccum(i) * params.scale_softmax_rp_dropout;
+        acc_dk(i) = tdKrdKaccum(i) * params.scale_softmax;
     }
     #pragma unroll
     for (int i = 0; i < size(acc_dv); ++i) {
-        acc_dv(i) = tdVrdVaccum(i) * params.rp_dropout;
+        acc_dv(i) = tdVrdVaccum(i);
     }
     // Convert acc_dk from fp32 to fp16
     Tensor rdK = flash::convert_type<Element>(acc_dk);

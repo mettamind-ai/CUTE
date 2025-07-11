@@ -15,7 +15,6 @@
 #include "utils.h"
 #include "softmax.h"
 #include "mask.h"
-#include "dropout.h"
 
 namespace flash {
 
@@ -74,7 +73,7 @@ make_tiled_copy_C_warpcontiguousN(Copy_Atom<Args...> const& copy_atom,
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Is_first, bool Is_last, bool Seq_parallel=false, typename Params>
+template<typename Kernel_traits, bool Is_causal, bool Is_local, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Is_first, bool Is_last, bool Seq_parallel=false, typename Params>
 inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const int bidb, const int bidh, const int n_block) {
 
     using Element = typename Kernel_traits::Element;
@@ -410,11 +409,6 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
     // with V (which would be zero), we're fine. However, with ALiBi, we might modify these
     // scores, and probs can become NaN. Instead if we set LSE = inf for OOB rows, probs are always 0.
 
-    // Tensor tKrK = make_fragment_like(tKsK);
-    // // cute::copy(gmem_tiled_copy_QKV, tKgK(_, _, _, 0), tKrK);
-    // cute::copy(gmem_tiled_copy_QKV, tKgK, tKrK);
-    // // if (cute::thread(1, 0)) { print(tKrK); }
-
     flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/true>(
         gmem_tiled_copy_QKV, tKgK, tKsK, tKVcKV, tKVpKV, binfo.actual_seqlen_k - n_block * kBlockN
     );
@@ -425,29 +419,26 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
     }
     flash::cp_async_fence();
 
-    // if (cute::thread0()) { print(tdOgdO.layout()); printf("\n"); print(tdOrdO); print(tdOrO); }
     if (Is_first) {
         cute::copy(tdOrdO, tdOsdO);
         dot_do_o<Kernel_traits::kGmemThreadsPerRow>(tdOrdO, tdOrO, gdPsum,
-                                                    Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow), params.p_dropout);
+            Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow));
     }
 
     if (Kernel_traits::Is_V_in_regs) {
         cute::cp_async_wait<1>();
         __syncthreads();
         Tensor tdPrV_copy_view = smem_thr_copy_KV.retile_D(tdPrV);
-        CUTE_STATIC_ASSERT_V(size<1>(tdPsV) == size<1>(tdPrV_copy_view));            // M
+        CUTE_STATIC_ASSERT_V(size<1>(tdPsV) == size<1>(tdPrV_copy_view)); // M
         cute::copy(smem_tiled_copy_KV, tdPsV, tdPrV_copy_view);
     }
-
-    flash::Dropout dropout(params.rng_state[0], params.rng_state[1], params.p_dropout_in_uint8_t,
-                           bidb, bidh, tidx, params.h);
 
     clear(acc_dv);
     clear(acc_dk);
 
     for (; m_block >= m_block_min; --m_block) {
-        Tensor acc_s = partition_fragment_C(tiled_mma_sdp, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_N, MMA_N)
+        Tensor acc_s = partition_fragment_C(tiled_mma_sdp, Shape<Int<kBlockM>, Int<kBlockN>>{});
+        // (MMA=4, MMA_N, MMA_N)
         clear(acc_s);
         cute::cp_async_wait<0>();
         __syncthreads();
@@ -520,20 +511,8 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         // if (cute::thread(32, 0)) { print(scores); }
         // Compute the exponential value.
         flash::scale_apply_exp2</*scale_max=*/false>(scores, lse, params.scale_softmax_log2);
-        if constexpr (Is_dropout) {
-            int warp_id = tidx / 32;
-            int block_row_idx = m_block * (kBlockM / 16) + warp_id % AtomLayoutMS;
-            // Need col to be multiples of 32, since we're doing dropout with block of 16 x 32
-            static_assert(MMA_N_SdP % 2 == 0);
-            int block_col_idx = n_block * (kBlockN / 32) + (warp_id / AtomLayoutMS) * (MMA_N_SdP / 2);
-            dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-                acc_s, block_row_idx, block_col_idx, AtomLayoutMS
-            );
-        }
         // Convert scores from fp32 to fp16/bf16
-        Tensor rP = !Is_dropout
-            ? flash::convert_type<Element>(acc_s)
-            : flash::convert_type_relu<Element>(acc_s);
+        Tensor rP = flash::convert_type<Element>(acc_s);
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_N, MMA_N / 2)
         // if using m16n8k16 or (4, MMA_N, MMA_N) if using m16n8k8.
         Tensor tPrP = make_tensor(rP.data(), flash::convert_layout_acc_Aregs<Kernel_traits::TiledMmaSdP>(rP.layout()));
@@ -568,7 +547,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         // Reshape acc_dp from (MMA=4, MMA_N, MMA_N) to (row=(2, MMA_N), col=(2, MMA_N))
         Tensor dS = make_tensor(acc_dp.data(), scores.layout());
         auto pointwise_mult = [](float p, float dp, float d) {
-            return p * (!Is_dropout || p >= 0 ? dp - d : d);
+            return p * (dp - d);
         };
         #pragma unroll
         for (int mi = 0; mi < size<0>(dS); ++mi) {
@@ -665,7 +644,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
             }
         } else {
             #pragma unroll
-            for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) *= params.scale_softmax_rp_dropout; }
+            for (int i = 0; i < size(acc_dq); ++i) { acc_dq(i) *= params.scale_softmax; }
             // Convert acc_dq from fp32 to fp16
             Tensor rdQ = flash::convert_type<Element>(acc_dq);
             Tensor taccdQrdQ = smem_thr_copy_dQ.retile_S(rdQ);  // ((Atom,AtomNum), MMA_N, MMA_N)
@@ -689,7 +668,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         if (Is_first && m_block > m_block_min) {
             cute::copy(tdOrdO, tdOsdO);
             dot_do_o<Kernel_traits::kGmemThreadsPerRow>(tdOrdO, tdOrO, gdPsum,
-                                                        Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow), params.p_dropout);
+                Kernel_traits::kNThreads / (Kernel_traits::kGmemThreadsPerRow));
         }
 
         if (Is_last) {
@@ -711,12 +690,8 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
 
     // Epilogue
 
-    if (Is_dropout) {
-        #pragma unroll
-        for (int i = 0; i < size(acc_dv); ++i) { acc_dv(i) *= params.rp_dropout; }
-    }
     #pragma unroll
-    for (int i = 0; i < size(acc_dk); ++i) { acc_dk(i) *= params.scale_softmax_rp_dropout; }
+    for (int i = 0; i < size(acc_dk); ++i) { acc_dk(i) *= params.scale_softmax; }
 
     // Convert acc_dv from fp32 to fp16
     Tensor rdK = flash::convert_type<Element>(acc_dk);
@@ -782,7 +757,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_even_M, bool Is_even_K, typename Params>
+template<typename Kernel_traits, bool Is_causal, bool Is_even_M, bool Is_even_K, typename Params>
 inline __device__ void compute_dq_dk_dv(const Params &params) {
 
     // The block index for the batch.
@@ -796,20 +771,20 @@ inline __device__ void compute_dq_dk_dv(const Params &params) {
 
     const int n_block_max = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
     if (n_block_max == 1) {
-        compute_dq_dk_dv_1colblock<Kernel_traits, Is_dropout, Is_causal, Is_even_M, Is_even_K, true, true>(params, bidb, bidh, 0);
+        compute_dq_dk_dv_1colblock<Kernel_traits, Is_causal, Is_even_M, Is_even_K, true, true>(params, bidb, bidh, 0);
     } else {
         // Iterating backward from n_block_max - 1 to 0 might save 1 register
-        compute_dq_dk_dv_1colblock<Kernel_traits, Is_dropout, Is_causal, Is_even_M, Is_even_K, true, false>(params, bidb, bidh, n_block_max - 1);
+        compute_dq_dk_dv_1colblock<Kernel_traits, Is_causal, Is_even_M, Is_even_K, true, false>(params, bidb, bidh, n_block_max - 1);
         for (int n_block = n_block_max - 2; n_block > 0; n_block--) {
-            compute_dq_dk_dv_1colblock<Kernel_traits, Is_dropout, Is_causal, Is_even_M, Is_even_K, false, false>(params, bidb, bidh, n_block);
+            compute_dq_dk_dv_1colblock<Kernel_traits, Is_causal, Is_even_M, Is_even_K, false, false>(params, bidb, bidh, n_block);
         }
-        compute_dq_dk_dv_1colblock<Kernel_traits, Is_dropout, Is_causal, Is_even_M, Is_even_K, false, true>(params, bidb, bidh, 0);
+        compute_dq_dk_dv_1colblock<Kernel_traits, Is_causal, Is_even_M, Is_even_K, false, true>(params, bidb, bidh, 0);
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Is_even_MN, bool Is_even_K, bool Is_softcap, typename Params>
+template<typename Kernel_traits, bool Is_causal, bool Is_local, bool Is_even_MN, bool Is_even_K, bool Is_softcap, typename Params>
 inline __device__ void compute_dq_dk_dv_seqk_parallel(const Params &params) {
 
     // The block index for the batch.
@@ -819,7 +794,7 @@ inline __device__ void compute_dq_dk_dv_seqk_parallel(const Params &params) {
 
     // If deterministic, each thread block will do atomicAdd to a different dQ_accum buffer.
     for (int n_block = blockIdx.x; n_block < (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN; n_block += gridDim.x) {
-        compute_dq_dk_dv_1colblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Is_even_MN, Is_even_K, Is_softcap, false, false, /*Seq_parallel=*/true>(params, bidb, bidh, n_block);
+        compute_dq_dk_dv_1colblock<Kernel_traits, Is_causal, Is_local, Is_even_MN, Is_even_K, Is_softcap, false, false, /*Seq_parallel=*/true>(params, bidb, bidh, n_block);
     }
 }
 

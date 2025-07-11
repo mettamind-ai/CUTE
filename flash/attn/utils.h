@@ -250,32 +250,6 @@ __forceinline__ __device__ void relu_(Tensor<Engine, Layout> &tensor) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// On SM80 and above, we can fuse fp32 -> fp16/bf16 conversion and relu into 1 instruction
-template <typename To_type, typename Engine, typename Layout>
-__forceinline__ __device__ auto convert_type_relu(Tensor<Engine, Layout> const &tensor) {
-    using From_type = typename Engine::value_type;
-    static_assert(std::is_same_v<To_type, cutlass::half_t> || std::is_same_v<To_type, cutlass::bfloat16_t>);
-    static_assert(std::is_same_v<float, From_type>);
-    constexpr int numel = decltype(size(tensor))::value;
-    static_assert(numel % 2 == 0);
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-    // HACK: this requires tensor to be "contiguous"
-    Tensor tensor_float2 = recast<float2>(tensor);
-    Tensor out_uint32 = make_tensor<uint32_t>(tensor_float2.layout());
-    #pragma unroll
-    for (int i = 0; i < size(out_uint32); ++i) {
-        out_uint32(i) = convert_relu2<To_type>(tensor_float2(i));
-    }
-    Tensor out = make_tensor(make_rmem_ptr<To_type>(out_uint32.data()), tensor.layout());
-#else
-    Tensor out = flash::convert_type<To_type>(tensor);
-    flash::relu_(out);
-#endif
-    return out;
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 // Blocks until all but N previous cp.async.commit_group operations have committed.
 // This differs from cute::cp_async_wait in that when N = 0 we don't call cp.async.wait_all
 // (which is equivalent to commit_group then wait_group 0).
