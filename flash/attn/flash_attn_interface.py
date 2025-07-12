@@ -350,7 +350,7 @@ def _flash_attn_forward(
     softcap: float,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse = CUTE_EXT.fwd(
+    out, softmax_lse, S_dmask, rng_state = CUTE_EXT.fwd(
         q, k, v,
         None,
         softmax_scale,
@@ -360,7 +360,7 @@ def _flash_attn_forward(
         softcap,
         None,
     )
-    return out, softmax_lse
+    return out, softmax_lse, S_dmask, rng_state
 
 
 @_torch_register_fake_wrapper("flash_attn::_flash_attn_forward")
@@ -398,6 +398,7 @@ def _flash_attn_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
+    rng_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     # dq, dk, dv are allocated by us so they should already be contiguous
     dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
@@ -413,6 +414,7 @@ def _flash_attn_backward(
         window_size_right,
         softcap,
         None,
+        rng_state,
     )
     return softmax_d
 
@@ -432,7 +434,9 @@ def _flash_attn_backward_fake(
     causal: bool,
     window_size_left: int,
     window_size_right: int,
-    softcap: float,) -> torch.Tensor:
+    softcap: float,
+    rng_state: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
 
     dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
     if dq is None: dq = torch.empty_like(q)
@@ -455,7 +459,7 @@ class FlashAttnFunc(torch.autograd.Function):
         head_size_og = q.size(3)
         assert head_size_og % 8 == 0
 
-        out, softmax_lse = _wrapped_flash_attn_forward(
+        out, softmax_lse, S_dmask, rng_state = _wrapped_flash_attn_forward(
             q, k, v,
             softmax_scale,
             causal=causal,
@@ -465,7 +469,7 @@ class FlashAttnFunc(torch.autograd.Function):
         )
 
         if is_grad:
-            ctx.save_for_backward(q, k, v, out, softmax_lse)
+            ctx.save_for_backward(q, k, v, out, softmax_lse, rng_state)
             ctx.softmax_scale = softmax_scale
             ctx.causal = causal
             ctx.window_size = window_size
@@ -476,7 +480,7 @@ class FlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout, *args):
-        q, k, v, out, softmax_lse = ctx.saved_tensors
+        q, k, v, out, softmax_lse, rng_state = ctx.saved_tensors
         dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
         head_size_og = dout.size(3)
         dout_padded = dout
