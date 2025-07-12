@@ -80,7 +80,7 @@ def _flash_attn_varlen_forward(
     zero_tensors: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, softmax_lse = CUTE_EXT.varlen_fwd(
+    out, softmax_lse, S_dmask, rng_state = CUTE_EXT.varlen_fwd(
         q, k, v,
         None,
         cu_seqlens_q,
@@ -99,7 +99,7 @@ def _flash_attn_varlen_forward(
         None,
     )
     # if out.isnan().any() or softmax_lse.isnan().any(): breakpoint()
-    return out, softmax_lse
+    return out, softmax_lse, S_dmask, rng_state
 
 
 @_torch_register_fake_wrapper("flash_attn::_flash_attn_varlen_forward")
@@ -128,7 +128,11 @@ def _flash_attn_varlen_forward_fake(
     
     out = torch.empty_like(q)
     softmax_lse = torch.empty((num_heads, total_q), dtype=torch.float32, device=q.device, layout=q.layout)
-    return out, softmax_lse
+    p = torch.empty((0,), dtype=q.dtype, device=q.device, layout=q.layout)
+    seqlen_q_rounded = round_multiple(max_seqlen_q, 128)
+    seqlen_k_rounded = round_multiple(max_seqlen_k, 128)
+    rng_state = torch.empty((2,), dtype=torch.int64, device=q.device)
+    return out, softmax_lse, p, rng_state
 
 _wrapped_flash_attn_varlen_forward = torch.ops.flash_attn._flash_attn_varlen_forward
 
@@ -153,6 +157,7 @@ def _flash_attn_varlen_backward(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
+    rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
 ) -> torch.Tensor:
     # dq, dk, dv are allocated by us so they should already be contiguous
@@ -174,6 +179,7 @@ def _flash_attn_varlen_backward(
         window_size_right,
         softcap,
         None,
+        rng_state,
     )
     return softmax_d
 
@@ -198,6 +204,7 @@ def _flash_attn_varlen_backward_fake(
     window_size_left: int,
     window_size_right: int,
     softcap: float,
+    rng_state: Optional[torch.Tensor] = None,
     zero_tensors: bool = False,
 ) -> torch.Tensor:
     dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
