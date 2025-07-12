@@ -1,3 +1,11 @@
+# Dynamic Chunking End2End HNet https://arxiv.org/html/2507.07955v1
+# NOTE: This is an experimental implementation attempting end-to-end language modeling
+# without explicit tokenization. Key differences from H-Net paper:
+# - Uses fixed 8 tokens instead of learned dynamic chunking
+# - Prime-based signal encoding instead of learned compression
+# - Single-stage hierarchy vs. multi-stage in paper
+# - Character-level vs. byte-level input
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +17,8 @@ import matplotlib.pyplot as plt
 
 # =============================================================================
 # Utility function to generate the first n prime numbers (naively)
+# NOTE: Used for signal encoding - heuristic approach instead of learned frequencies
+# Could be replaced with learned embedding table per H-Net recommendations
 # =============================================================================
 def generate_primes(n):
     primes = []
@@ -26,10 +36,12 @@ def generate_primes(n):
 
 # =============================================================================
 # Dataset for training: each sample is a sliding window from the text.
+# NOTE: Character-level processing aligns with H-Net's byte-level approach
+# but may be less efficient for non-English languages
 # =============================================================================
 class TextDataset(Dataset):
     def __init__(self, text, seq_length, char_to_idx):
-        self.text = text
+        self.text = text  # NOTE: Full text corpus - H-Net uses streaming approach
         self.seq_length = seq_length  # total length = context length + 1 (target)
         self.char_to_idx = char_to_idx
         
@@ -37,9 +49,9 @@ class TextDataset(Dataset):
         return len(self.text) - self.seq_length + 1
     
     def __getitem__(self, idx):
-        sample = self.text[idx:idx+self.seq_length]
-        input_seq = sample[:-1]   # context characters
-        target_char = sample[-1]    # target character
+        sample = self.text[idx:idx+self.seq_length]  # NOTE: Fixed window sliding - H-Net uses dynamic boundaries
+        input_seq = sample[:-1]   # context characters - sequential processing vs. H-Net's chunking
+        target_char = sample[-1]    # target character - single char prediction vs. H-Net's multi-step
         input_indices = torch.tensor([self.char_to_idx[c] for c in input_seq], dtype=torch.long)
         target_index = torch.tensor(self.char_to_idx[target_char], dtype=torch.long)
         return input_indices, target_index
@@ -51,83 +63,117 @@ class PatternEncoder(nn.Module):
     """
     PatternEncoder:
     ------------------
-    This block integrates the signal encoding, tokenization, and token refinement steps.
+    H-NET ARCHITECTURE IMPLEMENTATION NOTE:
+    This implements a fixed-token approach (m_tokens=8) instead of H-Net's learned dynamic chunking.
     
-    It consists of three sequential operations:
+    Key components:
+    1. Signal Encoding: Uses prime-based frequencies (heuristic) vs. learned compression in H-Net
+    2. Tokenization: Soft combination via weighted embeddings (similar to H-Net concept)
+    3. Token Refinement: Self-attention between fixed 8 tokens (H-Net uses variable-length chunks)
     
-    1. Signal Encoding:
-       - Computes a unique sine-based signal for each input character using a prime-associated frequency.
-       - Applies positional cyclic shifts and sums the signals.
-       - Normalizes the aggregated signal using L2 normalization.
-       
-    2. Tokenization:
-       - Projects the normalized signal to produce logits corresponding to multiple tokens.
-       - Applies a softmax to obtain a probability distribution over a token vocabulary.
-       - Computes token embeddings as a weighted average over a learnable embedding table.
-       - Applies multi-head self-attention with residual connection, dropout, and layer normalization to refine token embeddings.
-       
-    3. Token Refinement:
-       - Applies an additional self-attention layer with residual connection, dropout, and normalization to further refine token embeddings.
-       - Flattens the refined token embeddings for downstream processing.
-       
-    The output is a compact token representation (token_flat) that serves as the input for pattern decoding.
+    LIMITATIONS vs. H-Net paper:
+    - Fixed 8 tokens instead of learned chunk boundaries
+    - Single-stage compression vs. multi-stage hierarchy
+    - Prime frequencies may not be optimal for all languages
     """
+    
+    # IMPLEMENTATION NOTES:
+    # - signal_length: 512 points for frequency domain representation
+    # - m_tokens: FIXED at 8 (should be dynamic per H-Net)
+    # - token_vocab_size: 256 (hyperparameter for soft tokenization)
     def __init__(self, signal_length, m_tokens, token_vocab_size, token_embedding_dim, dropout_prob, device):
         super(PatternEncoder, self).__init__()
-        self.signal_length = signal_length
-        self.m_tokens = m_tokens
-        self.token_vocab_size = token_vocab_size
-        self.token_embedding_dim = token_embedding_dim
+        self.signal_length = signal_length  # 512: Fixed frequency resolution - H-Net uses learned compression
+        self.m_tokens = m_tokens            # 8: FIXED token count - H-Net uses dynamic chunking
+        self.token_vocab_size = token_vocab_size  # 256: Soft tokenization vocab size
+        self.token_embedding_dim = token_embedding_dim  # 64: Token representation dimension
         self.device = device
-        # Signal Encoder: Create time vector.
+        
+        # Signal Encoder: Create time vector for sinusoidal encoding
+        # NOTE: Uses fixed linear spacing [0,1] - H-Net learns compression functions
         t = torch.linspace(0, 1, steps=signal_length, device=device)
-        self.register_buffer("time_vector", t)
+        self.register_buffer("time_vector", t)  # Shape: (512,)
         
-        # Tokenizer:
-        self.linear = nn.Linear(signal_length, m_tokens * token_vocab_size)
-        self.token_embedding = nn.Embedding(token_vocab_size, token_embedding_dim)
+        # Tokenizer: Projects signal to token logits
+        # NOTE: Fixed linear projection - H-Net uses learned chunking boundaries
+        self.linear = nn.Linear(signal_length, m_tokens * token_vocab_size)  # 512 → 8×256
+        
+        # Soft tokenization via embedding lookup
+        # NOTE: Weighted combination of embeddings - similar to H-Net concept
+        self.token_embedding = nn.Embedding(token_vocab_size, token_embedding_dim)  # 256×64
+        
+        # Self-attention within fixed 8 tokens
+        # NOTE: Processes 8 tokens regardless of input length - H-Net uses variable chunks
         self.token_attn = nn.MultiheadAttention(embed_dim=token_embedding_dim, num_heads=4, batch_first=True)
-        self.token_dropout = nn.Dropout(0.1)
-        self.token_norm = nn.LayerNorm(token_embedding_dim)
+        self.token_dropout = nn.Dropout(0.1)  # Regularization during training
+        self.token_norm = nn.LayerNorm(token_embedding_dim)  # Normalization for stability
         
-        # TokenRefiner:
+        # TokenRefiner: Additional self-attention on 8 tokens
+        # NOTE: Second attention layer - H-Net uses hierarchical processing
         self.refiner_attn = nn.MultiheadAttention(embed_dim=token_embedding_dim, num_heads=4, batch_first=True)
         self.refiner_dropout = nn.Dropout(dropout_prob)
         self.refiner_norm = nn.LayerNorm(token_embedding_dim)
         
     def forward(self, input_indices, prime_tensor):
         # Signal Encoding:
-        # input_indices: (batch, seq_length)
-        freqs = prime_tensor[input_indices]  # (batch, seq_length)
-        t = self.time_vector.unsqueeze(0).unsqueeze(0)  # (1,1,signal_length)
-        freqs_expanded = freqs.unsqueeze(-1)  # (batch, seq_length, 1)
-        signals = torch.sin(2 * math.pi * freqs_expanded * t)  # (batch, seq_length, signal_length)
+        # NOTE: This uses prime-based frequencies as heuristic signal encoding
+        # H-Net paper recommends learned compression functions instead
+        # input_indices: (batch, seq_length) - character indices
+        # prime_tensor: (vocab_size,) - prime numbers for each character
         
+        freqs = prime_tensor[input_indices]  # (batch, seq_length) - frequency for each char
+        t = self.time_vector.unsqueeze(0).unsqueeze(0)  # (1,1,signal_length) - time base [0,1]
+        freqs_expanded = freqs.unsqueeze(-1)  # (batch, seq_length, 1) - add frequency dimension
+        
+        # Generate sinusoidal signals for each character
+        # NOTE: Uses sin(2πft) where f is character's prime - heuristic vs. learned
+        signals = torch.sin(2 * math.pi * freqs_expanded * t)  # (batch, seq_length, 512)
+        
+        # Positional shifting and summation
+        # NOTE: Cyclic shifts by position - could be replaced with learned positional encoding
         shifted_signals = []
         seq_length = input_indices.size(1)
         for i in range(seq_length):
-            signal_i = signals[:, i, :]  # (batch, signal_length)
-            shifted = torch.roll(signal_i, shifts=i, dims=1)
+            signal_i = signals[:, i, :]  # (batch, 512) - signal for char at position i
+            shifted = torch.roll(signal_i, shifts=i, dims=1)  # Shift by position index
             shifted_signals.append(shifted)
-        context_signal = torch.stack(shifted_signals, dim=1).sum(dim=1)  # (batch, signal_length)
+        
+        # Sum all shifted signals to create context representation
+        # NOTE: Simple summation - H-Net uses learned pooling/compression
+        context_signal = torch.stack(shifted_signals, dim=1).sum(dim=1)  # (batch, 512)
+        
+        # L2 normalization for stability
+        # NOTE: Fixed normalization - H-Net learns appropriate scaling
         norm = context_signal.norm(p=2, dim=1, keepdim=True) + 1e-8
-        normalized_signal = context_signal / norm  # (batch, signal_length)
+        normalized_signal = context_signal / norm  # (batch, 512)
         
         # Tokenization:
+        # NOTE: Projects 512-dim signal to 8×256 logits - FIXED compression ratio
+        # H-Net learns dynamic chunk boundaries instead of fixed projection
         batch_size = normalized_signal.size(0)
-        logits = self.linear(normalized_signal)  # (batch, m_tokens * token_vocab_size)
-        logits = logits.view(batch_size, self.m_tokens, self.token_vocab_size)  # (batch, m_tokens, token_vocab_size)
-        probs = F.softmax(logits, dim=-1)
-        token_embeds = torch.matmul(probs, self.token_embedding.weight)  # (batch, m_tokens, token_embedding_dim)
-        attn_out, _ = self.token_attn(token_embeds, token_embeds, token_embeds)
-        attn_out = self.token_dropout(attn_out)
-        token_embeds = self.token_norm(token_embeds + attn_out)
+        logits = self.linear(normalized_signal)  # (batch, 8×256) = (batch, 2048)
+        logits = logits.view(batch_size, self.m_tokens, self.token_vocab_size)  # (batch, 8, 256)
         
-        # Token Refinement:
-        attn_out2, _ = self.refiner_attn(token_embeds, token_embeds, token_embeds)
+        # Soft tokenization via weighted embedding combination
+        # NOTE: Similar concept to H-Net's soft chunking but with fixed 8 tokens
+        probs = F.softmax(logits, dim=-1)  # (batch, 8, 256) - soft token assignments
+        token_embeds = torch.matmul(probs, self.token_embedding.weight)  # (batch, 8, 64)
+        
+        # Self-attention within 8 fixed tokens
+        # NOTE: Processes all 8 tokens regardless of input length - H-Net uses variable chunks
+        attn_out, _ = self.token_attn(token_embeds, token_embeds, token_embeds)  # (batch, 8, 64)
+        attn_out = self.token_dropout(attn_out)  # Regularization during training
+        token_embeds = self.token_norm(token_embeds + attn_out)  # Residual connection
+        
+        # Token Refinement: Second self-attention layer
+        # NOTE: Additional processing - H-Net uses hierarchical stages instead
+        attn_out2, _ = self.refiner_attn(token_embeds, token_embeds, token_embeds)  # (batch, 8, 64)
         attn_out2 = self.refiner_dropout(attn_out2)
-        refined = self.refiner_norm(token_embeds + attn_out2)
-        token_flat = refined.reshape(batch_size, -1)  # (batch, m_tokens * token_embedding_dim)
+        refined = self.refiner_norm(token_embeds + attn_out2)  # (batch, 8, 64)
+        
+        # Flatten to 512-dim representation (8×64)
+        # NOTE: Fixed flattening - H-Net maintains chunk structure for hierarchy
+        token_flat = refined.reshape(batch_size, -1)  # (batch, 512)
         
         return token_flat, logits, token_embeds, normalized_signal
 
@@ -138,33 +184,57 @@ class PatternDecoder(nn.Module):
     """
     PatternDecoder:
     ------------------
-    This block takes the flattened token representation and projects it into a latent pattern space.
-
-    It begins with a linear projection that transforms the token representation into pattern logits.
-    Then, a pre-decoder multi-head self-attention layer is applied to refine these pattern logits.
-    A residual connection adds the original pattern logits to the attention output, followed by dropout
-    and a layer normalization step. This refined pattern is then decoded into character logits through a final linear layer,
-    which will be used to predict the next character in the sequence.
+    H-NET DECODER IMPLEMENTATION NOTE:
+    This implements the "pattern space → character logits" mapping.
+    
+    Key differences from H-Net paper:
+    - Single-stage decoder vs. H-Net's multi-stage hierarchy
+    - Fixed 8-token input vs. variable-length chunks
+    - Character-level output vs. byte-level (could be extended)
+    
+    Architecture:
+    1. Linear projection: 8×64 → 256 (pattern space)
+    2. Self-attention refinement (single-head attention variant)
+    3. Final linear: 256 → char_vocab_size
+    
+    LIMITATIONS:
+    - No hierarchical refinement (H-Net uses multiple stages)
+    - Fixed receptive field from 8 tokens
     """
     def __init__(self, m_tokens, token_embedding_dim, token_vocab_size, char_vocab_size):
         super(PatternDecoder, self).__init__()
-        # Project flattened token embeddings to pattern logits.
-        self.pattern_prediction = nn.Linear(m_tokens * token_embedding_dim, token_vocab_size)
-        # Pre-decoder attention to refine patterns.
+        # Project flattened 8-token representation (8×64=512) to 256-dim pattern space
+        # NOTE: Fixed projection - H-Net uses learned pattern spaces per hierarchical stage
+        self.pattern_prediction = nn.Linear(m_tokens * token_embedding_dim, token_vocab_size)  # 512 → 256
+        
+        # Pre-decoder attention: Refines patterns within fixed space
+        # NOTE: Single attention layer - H-Net uses multiple refinement stages
         self.pre_decoder_attn = nn.MultiheadAttention(embed_dim=token_vocab_size, num_heads=4, batch_first=True)
-        self.dropout = nn.Dropout(0.1)
-        self.norm = nn.LayerNorm(token_vocab_size)
-        # Final decoder: map refined patterns to character logits.
-        self.char_decoder = nn.Linear(token_vocab_size, char_vocab_size)
+        self.dropout = nn.Dropout(0.1)  # Regularization during training
+        self.norm = nn.LayerNorm(token_vocab_size)  # Stability normalization
+        
+        # Final decoder: Maps 256-dim patterns to character logits
+        # NOTE: Direct character prediction - H-Net uses byte-level output
+        # Could be extended to byte-level for better efficiency
+        self.char_decoder = nn.Linear(token_vocab_size, char_vocab_size)  # 256 → char_vocab_size
         
     def forward(self, token_flat):
-        # Decoding all the way to character logits.
-        pattern_logits = self.pattern_prediction(token_flat)
-        pattern_logits_seq = pattern_logits.unsqueeze(1)  # (batch, 1, token_vocab_size)
+        # Decoding process: 8-token representation → character logits
+        # NOTE: Single-stage decoding - H-Net uses hierarchical reconstruction
+        # token_flat: (batch, 512) - flattened 8×64 token representation
+        
+        pattern_logits = self.pattern_prediction(token_flat)  # (batch, 256) - pattern space
+        pattern_logits_seq = pattern_logits.unsqueeze(1)  # (batch, 1, 256) - add sequence dim
+        
+        # Self-attention refinement within pattern space
+        # NOTE: Single attention layer - H-Net uses multiple refinement stages
         attn_out, _ = self.pre_decoder_attn(pattern_logits_seq, pattern_logits_seq, pattern_logits_seq)
-        attn_out = self.dropout(attn_out)
-        refined = self.norm(pattern_logits_seq + attn_out).squeeze(1)  # (batch, token_vocab_size)
-        char_logits = self.char_decoder(refined)
+        attn_out = self.dropout(attn_out)  # Regularization
+        refined = self.norm(pattern_logits_seq + attn_out).squeeze(1)  # (batch, 256)
+        
+        # Final character prediction
+        # NOTE: Direct character logits - H-Net uses byte-level prediction
+        char_logits = self.char_decoder(refined)  # (batch, char_vocab_size)
         return char_logits
 
     def decode_debug(self, token_flat):
@@ -189,6 +259,9 @@ class PatternDecoder(nn.Module):
 
 # =============================================================================
 # IntermediateTransformer: Applies a series of transformer encoder layers on token embeddings.
+# NOTE: This is an ADDITIONAL component not present in H-Net paper
+# H-Net uses multi-stage hierarchy for compression, this adds extra processing
+# Could be removed to match paper architecture more closely
 # =============================================================================
 class IntermediateTransformer(nn.Module):
     """
@@ -202,15 +275,22 @@ class IntermediateTransformer(nn.Module):
     """
     def __init__(self, token_embedding_dim, num_layers=2, num_heads=4, dropout=0.1):
         super(IntermediateTransformer, self).__init__()
+        # NOTE: Additional transformer layers NOT in H-Net paper
+        # H-Net uses multi-stage hierarchy instead of extra processing on fixed 8 tokens
         encoder_layer = nn.TransformerEncoderLayer(d_model=token_embedding_dim, nhead=num_heads, dropout=dropout, activation='relu')
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)  # 2 layers on 8 fixed tokens
 
     def forward(self, x):
-        # x shape: [batch, m_tokens, token_embedding_dim]
-        # Transformer encoder expects input of shape (sequence, batch, embedding)
-        x = x.transpose(0,1)  # Now shape: [m_tokens, batch, token_embedding_dim]
-        x = self.transformer_encoder(x)
-        x = x.transpose(0,1)  # Back to [batch, m_tokens, token_embedding_dim]
+        # NOTE: Processes fixed 8 tokens through transformer layers
+        # H-Net would use multi-stage processing instead of this additional layer
+        # x: (batch, 8, 64) - fixed token representation
+        
+        # Transformer expects (sequence, batch, embedding) format
+        x = x.transpose(0,1)  # (8, batch, 64) - sequence dimension first
+        x = self.transformer_encoder(x)  # (8, batch, 64) - 2 transformer layers
+        x = x.transpose(0,1)  # (batch, 8, 64) - back to batch-first
+        
+        # NOTE: Still 8 tokens - no compression/expansion like H-Net's hierarchy
         return x
 
 # =============================================================================
@@ -220,46 +300,70 @@ class End2EndModel(nn.Module):
     """
     End2EndModel:
     -----------------
-    This is the main model that composes two high-level blocks:
+    MAIN H-NET IMPLEMENTATION:
     
-    1. PatternEncoder: Integrates signal encoding, tokenization, and token refinement.
-       It transforms the input character indices (with associated prime frequencies) into a compact token representation.
-       
-    2. PatternDecoder: Projects the flattened token representation to a latent pattern space,
-       applies pre-decoder attention to refine this pattern (using residual connections, dropout, and normalization),
-       and finally decodes the refined pattern into character logits.
-
-    Residual connections, dropout, and layer normalization are used in critical submodules to improve training stability.
+    This implements a single-stage end-to-end model with the following flow:
+    Characters → Signal Encoding → 8 Tokens → Character Prediction
+    
+    DEVIATIONS FROM H-NET PAPER:
+    1. Fixed 8 tokens vs. learned dynamic chunking boundaries
+    2. Prime-based signal encoding vs. learned compression functions  
+    3. Single-stage vs. multi-stage hierarchy
+    4. Character-level vs. byte-level processing
+    
+    INPUT: Character indices (batch, seq_length)
+    OUTPUT: Next character logits (batch, char_vocab_size)
+    
+    Architecture:
+    1. PatternEncoder: Character → 8-token representation
+    2. IntermediateTransformer: Additional processing (not in paper)
+    3. PatternDecoder: 8 tokens → character logits
+    
+    RECOMMENDED IMPROVEMENTS:
+    - Learn compression functions instead of prime frequencies
+    - Implement dynamic chunking mechanism
+    - Add multi-stage hierarchy
+    - Consider byte-level input for better efficiency
     """
     def __init__(self, signal_length, m_tokens, token_vocab_size, token_embedding_dim, char_vocab_size, prime_tensor, device):
         super(End2EndModel, self).__init__()
-        self.signal_length = signal_length
-        self.m_tokens = m_tokens
-        self.token_embedding_dim = token_embedding_dim
-        self.char_vocab_size = char_vocab_size
+        # NOTE: Model parameters - H-Net uses different configs per hierarchical stage
+        self.signal_length = signal_length    # 512: Frequency resolution for signal encoding
+        self.m_tokens = m_tokens              # 8: FIXED token count (H-Net varies per stage)
+        self.token_embedding_dim = token_embedding_dim  # 64: Fixed representation size
+        self.char_vocab_size = char_vocab_size  # Varies by dataset
         self.device = device
         
-        # Register the prime tensor as a buffer.
-        self.register_buffer("prime_tensor", prime_tensor)
+        # Register prime tensor for heuristic frequency encoding
+        # NOTE: Could be replaced with learned embeddings per H-Net recommendations
+        self.register_buffer("prime_tensor", prime_tensor)  # (vocab_size,) - prime frequencies
         
-        # Compose the model components.
+        # Model composition - single-stage vs. H-Net's multi-stage hierarchy
         self.pattern_encoder = PatternEncoder(signal_length, m_tokens, token_vocab_size, token_embedding_dim, dropout_prob=0.2, device=device)
+        # NOTE: IntermediateTransformer is ADDITIONAL - not in H-Net paper
         self.intermediate_transformer = IntermediateTransformer(token_embedding_dim, num_layers=2, num_heads=4, dropout=0.1)
         self.pattern_decoder = PatternDecoder(m_tokens, token_embedding_dim, token_vocab_size, char_vocab_size)
     
     def forward(self, input_indices):
-        # input_indices: (batch, context_length)
-        # Obtain token representations (flattened, as well as token-level outputs) from the encoder.
+        # Main forward pass: Character indices → character logits
+        # input_indices: (batch, context_length) - character-level input
+        
+        # Step 1: Signal encoding + tokenization → 8 fixed tokens
+        # NOTE: Always produces 8 tokens regardless of input length (H-Net varies)
         token_flat, token_logits, token_embeds, normalized_signal = self.pattern_encoder(input_indices, self.prime_tensor)
         batch_size = token_flat.size(0)
-        # Reshape flattened tokens back into sequence form: [batch, m_tokens, token_embedding_dim]
-        refined_tokens = token_flat.view(batch_size, self.m_tokens, self.token_embedding_dim)
-        # Pass through intermediate transformer blocks.
-        transformer_out = self.intermediate_transformer(refined_tokens)
-        # Flatten back to [batch, m_tokens * token_embedding_dim] for the decoder.
-        transformer_flat = transformer_out.reshape(batch_size, -1)
-        # Decode into character logits.
-        char_logits = self.pattern_decoder(transformer_flat)
+        
+        # Step 2: Additional transformer processing (NOT in H-Net)
+        # NOTE: Processes 8 tokens through transformer - H-Net uses hierarchy
+        refined_tokens = token_flat.view(batch_size, self.m_tokens, self.token_embedding_dim)  # (batch, 8, 64)
+        transformer_out = self.intermediate_transformer(refined_tokens)  # (batch, 8, 64)
+        
+        # Step 3: Decode to character logits
+        # NOTE: Single-stage decoding - H-Net uses multi-stage reconstruction
+        transformer_flat = transformer_out.reshape(batch_size, -1)  # (batch, 512)
+        char_logits = self.pattern_decoder(transformer_flat)  # (batch, char_vocab_size)
+        
+        # Return both final logits and intermediate token logits for analysis
         return char_logits, token_logits
     
     def forward_debug(self, input_indices):
@@ -288,25 +392,35 @@ class End2EndModel(nn.Module):
 # Inference function: Generate text given a seed.
 # =============================================================================
 def generate_text(model, seed, idx_to_char, char_to_idx, seq_length, device, generation_length=100, temperature=0.3):
+    # NOTE: Autoregressive generation - H-Net uses similar approach
+    # Key difference: This works at character-level vs. H-Net's byte-level
     model.eval()
     generated = seed
     context = list(seed)
+    
     for i in range(generation_length):
-        # Ensure the context is of length (seq_length-1) by padding with spaces if necessary.
+        # Prepare context window - fixed size sliding window
+        # NOTE: Uses padding with spaces for short contexts - H-Net handles variable lengths
         if len(context) < seq_length - 1:
             context_window = [' '] * ((seq_length - 1) - len(context)) + context
         else:
-            context_window = context[-(seq_length - 1):]
-        # Convert characters to indices.
+            context_window = context[-(seq_length - 1):]  # Right-context window
+        
+        # Convert to indices and predict
+        # NOTE: Character-level processing - H-Net uses byte-level for better efficiency
         input_indices = torch.tensor([[char_to_idx[ch] for ch in context_window]], dtype=torch.long, device=device)
-        logits, _ = model(input_indices)
-        # Scale logits by temperature.
+        logits, _ = model(input_indices)  # Get next character logits
+        
+        # Temperature scaling for generation diversity
         scaled_logits = logits / temperature
         prob = F.softmax(scaled_logits, dim=-1)
         next_idx = torch.multinomial(prob, num_samples=1).item()
         next_char = idx_to_char[next_idx]
+        
+        # Update generation context
         generated += next_char
         context.append(next_char)
+    
     return generated
 
 # =============================================================================
@@ -396,48 +510,54 @@ def main():
         text = f.read().strip()
     
     # Build the character vocabulary.
-    vocab = sorted(set(text))
-    char_to_idx = {ch: i for i, ch in enumerate(vocab)}
-    idx_to_char = {i: ch for i, ch in enumerate(vocab)}
+    # NOTE: Character-level vocabulary - H-Net uses byte-level for better coverage
+    vocab = sorted(set(text))  # Unique characters in training text
+    char_to_idx = {ch: i for i, ch in enumerate(vocab)}  # Character to index mapping
+    idx_to_char = {i: ch for i, ch in enumerate(vocab)}  # Index to character mapping
     char_vocab_size = len(vocab)
     print(f"Vocabulary size: {char_vocab_size}")
     
-    # Generate prime numbers (one per character).
-    primes = generate_primes(char_vocab_size)
-    prime_tensor = torch.tensor(primes, dtype=torch.float, device=device)
+    # Generate prime numbers for heuristic frequency encoding
+    # NOTE: This is a heuristic approach - H-Net learns compression functions instead
+    primes = generate_primes(char_vocab_size)  # One prime per character
+    prime_tensor = torch.tensor(primes, dtype=torch.float, device=device)  # (vocab_size,)
     
     # Build the dataset and dataloader.
     dataset = TextDataset(text, seq_length=args.seq_length, char_to_idx=char_to_idx)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     
     # Initialize the model.
+    # NOTE: These hyperparameters are experimental and may not match H-Net optimal settings
+    # H-Net paper uses different configurations for different stages
     model = End2EndModel(
-        signal_length=args.signal_length,
-        m_tokens=args.m_tokens,
-        token_vocab_size=args.token_vocab_size,
-        token_embedding_dim=args.token_embedding_dim,
+        signal_length=args.signal_length,               # 512 - frequency resolution
+        m_tokens=args.m_tokens,                         #   8 - FIXED token count (should be dynamic)
+        token_vocab_size=args.token_vocab_size,         # 256 - soft tokenization vocab
+        token_embedding_dim=args.token_embedding_dim,   #  64 - representation dimension
         char_vocab_size=char_vocab_size,
-        prime_tensor=prime_tensor,
+        prime_tensor=prime_tensor,                      # Heuristic frequency mapping
         device=device,
     ).to(device)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     
-    # Training loop.
+    # Training loop
+    # NOTE: Standard cross-entropy training - H-Net uses same approach
+    # Key difference: Single loss vs. H-Net's hierarchical losses
     for epoch in range(args.epochs):
         total_loss = 0.0
         for batch_inputs, batch_targets in dataloader:
-            batch_inputs = batch_inputs.to(device)
-            batch_targets = batch_targets.to(device)
+            batch_inputs = batch_inputs.to(device)  # (batch, seq_length-1)
+            batch_targets = batch_targets.to(device)  # (batch,) - next character
             
             optimizer.zero_grad()
-            logits, _ = model(batch_inputs)
-            loss = criterion(logits, batch_targets)
+            logits, _ = model(batch_inputs)  # (batch, char_vocab_size)
+            loss = criterion(logits, batch_targets)  # Cross-entropy on character prediction
             loss.backward()
             optimizer.step()
             
-            total_loss += loss.item() * batch_inputs.size(0)
+            total_loss += loss.item() * batch_inputs.size(0)  # Weighted by batch size
         avg_loss = total_loss / len(dataset)
         print(f"Epoch {epoch+1}/{args.epochs} Loss: {avg_loss:.4f}")
     
