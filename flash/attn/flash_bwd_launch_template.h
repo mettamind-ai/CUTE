@@ -104,29 +104,29 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, cudaStream_t stream) 
 
 template<typename Kernel_traits, bool Is_causal>
 void run_flash_bwd(Flash_bwd_params &params, cudaStream_t stream) {
-#ifndef FLASHATTENTION_DISABLE_BACKWARD
     run_flash_bwd_seqk_parallel<Kernel_traits, Is_causal>(params, stream);
-#endif
 }
 
-// template<typename T, bool Is_causal>
-// void run_mha_bwd_hdim64(Flash_bwd_params &params, cudaStream_t stream) {
-//     constexpr static int Headdim = 64;
-//     int device;
-//     cudaGetDevice(&device);
-//     int max_smem_per_block;
-//     cudaError status_ = cudaDeviceGetAttribute(
-//         &max_smem_per_block, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
-//     if (status_ != cudaSuccess) {
-//       C10_CUDA_CHECK(status_);
-//     }
-//     // printf("max_smem_per_block = %d\n", max_smem_per_block);
-//         if (max_smem_per_block >= 144 * 1024) {
-//             run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 128, 128, 8, 4, 4, 4, false, false, T>, Is_causal>(params, stream);
-//         } else {
-//             run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 128, 8, 2, 4, 4, true, false, T>, Is_causal>(params, stream);
-//         }
-// }
+/*
+template<typename T, bool Is_causal>
+void run_mha_bwd_hdim64(Flash_bwd_params &params, cudaStream_t stream) {
+    constexpr static int Headdim = 64;
+    int device;
+    cudaGetDevice(&device);
+    int max_smem_per_block;
+    cudaError status_ = cudaDeviceGetAttribute(
+        &max_smem_per_block, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+    if (status_ != cudaSuccess) {
+      C10_CUDA_CHECK(status_);
+    }
+    // printf("max_smem_per_block = %d\n", max_smem_per_block);
+        if (max_smem_per_block >= 144 * 1024) {
+            run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 128, 128, 8, 4, 4, 4, false, false, T>, Is_causal>(params, stream);
+        } else {
+            run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 128, 8, 2, 4, 4, true, false, T>, Is_causal>(params, stream);
+        }
+}
+/**/
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim128(Flash_bwd_params &params, cudaStream_t stream) {
