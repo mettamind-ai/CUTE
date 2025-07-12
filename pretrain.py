@@ -88,7 +88,10 @@ class LRSchedule:
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+ple_params  = [p for n, p in model.named_parameters() if "ple" in n]
+
 adam_params = [
+    dict(params=ple_params,                  lr=0.003, weight_decay=0),  
     dict(params=model.embeds.parameters(),   lr=0.003, weight_decay=0),  
     dict(params=model.unembeds.parameters(), lr=0.002, weight_decay=0),
 ]
@@ -113,7 +116,7 @@ logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
 lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
-cu_steps = 1
+cu_steps = args.cu_steps
 
 for step in range(args.steps):  # training loop
 
@@ -135,7 +138,7 @@ for step in range(args.steps):  # training loop
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
-    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
+    # cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
 
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
