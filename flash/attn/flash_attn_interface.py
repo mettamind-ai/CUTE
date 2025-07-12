@@ -122,7 +122,10 @@ def _flash_attn_varlen_forward_fake(
     zero_tensors: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    paged_kv = block_table is not None
+    batch_size = cu_seqlens_q.numel() - 1
     total_q, num_heads, _ = q.shape
+    
     out = torch.empty_like(q)
     softmax_lse = torch.empty((num_heads, total_q), dtype=torch.float32, device=q.device, layout=q.layout)
     return out, softmax_lse
