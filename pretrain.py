@@ -115,8 +115,8 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
-cu_steps = args.cu_steps
+lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.25)
+cu_steps = 1 # args.cu_steps
 
 for step in range(args.steps):  # training loop
 
@@ -138,13 +138,13 @@ for step in range(args.steps):  # training loop
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
-    # cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
+    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
 
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
-            # Mutliple step learning rates
-            if step == int(args.steps * 0.3): group["init_lr"] *= 0.5
-            if step == int(args.steps * 0.6): group["init_lr"] *= 0.5
+            ## Multi step learning rates
+            # if step == int(args.steps * 0.3): group["init_lr"] *= 0.5
+            # if step == int(args.steps * 0.6): group["init_lr"] *= 0.5
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
 
             if opt == muon_optim:  # muon momentum warmup
@@ -180,7 +180,7 @@ for step in range(args.steps):  # training loop
     pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
     pbar.update()
 
-    if step % 300 == 0:
+    if (step + 1) % 300 == 0 or step == args.steps - 1:
         args.current_step = step
         torch.save(args, save_dir / "hyperparams.pth")
         torch.save(model     .state_dict(), save_dir / "model.pth")
