@@ -51,8 +51,8 @@ from einops import rearrange, repeat
 from .utils import custom_fwd, custom_bwd
 
 try:
-    from causal_conv1d import causal_conv1d_fn
-    from causal_conv1d.cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
+    from .. import causal_conv1d_fn
+    from ..cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
 except ImportError:
     causal_conv1d_fn = None
     causal_conv1d_fwd_function = None

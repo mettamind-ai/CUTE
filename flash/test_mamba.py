@@ -197,3 +197,8 @@ def test_mamba_inner_fn(is_variable_B, is_variable_C, seqlen, itype, wtype):
     #                       atol=atolw if not is_variable_C else atol)
     # assert torch.allclose(D.grad, D_ref.grad, rtol=rtolw, atol=atolw)
     # assert torch.allclose(delta_bias.grad, delta_bias_ref.grad, rtol=rtolw, atol=atolw)
+
+
+if __name__ == '__main__':
+    test_selective_scan(is_variable_B=True, is_variable_C=True, varBC_groups=2, has_D=True, has_z=True, has_delta_bias=True,
+                        delta_softplus=True, return_last_state=True, seqlen=256, itype=torch.bfloat16, wtype=torch.float32)

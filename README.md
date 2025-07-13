@@ -55,6 +55,7 @@
 # TODO
 
 - [ ] fast inference + hiệu chỉnh logits + sửa chữa tích luỹ sai lệch + phát hiện token "bất thường"
+  - [ ] Modern LLM sampling https://rentry.org/samplers
   - https://pytorch.org/blog/accelerating-generative-ai-2
   - hiệu chỉnh logits top-nơ https://www.alphaxiv.org/abs/2411.07641
   - sửa chữa tích luỹ sai lệch https://www.alphaxiv.org/abs/2410.14655
