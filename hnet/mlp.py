@@ -3,7 +3,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flash.ops.activations import swiglu
+from flash.ops.swiglu import swiglu
 
 
 class SwiGLU(nn.Module):
@@ -18,9 +18,7 @@ class SwiGLU(nn.Module):
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
-        d_intermediate = (
-            d_intermediate if d_intermediate is not None else int(8 * d_model / 3)
-        )
+        if d_intermediate is None: d_intermediate = int(8 * d_model / 3)
         d_intermediate = (d_intermediate + multiple_of - 1) // multiple_of * multiple_of
         self.fc1 = nn.Linear(d_model, 2 * d_intermediate, bias=bias, **factory_kwargs)
         self.fc2 = nn.Linear(d_intermediate, d_model, bias=bias, **factory_kwargs)
