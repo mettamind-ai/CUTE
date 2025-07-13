@@ -71,7 +71,7 @@ def load_from_pretrained(model_path: str, model_config_path: str):
 def generate(
     model,
     prompt: str,
-    max_tokens: int = 256,
+    max_tokens: int = 1024,
     temperature: float = 1.0,
     top_p: float = 0.9,
 ):
