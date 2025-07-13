@@ -1,5 +1,5 @@
 # H-Net
-- hnet paper https://arxiv.org/html/2507.07955v1
+- đọc hnet paper https://arxiv.org/html/2507.07955v1
 
 <table width="100%">
   <tr><td><img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif" alt="Code" width="100%"></td></tr>
@@ -7,7 +7,6 @@
 </table>
 
 ## Theoretical Highlights (from the H-Net Paper)
-
 1.  **End-to-End Learning at the Byte Level:** This is the most groundbreaking point. H-Net completely eliminates the pre-processing step of tokenization with a fixed vocabulary (like BPE or WordPiece). Instead, it learns directly from raw bytes, allowing the model to build its own representations.
 
 2.  **Dynamic Chunking (DC):** Instead of fixed-length or predetermined tokens, H-Net dynamically learns to group bytes into meaningful "chunks." This process is context-dependent, meaning the same sequence of bytes can be chunked differently depending on what precedes and follows it.
@@ -19,7 +18,6 @@
 5.  **Robustness:** Being byte-level, the model is very robust to spelling errors, out-of-vocabulary words, and other text variations that often pose challenges for fixed-vocabulary tokenizers.
 
 ## Source Code Highlights (Implementation)
-
 1.  **Implementation of Dynamic Chunking (`dc.py`):**
     *   `RoutingModule`: This is the "brain" of the chunking mechanism. It calculates the probability of a token being a "boundary" of a chunk by comparing the cosine similarity between adjacent token representations.
     *   `ChunkLayer` & `DeChunkLayer`: These layers handle the gathering of tokens into chunks based on the boundaries identified by `RoutingModule` and then "un-chunk" them back to the original sequence after processing at a higher level.

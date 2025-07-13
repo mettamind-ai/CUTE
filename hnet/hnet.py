@@ -7,18 +7,23 @@ from .isotropic import Isotropic, IsotropicInferenceParams
 from .config_hnet import HNetConfig
 
 class STE(torch.autograd.Function):
+    '''Straight-Through Estimator
+H-Net cần phải đưa ra một quyết định "cứng" (hard decision): tại một vị trí, có gộp (chunk) hay không? 
+Đây là một lựa chọn có/không, và phép toán để đưa ra lựa chọn này (ví dụ như lấy giá trị lớn nhất, hoặc làm tròn)
+thường không có đạo hàm. Nếu không có đạo hàm, gradient không thể lan truyền ngược qua bước này, 
+và mô hình không thể học được.
+
+STE giải quyết vấn đề này như sau:
+1. Tính toán xuôi (Forward Pass): Sử dụng kết quả của quyết định "cứng". Ví dụ, nếu xác suất là 0.8, 
+nó sẽ làm tròn thành 1.0.
+2. Tính toán ngược (Backward Pass): "Giả vờ" rằng không có bước quyết định "cứng" nào cả. 
+Nó sao chép gradient một cách trực tiếp đi qua, như thể bước đó chỉ là một hàm đồng nhất (identity function).
+    '''
     @staticmethod
-    def forward(ctx, x):
-        return torch.ones_like(x)
-
+    def forward(ctx, x): return torch.ones_like(x)
     @staticmethod
-    def backward(ctx, grad_output):
-        grad_x = grad_output
-        return grad_x
-
-def ste_func(x):
-    return STE.apply(x)
-
+    def backward(ctx, grad_output): return grad_output
+def ste_func(x): return STE.apply(x)
 
 @dataclass
 class HNetState:
@@ -28,15 +33,8 @@ class HNetState:
     dechunk_state: Optional[DeChunkState] = None
     decoder_state: Optional[IsotropicInferenceParams] = None
 
-
 class HNet(nn.Module):
-    def __init__(
-        self,
-        config: HNetConfig,
-        stage_idx: int,
-        device=None,
-        dtype=None,
-    ) -> None:
+    def __init__(self, config: HNetConfig, stage_idx: int, device=None, dtype=None) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
 
@@ -44,8 +42,7 @@ class HNet(nn.Module):
         self.d_model = config.d_model[stage_idx]
 
         arch_layout = config.arch_layout
-        for _ in range(stage_idx):
-            arch_layout = arch_layout[1]
+        for _ in range(stage_idx): arch_layout = arch_layout[1]
 
         assert isinstance(arch_layout, list), f"Wrong arch_layout: {arch_layout}"
         if len(arch_layout) == 3:
@@ -59,20 +56,17 @@ class HNet(nn.Module):
 
         for _name, _layout in zip(sub_model_names, arch_layout):
             if self.is_innermost or _name in ("encoder", "decoder"):
-                SubModel = Isotropic
-                _stage_idx = stage_idx
+                SubModel = Isotropic        # chuỗi các lớp xử lý tuần tự, không phân cấp
+                _stage_idx = stage_idx      # << giữ nguyên stage_idx
                 _pos_idx = None
-                if _name == "encoder":
-                    _pos_idx = 0
-                elif self.is_innermost:
-                    # if innermost, then len(layer_layout) == 1
-                    _pos_idx = 0
-                elif _name == "decoder":
-                    _pos_idx = 2
+                if _name == "encoder": _pos_idx = 0
+                # if innermost, then len(layer_layout) == 1
+                elif self.is_innermost: _pos_idx = 0
+                elif _name == "decoder": _pos_idx = 2
                 _pos_idx_dict = {"pos_idx": _pos_idx}
             else:
-                SubModel = HNet
-                _stage_idx = stage_idx + 1
+                SubModel = HNet             # tiếp tục cấu trúc phân cấp
+                _stage_idx = stage_idx + 1  # << Tăng stage_idx
                 _pos_idx_dict = {}
 
             _sub_model = SubModel(
