@@ -50,15 +50,8 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from .utils import custom_fwd, custom_bwd
 
-try:
-    from .. import causal_conv1d_fn
-    from ..cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
-except ImportError:
-    causal_conv1d_fn = None
-    causal_conv1d_fwd_function = None
-    causal_conv1d_bwd_function = None
-    causal_conv1d_update_function = None
-
+import sys; sys.path.append('..')
+from causal_conv1d import causal_conv1d_fn, causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
 from .layer_norm import _layer_norm_fwd
 
 class SelectiveScanFn(torch.autograd.Function):
@@ -233,7 +226,6 @@ class MambaInnerFn(torch.autograd.Function):
         """
              xz: (batch, dim, seqlen)
         """
-        assert causal_conv1d_fwd_function is not None, "causal_conv1d_cuda is not available. Please install causal-conv1d."
         assert checkpoint_lvl in [0, 1]
         L = xz.shape[-1]
         delta_rank = delta_proj_weight.shape[1]
@@ -322,7 +314,6 @@ class MambaInnerFn(torch.autograd.Function):
     @custom_bwd
     def backward(ctx, dout):
         # dout: (batch, seqlen, dim)
-        assert causal_conv1d_fwd_function is not None, "causal_conv1d_cuda is not available. Please install causal-conv1d."
         (xz, conv1d_weight, conv1d_bias, x_dbl, x_proj_weight, delta_proj_weight, out_proj_weight,
          conv1d_out, delta, A, B, C, D, delta_bias, scan_intermediates, b_rms_weight, c_rms_weight, dt_rms_weight, out) = ctx.saved_tensors
         L = xz.shape[-1]
@@ -428,7 +419,6 @@ def mamba_inner_ref(
     A, B=None, C=None, D=None, delta_bias=None, B_proj_bias=None,
     C_proj_bias=None, delta_softplus=True
 ):
-    assert causal_conv1d_fn is not None, "causal_conv1d_fn is not available. Please install causal-conv1d."
     L = xz.shape[-1]
     delta_rank = delta_proj_weight.shape[1]
     d_state = A.shape[-1] * (1 if not A.is_complex() else 2)
