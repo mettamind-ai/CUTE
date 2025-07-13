@@ -16,8 +16,8 @@ from torch import Tensor
 import triton
 import triton.language as tl
 
-from .torch import custom_fwd, custom_bwd
-from .library import triton_op
+from ..utils.torch import custom_fwd, custom_bwd
+from ..utils.library import triton_op
 
 
 def maybe_contiguous_lastdim(x):

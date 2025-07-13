@@ -12,8 +12,9 @@ import triton.language as tl
 
 from einops import rearrange, repeat
 
-from .softplus import softplus
-
+@triton.jit
+def softplus(dt):
+    return tl.math.log(tl.math.exp(dt) + 1)
 
 def init_to_zero(names):
     return lambda nargs: [nargs[name].zero_() for name in names if nargs[name] is not None]

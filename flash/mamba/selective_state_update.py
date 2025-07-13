@@ -12,7 +12,9 @@ import triton.language as tl
 
 from einops import rearrange, repeat
 
-from .softplus import softplus
+@triton.jit
+def softplus(dt):
+    return tl.math.log(tl.math.exp(dt) + 1)
 
 
 @triton.heuristics({"HAS_DT_BIAS": lambda args: args["dt_bias_ptr"] is not None})

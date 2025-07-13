@@ -12,7 +12,7 @@ from .causal_conv1d import causal_conv1d_fn, causal_conv1d_update
 from .causal_conv1d.causal_conv1d_varlen import causal_conv1d_varlen_states
 from .mamba.selective_state_update import selective_state_update
 
-from .mamba.layernorm_gated import RMSNorm as RMSNormGated
+from .ops.layernorm_gated import RMSNorm as RMSNormGated
 
 # from mamba_ssm.distributed.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 # from mamba_ssm.distributed.distributed_utils import all_reduce, reduce_scatter

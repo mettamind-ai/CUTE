@@ -11,7 +11,7 @@ from packaging import version
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from .utils import custom_bwd, custom_fwd
+from ..utils.torch import custom_bwd, custom_fwd
 
 import triton
 import triton.language as tl
@@ -34,8 +34,8 @@ from .ssd_chunk_scan import _chunk_scan_bwd_dC, _chunk_scan_bwd_dcb
 from .ssd_chunk_scan import _chunk_scan_bwd_ddAcs_stable
 from .ssd_chunk_scan import chunk_scan, chunk_scan_ref
 from .ssd_chunk_scan import _chunk_scan_bwd_ddAcs_prev
-from .layernorm_gated import rmsnorm_fn, _layer_norm_fwd, _layer_norm_bwd
-from .k_activations import _swiglu_fwd, _swiglu_bwd
+from ..ops.layernorm_gated import rmsnorm_fn, _layer_norm_fwd, _layer_norm_bwd
+from ..ops.swiglu import _swiglu_fwd, _swiglu_bwd
 
 TRITON_22 = version.parse(triton.__version__) >= version.parse('2.2.0')
 
