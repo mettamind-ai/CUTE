@@ -1,3 +1,4 @@
+#!/usr/bin/env pytest
 # Copyright (C) 2023, Tri Dao.
 
 import math, torch, torch.nn.functional as F, pytest

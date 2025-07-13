@@ -1,3 +1,4 @@
+#!/usr/bin/env pytest
 # Copyright (C) 2024, Tri Dao.
 
 import math
@@ -9,9 +10,9 @@ import pytest
 
 from einops import rearrange
 
-from causal_conv1d.causal_conv1d_interface import causal_conv1d_fn, causal_conv1d_ref
-from causal_conv1d.causal_conv1d_interface import causal_conv1d_update, causal_conv1d_update_ref
-from causal_conv1d.causal_conv1d_varlen import causal_conv1d_varlen_states, causal_conv1d_varlen_states_ref
+from .causal_conv1d.causal_conv1d_interface import causal_conv1d_fn, causal_conv1d_ref
+from .causal_conv1d.causal_conv1d_interface import causal_conv1d_update, causal_conv1d_update_ref
+from .causal_conv1d.causal_conv1d_varlen import causal_conv1d_varlen_states, causal_conv1d_varlen_states_ref
 
 
 @pytest.mark.parametrize("return_final_states", [False, True])

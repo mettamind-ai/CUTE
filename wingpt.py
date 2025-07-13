@@ -14,6 +14,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision
 from flash.attn import flash_attn_varlen_func
+from flash.ops import swiglu
 from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -116,13 +117,15 @@ class Block(nn.Module):
             k_half  = repeat(k, 'T 1 d -> T h d', h=H//G)
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
-            return q, k_full, v_full
 
-        q, k, v = checkpoint(prepare, use_reentrant=False)
+            y = F.relu(up).square()
+            return q, k_full, v_full, y
+
+        q, k, v, y = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        return x + o + self.down_proj(F.relu(up).square())
+        return x + o + self.down_proj(y)
 
 
 class WinGPT(nn.Module):

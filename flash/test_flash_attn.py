@@ -1,3 +1,4 @@
+#!/usr/bin/env pytest
 import math
 import pytest
 import torch
