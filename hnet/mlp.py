@@ -25,7 +25,6 @@ class SwiGLU(nn.Module):
 
     def forward(self, x):
         y = self.fc1(x)
-        y, gate = y.chunk(2, dim=-1)
-        y = swiglu(gate, y)
+        y = swiglu(y)
         y = self.fc2(y)
         return y
