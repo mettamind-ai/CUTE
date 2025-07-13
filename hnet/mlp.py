@@ -3,7 +3,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flash_attn.ops.activations import swiglu
+from flash.ops.activations import swiglu
 
 
 class SwiGLU(nn.Module):

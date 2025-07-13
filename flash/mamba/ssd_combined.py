@@ -11,37 +11,31 @@ from packaging import version
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from mamba_ssm.utils.torch import custom_bwd, custom_fwd
+from .utils import custom_bwd, custom_fwd
 
 import triton
 import triton.language as tl
 
 from einops import rearrange, repeat
 
-try:
-    from causal_conv1d import causal_conv1d_fn
-    from causal_conv1d.cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
-except ImportError:
-    causal_conv1d_fn = None
-    causal_conv1d_fwd_function = None
-    causal_conv1d_bwd_function = None
-    causal_conv1d_update_function = None
+from ..causal_conv1d import causal_conv1d_fn
+from ..causal_conv1d.cpp_functions import causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
 
-from mamba_ssm.ops.triton.ssd_bmm import _bmm_chunk_fwd, _bmm_chunk_bwd
-from mamba_ssm.ops.triton.ssd_chunk_state import _chunk_cumsum_fwd, _chunk_cumsum_bwd
-from mamba_ssm.ops.triton.ssd_chunk_state import _chunk_state_fwd, _chunk_state_bwd_db
-from mamba_ssm.ops.triton.ssd_chunk_state import _chunk_state_bwd_ddAcs_stable
-from mamba_ssm.ops.triton.ssd_chunk_state import chunk_state, chunk_state_ref
-from mamba_ssm.ops.triton.ssd_chunk_state import chunk_state_varlen
-from mamba_ssm.ops.triton.ssd_state_passing import _state_passing_fwd, _state_passing_bwd
-from mamba_ssm.ops.triton.ssd_state_passing import state_passing, state_passing_ref
-from mamba_ssm.ops.triton.ssd_chunk_scan import _chunk_scan_fwd, _chunk_scan_bwd_dz, _chunk_scan_bwd_dstates
-from mamba_ssm.ops.triton.ssd_chunk_scan import _chunk_scan_bwd_dC, _chunk_scan_bwd_dcb
-from mamba_ssm.ops.triton.ssd_chunk_scan import _chunk_scan_bwd_ddAcs_stable
-from mamba_ssm.ops.triton.ssd_chunk_scan import chunk_scan, chunk_scan_ref
-from mamba_ssm.ops.triton.ssd_chunk_scan import _chunk_scan_bwd_ddAcs_prev
-from mamba_ssm.ops.triton.layernorm_gated import rmsnorm_fn, _layer_norm_fwd, _layer_norm_bwd
-from mamba_ssm.ops.triton.k_activations import _swiglu_fwd, _swiglu_bwd
+from .ssd_bmm import _bmm_chunk_fwd, _bmm_chunk_bwd
+from .ssd_chunk_state import _chunk_cumsum_fwd, _chunk_cumsum_bwd
+from .ssd_chunk_state import _chunk_state_fwd, _chunk_state_bwd_db
+from .ssd_chunk_state import _chunk_state_bwd_ddAcs_stable
+from .ssd_chunk_state import chunk_state, chunk_state_ref
+from .ssd_chunk_state import chunk_state_varlen
+from .ssd_state_passing import _state_passing_fwd, _state_passing_bwd
+from .ssd_state_passing import state_passing, state_passing_ref
+from .ssd_chunk_scan import _chunk_scan_fwd, _chunk_scan_bwd_dz, _chunk_scan_bwd_dstates
+from .ssd_chunk_scan import _chunk_scan_bwd_dC, _chunk_scan_bwd_dcb
+from .ssd_chunk_scan import _chunk_scan_bwd_ddAcs_stable
+from .ssd_chunk_scan import chunk_scan, chunk_scan_ref
+from .ssd_chunk_scan import _chunk_scan_bwd_ddAcs_prev
+from .layernorm_gated import rmsnorm_fn, _layer_norm_fwd, _layer_norm_bwd
+from .k_activations import _swiglu_fwd, _swiglu_bwd
 
 TRITON_22 = version.parse(triton.__version__) >= version.parse('2.2.0')
 

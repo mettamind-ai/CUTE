@@ -4,8 +4,8 @@ from typing import Union, Optional
 import torch
 import torch.nn as nn
 
-from hnet.modules.isotropic import Isotropic, IsotropicInferenceParams
-from hnet.modules.dc import (
+from .isotropic import Isotropic, IsotropicInferenceParams
+from .dc import (
     RoutingModule,
     ChunkLayer,
     DeChunkLayer,

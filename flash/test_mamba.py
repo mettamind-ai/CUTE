@@ -2,7 +2,7 @@
 
 import math, torch, torch.nn.functional as F, pytest
 from einops import rearrange
-from mamba import selective_scan_fn, selective_scan_ref, mamba_inner_fn, mamba_inner_ref
+from .mamba import selective_scan_fn, selective_scan_ref, mamba_inner_fn, mamba_inner_ref
 
 # @pytest.mark.parametrize('wtype', [torch.float32, torch.complex64])
 @pytest.mark.parametrize('wtype', [torch.float32])

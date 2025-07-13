@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
 
-from attn.flash_attn_interface import (
+from .attn.flash_attn_interface import (
     flash_attn_func,
     flash_attn_varlen_func,
     flash_attn_with_kvcache,

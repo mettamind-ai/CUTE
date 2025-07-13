@@ -50,8 +50,9 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from .utils import custom_fwd, custom_bwd
 
-import sys; sys.path.append('..')
-from causal_conv1d import causal_conv1d_fn, causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
+# import sys; sys.path.append('..')
+# import sys, pathlib; sys.path.append(pathlib.Path(__file__).parent/'..')
+from ..causal_conv1d import causal_conv1d_fn, causal_conv1d_fwd_function, causal_conv1d_bwd_function, causal_conv1d_update_function
 from .layer_norm import _layer_norm_fwd
 
 class SelectiveScanFn(torch.autograd.Function):

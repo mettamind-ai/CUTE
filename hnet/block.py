@@ -5,8 +5,8 @@ from typing import Optional
 
 from torch import nn, Tensor
 
-from flash_attn.ops.triton.layer_norm import RMSNorm
-from mamba_ssm.modules.mamba2 import Mamba2
+from flash.ops.layer_norm import RMSNorm
+from flash.mamba2 import Mamba2
 
 from .mha import CausalMHA
 from .mlp import SwiGLU

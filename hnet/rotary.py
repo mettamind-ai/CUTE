@@ -4,7 +4,8 @@ from typing import Optional, Tuple, Union
 
 import torch
 from einops import rearrange, repeat
-from flash_attn.ops.triton.rotary import apply_rotary
+from flash.ops.layer_norm import RMSNorm
+from flash.ops.rotary import apply_rotary
 
 
 def rotate_half(x, interleaved=False):

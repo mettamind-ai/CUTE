@@ -4,12 +4,11 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from flash_attn.utils.generation import GenerationMixin
+from flash.generation import GenerationMixin
 
 from .hnet import HNet, HNetState
 from .config_hnet import HNetConfig
-
-from hnet.modules.dc import RoutingModuleOutput
+from .dc import RoutingModuleOutput
 
 
 @dataclass

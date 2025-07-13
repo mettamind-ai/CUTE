@@ -9,12 +9,11 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from flash_attn.ops.triton.layer_norm import RMSNorm
+from flash.ops.layer_norm import RMSNorm
 
-from hnet.modules.block import create_block
-from hnet.modules.utils import get_seq_idx, get_stage_cfg
-
-from hnet.models.config_hnet import HNetConfig
+from .block import create_block
+from .utils import get_seq_idx, get_stage_cfg
+from .config_hnet import HNetConfig
 
 
 @dataclass

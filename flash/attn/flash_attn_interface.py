@@ -644,3 +644,383 @@ def flash_attn_with_kvcache(
         num_splits,
     )
     return out
+
+
+##############################################################################################
+
+
+class FlashAttnQKVPackedFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        qkv,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        is_grad_enabled,
+    ):
+        is_grad = is_grad_enabled and qkv.requires_grad
+        if softmax_scale is None:
+            softmax_scale = qkv.shape[-1] ** (-0.5)
+        q, k, v = qkv[:, :, 0].detach(), qkv[:, :, 1].detach(), qkv[:, :, 2].detach()
+        head_size_og = q.size(3)
+        if head_size_og % 8 != 0:
+            q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
+            k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
+            v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        out_padded, softmax_lse, S_dmask, rng_state =  _wrapped_flash_attn_forward(
+            q, k, v,
+            softmax_scale,
+            causal=causal,
+            window_size_left=window_size[0],
+            window_size_right=window_size[1],
+            softcap=softcap,
+        )
+        if is_grad:
+            ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
+            ctx.softmax_scale = softmax_scale
+            ctx.causal = causal
+            ctx.window_size = window_size
+            ctx.softcap = softcap
+        out = out_padded[..., :head_size_og]
+        return out
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, rng_state = ctx.saved_tensors
+        qkv_shape = q.shape[:-2] + (3, *q.shape[-2:])
+        dqkv = torch.empty(qkv_shape, dtype=q.dtype, device=q.device)
+        head_size_og = dout.size(3)
+        dout_padded = dout
+        if head_size_og % 8 != 0:
+            dout_padded = torch.nn.functional.pad(dout, [0, 8 - head_size_og % 8])
+        _wrapped_flash_attn_backward(
+            dout_padded,
+            q, k, v,
+            out,
+            softmax_lse,
+            dqkv[:, :, 0],
+            dqkv[:, :, 1],
+            dqkv[:, :, 2],
+            ctx.softmax_scale,
+            ctx.causal,
+            ctx.window_size[0],
+            ctx.window_size[1],
+            ctx.softcap,
+            rng_state=rng_state,
+        )
+        dqkv = dqkv[..., : dout.shape[-1]]  # We could have padded the head dimension
+        return dqkv, None, None, None, None, None, None, None, None, None
+
+
+class FlashAttnVarlenQKVPackedFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        qkv,
+        cu_seqlens,
+        max_seqlen,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        is_grad_enabled,
+    ):
+        is_grad = is_grad_enabled and qkv.requires_grad
+        if softmax_scale is None:
+            softmax_scale = qkv.shape[-1] ** (-0.5)
+        q, k, v = qkv[:, 0].detach(), qkv[:, 1].detach(), qkv[:, 2].detach()
+        head_size_og = q.size(2)
+        if head_size_og % 8 != 0:
+            q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
+            k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
+            v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        out_padded, softmax_lse, S_dmask, rng_state = _wrapped_flash_attn_varlen_forward(
+            q, k, v,
+            cu_seqlens, cu_seqlens,
+            max_seqlen, max_seqlen,
+            softmax_scale,
+            causal=causal,
+            window_size_left=window_size[0],
+            window_size_right=window_size[1],
+            softcap=softcap,
+            block_table=None,
+        )
+        if is_grad:
+            ctx.save_for_backward(q, k, v, out_padded, softmax_lse, cu_seqlens, rng_state)
+            ctx.max_seqlen = max_seqlen
+            ctx.softmax_scale = softmax_scale
+            ctx.causal = causal
+            ctx.window_size = window_size
+            ctx.softcap = softcap
+        out = out_padded[..., :head_size_og]
+        return out
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, cu_seqlens, rng_state = ctx.saved_tensors
+        qkv_shape = q.shape[:-2] + (3, *q.shape[-2:])
+        dqkv = torch.empty(qkv_shape, dtype=q.dtype, device=q.device)
+        head_size_og = dout.size(2)
+        dout_padded = dout
+        if head_size_og % 8 != 0:
+            dout_padded = torch.nn.functional.pad(dout, [0, 8 - head_size_og % 8])
+        _wrapped_flash_attn_varlen_backward(
+            dout_padded,
+            q, k, v,
+            out,
+            softmax_lse,
+            dqkv[:, 0],
+            dqkv[:, 1],
+            dqkv[:, 2],
+            cu_seqlens,
+            cu_seqlens,
+            ctx.max_seqlen,
+            ctx.max_seqlen,
+            ctx.softmax_scale,
+            ctx.causal,
+            ctx.window_size[0],
+            ctx.window_size[1],
+            ctx.softcap,
+            rng_state=rng_state,
+        )
+        dqkv = dqkv[..., : dout.shape[-1]]  # We could have padded the head dimension
+        return dqkv, None, None, None, None, None, None, None, None, None, None, None
+
+
+class FlashAttnKVPackedFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        q,
+        kv,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        is_grad_enabled,
+    ):
+        is_grad = is_grad_enabled and any(
+            x.requires_grad for x in [q, kv]
+        )
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        k, v = kv[:, :, 0].detach(), kv[:, :, 1].detach()
+        head_size_og = q.size(3)
+        if head_size_og % 8 != 0:
+            q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
+            k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
+            v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        out_padded, softmax_lse, S_dmask, rng_state = _wrapped_flash_attn_forward(
+            q, k, v,
+            softmax_scale,
+            causal=causal,
+            window_size_left=window_size[0],
+            window_size_right=window_size[1],
+        )
+        if is_grad:
+            ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
+            ctx.softmax_scale = softmax_scale
+            ctx.causal = causal
+            ctx.window_size = window_size
+            ctx.softcap = softcap
+        out = out_padded[..., :head_size_og]
+        return out
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, rng_state = ctx.saved_tensors
+        dq = torch.empty_like(q)
+        kv_shape = k.shape[:-2] + (2, *k.shape[-2:])
+        dkv = torch.empty(kv_shape, dtype=k.dtype, device=k.device)
+        head_size_og = dout.size(3)
+        dout_padded = dout
+        if head_size_og % 8 != 0:
+            dout_padded = torch.nn.functional.pad(dout, [0, 8 - head_size_og % 8])
+        _wrapped_flash_attn_backward(
+            dout_padded,
+            q, k, v,
+            out,
+            softmax_lse,
+            dq,
+            dkv[:, :, 0],
+            dkv[:, :, 1],
+            ctx.softmax_scale,
+            ctx.causal,
+            ctx.window_size[0],
+            ctx.window_size[1],
+            ctx.softcap,
+            rng_state=rng_state,
+        )
+        dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension
+        dkv = dkv[..., : dout.shape[-1]]
+        return dq, dkv, None, None, None, None, None, None, None, None, None
+
+
+class FlashAttnVarlenKVPackedFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        q,
+        kv,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        is_grad_enabled,
+    ):
+        is_grad = is_grad_enabled and any(
+            x.requires_grad for x in [q, kv]
+        )
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        k, v = kv[:, 0].detach(), kv[:, 1].detach()
+        head_size_og = q.size(2)
+        if head_size_og % 8 != 0:
+            q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
+            k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
+            v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        out_padded, softmax_lse, S_dmask, rng_state = _wrapped_flash_attn_varlen_forward(
+            q, k, v,
+            cu_seqlens_q, cu_seqlens_k,
+            max_seqlen_q, max_seqlen_k,
+            softmax_scale,
+            causal=causal,
+            window_size_left=window_size[0],
+            window_size_right=window_size[1],
+            softcap=softcap,
+            block_table=None,
+        )
+        if is_grad:
+            ctx.save_for_backward(
+                q, k, v, out_padded, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state
+            )
+            ctx.max_seqlen_q = max_seqlen_q
+            ctx.max_seqlen_k = max_seqlen_k
+            ctx.softmax_scale = softmax_scale
+            ctx.causal = causal
+            ctx.window_size = window_size
+            ctx.softcap = softcap
+        out = out_padded[..., :head_size_og]
+        return out
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state = ctx.saved_tensors
+        dq = torch.empty_like(q)
+        kv_shape = k.shape[:-2] + (2, *k.shape[-2:])
+        dkv = torch.empty(kv_shape, dtype=k.dtype, device=k.device)
+        head_size_og = dout.size(2)
+        dout_padded = dout
+        if head_size_og % 8 != 0:
+            dout_padded = torch.nn.functional.pad(dout, [0, 8 - head_size_og % 8])
+        _wrapped_flash_attn_varlen_backward(
+            dout_padded,
+            q, k, v,
+            out,
+            softmax_lse,
+            dq,
+            dkv[:, 0],
+            dkv[:, 1],
+            cu_seqlens_q,
+            cu_seqlens_k,
+            ctx.max_seqlen_q,
+            ctx.max_seqlen_k,
+            ctx.softmax_scale,
+            ctx.causal,
+            ctx.window_size[0],
+            ctx.window_size[1],
+            ctx.softcap,
+            rng_state=rng_state,
+        )
+        dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension
+        dkv = dkv[..., : dout.shape[-1]]
+        return dq, dkv, None, None, None, None, None, None, None, None, None, None, None, None, None
+
+
+def flash_attn_qkvpacked_func(
+    qkv,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0,  # <=0.0 means deactivate
+):
+    return FlashAttnQKVPackedFunc.apply(
+        qkv,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        torch.is_grad_enabled(),
+    )
+
+
+def flash_attn_kvpacked_func(
+    q,
+    kv,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0,  # 0.0 means deactivated
+):
+    return FlashAttnKVPackedFunc.apply(
+        q,
+        kv,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        torch.is_grad_enabled(),
+    )
+
+def flash_attn_varlen_qkvpacked_func(
+    qkv,
+    cu_seqlens,
+    max_seqlen,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0, # 0.0 means deactivated
+):
+    return FlashAttnVarlenQKVPackedFunc.apply(
+        qkv,
+        cu_seqlens,
+        max_seqlen,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        torch.is_grad_enabled(),
+    )
+
+
+def flash_attn_varlen_kvpacked_func(
+    q,
+    kv,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    softmax_scale=None,
+    causal=False,
+    window_size=(-1, -1),  # -1 means infinite context window
+    softcap=0.0, # 0.0 means deactivated
+):
+    return FlashAttnVarlenKVPackedFunc.apply(
+        q,
+        kv,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        torch.is_grad_enabled(),
+    )

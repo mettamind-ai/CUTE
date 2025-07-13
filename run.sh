@@ -11,7 +11,7 @@
 ######################################################################
 ## Others, data, test run ...
 ######################################################################
-pip install numpy tqdm wandb einops ninja huggingface_hub torch==2.6.0 -U --user
+pip install numpy tqdm wandb einops ninja huggingface_hub optree torch==2.6.0 -U --user
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
 cd flash/cutlass; git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../.. # flash_attn 2.7.3
 
