@@ -104,7 +104,8 @@ for opt in [muon_optim, adam_optim]:
 ################
 ##  TRAINING  ##
 ################
-lossf = torch.compile(lossf)
+torch._dynamo.config.patch(error_on_recompile=True)
+lossf = torch.compile(lossf)#, fullgraph=True)
 model = model.cuda()
 model.train()
 
@@ -116,7 +117,7 @@ logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
 lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.25)
-cu_steps = 1 # args.cu_steps
+cu_steps = args.cu_steps
 
 for step in range(args.steps):  # training loop
 
@@ -138,7 +139,7 @@ for step in range(args.steps):  # training loop
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
-    cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
+    # cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
 
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
