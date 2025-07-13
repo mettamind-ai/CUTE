@@ -125,8 +125,7 @@ def generate(
         probs = torch.softmax(logits, dim=-1)
         next_token = torch.multinomial(probs, 1)
 
-        if next_token.item() == tokenizer.eos_idx:
-            break
+        if next_token.item() == tokenizer.eos_idx: break  # dừng sinh khi gặp EOS token
 
         current_token = next_token.unsqueeze(0)
         yield current_token
