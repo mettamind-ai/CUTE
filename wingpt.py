@@ -44,7 +44,7 @@ class Rotary(nn.Module):
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
 
-    def forward(self, x: Tensor, half=True):
+    def forward(self, x: Tensor, cu_seqlens, max_seqlen, half=False):
         ctxlen, head, dim = x.shape
         assert self.cos.shape[0] >= ctxlen
 
@@ -55,17 +55,17 @@ class Rotary(nn.Module):
             assert self.rotary_dim == dim
             x_rot = x
 
-        cos = self.cos[:ctxlen, None, :]
-        sin = self.sin[:ctxlen, None, :]
+        ## Áp dụng phép quay cho x_rot
+        # cos    = self.cos[:ctxlen, None, :]
+        # sin    = self.sin[:ctxlen, None, :]
+        # x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
+        # y1     = x1 * (+cos) + x2 * sin
+        # y2     = x1 * (-sin) + x2 * cos
+        # x_rot  = torch.cat((y1, y2), -1).type_as(x)
 
-        # Áp dụng phép quay cho nửa đầu (x_rot)
-        x1, x2  = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
-        y1      = x1 * (+cos) + x2 * sin
-        y2      = x1 * (-sin) + x2 * cos
-        rotated = torch.cat((y1, y2), -1).type_as(x)
-
-        if half: return torch.cat((x_pass, rotated), dim=-1)
-        else:    return rotated
+        apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
+        if half: return torch.cat((x_pass, x_rot), dim=-1)
+        else:    return x_rot
 
 
 class Block(nn.Module):
@@ -109,12 +109,12 @@ class Block(nn.Module):
             kv_half = v.view(T, H//G, HD//2)    # KV_half ∈ R^(ctxlen, head_kv, dim//2)
             v_half  = e.view(T, H//G, HD//2)    # Nửa còn lại của value lấy từ PLE (per layer embedding)
             k       = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1, dim/2)
+            k_half  = repeat(k, 'T 1 d -> T h d', h=H//G)
 
             if not self.long:  # Chỉ áp dụng rope cho short layers
-                q   = rotary(q, half=True)      # quay nửa sau dim
-                k   = rotary(k, half=False)     # quay toàn bộ dim//2
+                q = rotary(q, cu_seqlens, max_seqlen, half=True) # quay nửa sau dim
+                k_half = rotary(k_half, cu_seqlens, max_seqlen)  # quay toàn bộ dim//2
 
-            k_half  = repeat(k, 'T 1 d -> T h d', h=H//G)
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
