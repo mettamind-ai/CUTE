@@ -8,7 +8,7 @@ from flash.utils.generation import GenerationMixin
 
 from .hnet import HNet, HNetState
 from .config_hnet import HNetConfig
-from .dc import RoutingModuleOutput
+from flash.modules.de_chunk import RoutingModuleOutput
 
 
 @dataclass

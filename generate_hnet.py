@@ -1,17 +1,14 @@
-import numpy as np
-import json
-import torch
-import argparse
-import sys
+#!/usr/bin/env python3
+'''bash
+wget -O hnet/2stage_L.pt https://huggingface.co/cartesia-ai/hnet_2stage_L/resolve/main/hnet_2stage_L.pt
+
+./generate_hnet.py --model-path hnet/2stage_L.pt --config-path hnet/2stage_L.json
+
+'''
+import torch, numpy as np
+import json, argparse, sys
 from omegaconf import ListConfig
-
-from models.mixer_seq import HNetForCausalLM
-from models.config_hnet import (
-    AttnConfig,
-    SSMConfig,
-    HNetConfig,
-)
-
+from hnet import HNetForCausalLM, AttnConfig, SSMConfig, HNetConfig
 
 class ByteTokenizer:
     def __init__(self):

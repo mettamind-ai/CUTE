@@ -1,20 +1,10 @@
 from dataclasses import dataclass
 from typing import Union, Optional
 
-import torch
-import torch.nn as nn
-
+import torch, torch.nn as nn
+from flash.modules.de_chunk import RoutingModule, ChunkLayer, DeChunkLayer, RoutingModuleState, DeChunkState
 from .isotropic import Isotropic, IsotropicInferenceParams
-from .dc import (
-    RoutingModule,
-    ChunkLayer,
-    DeChunkLayer,
-    RoutingModuleState,
-    DeChunkState,
-)
-
 from .config_hnet import HNetConfig
-
 
 class STE(torch.autograd.Function):
     @staticmethod

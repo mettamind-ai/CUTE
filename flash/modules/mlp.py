@@ -2,9 +2,7 @@
 # https://github.com/state-spaces/mamba
 import torch.nn as nn
 import torch.nn.functional as F
-
-from flash.ops.swiglu import swiglu
-
+from flash.ops import swiglu
 
 class SwiGLU(nn.Module):
     def __init__(

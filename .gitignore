@@ -17,3 +17,4 @@ OpenCode.md
 .opencode
 .claude/
 .pytest_cache/
+*.pt

@@ -11,8 +11,8 @@ import torch.nn as nn
 
 from flash.ops.layer_norm import RMSNorm
 
-from .block import create_block
-from .utils import get_seq_idx, get_stage_cfg
+from flash.modules.block import create_block
+from flash.modules.utils import get_seq_idx, get_stage_cfg
 from .config_hnet import HNetConfig
 
 

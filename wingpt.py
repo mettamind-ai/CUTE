@@ -14,7 +14,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision
 from flash.attn import flash_attn_varlen_func
-from flash.ops.swiglu import swiglu
+from flash.ops import swiglu, apply_rotary_emb
 from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
