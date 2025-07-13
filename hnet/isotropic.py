@@ -1,20 +1,12 @@
-import re
-import copy
-from dataclasses import dataclass, field
-
-import optree
+import re, copy, optree
+import torch, torch.nn as nn
 
 from typing import Optional
-
-import torch
-import torch.nn as nn
-
-from flash.ops.layer_norm import RMSNorm
-
-from flash.modules.block import create_block
-from flash.modules.utils import get_seq_idx, get_stage_cfg
+from .block import create_block
 from .config_hnet import HNetConfig
-
+from flash.ops.layer_norm import RMSNorm
+from flash.modules.utils import get_seq_idx, get_stage_cfg
+from dataclasses import dataclass, field
 
 @dataclass
 class IsotropicInferenceParams:

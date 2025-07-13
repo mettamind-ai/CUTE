@@ -1,15 +1,11 @@
-from dataclasses import dataclass
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from dataclasses import dataclass
 from einops import repeat, rearrange
-
-from ..mamba.ssd_combined import mamba_chunk_scan_combined
-
-from .utils import get_seq_idx
-
+from flash.mamba.ssd_combined import mamba_chunk_scan_combined
+from flash.modules.utils import get_seq_idx
 
 @dataclass
 class RoutingModuleOutput:

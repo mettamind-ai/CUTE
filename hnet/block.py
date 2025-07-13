@@ -5,11 +5,11 @@ from typing import Optional
 
 from torch import nn, Tensor
 
-from ..ops.layer_norm import RMSNorm
-from ..mamba2 import Mamba2
+from flash.ops.layer_norm import RMSNorm
+from flash.mamba2 import Mamba2
 
-from .mha import CausalMHA
-from .mlp import SwiGLU
+from flash.modules.mha import CausalMHA
+from flash.modules.mlp import SwiGLU
 
 
 class Mamba2Wrapper(Mamba2):
