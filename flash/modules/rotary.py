@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 from einops import rearrange, repeat
-from flash.ops.rotary import apply_rotary_emb_func
+from flash.ops.rotary import apply_rotary, apply_rotary_emb_func
 
 class ApplyRotaryEmbQKV_(torch.autograd.Function):
     @staticmethod

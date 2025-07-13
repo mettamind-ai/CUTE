@@ -818,6 +818,7 @@ class FlashAttnKVPackedFunc(torch.autograd.Function):
             causal=causal,
             window_size_left=window_size[0],
             window_size_right=window_size[1],
+            softcap=softcap,
         )
         if is_grad:
             ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
@@ -897,9 +898,7 @@ class FlashAttnVarlenKVPackedFunc(torch.autograd.Function):
             block_table=None,
         )
         if is_grad:
-            ctx.save_for_backward(
-                q, k, v, out_padded, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state
-            )
+            ctx.save_for_backward(q, k, v, out_padded, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state)
             ctx.max_seqlen_q = max_seqlen_q
             ctx.max_seqlen_k = max_seqlen_k
             ctx.softmax_scale = softmax_scale

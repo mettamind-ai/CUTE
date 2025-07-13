@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-'''bash
-wget -O hnet/2stage_L.pt https://huggingface.co/cartesia-ai/hnet_2stage_L/resolve/main/hnet_2stage_L.pt
-
-./generate_hnet.py --model-path hnet/2stage_L.pt --config-path hnet/2stage_L.json
-
-'''
 import torch, numpy as np
 import json, argparse, sys
 from omegaconf import ListConfig
@@ -78,7 +71,7 @@ def load_from_pretrained(model_path: str, model_config_path: str):
 def generate(
     model,
     prompt: str,
-    max_tokens: int = 1024,
+    max_tokens: int = 256,
     temperature: float = 1.0,
     top_p: float = 0.9,
 ):
