@@ -120,7 +120,7 @@ class Block(nn.Module):
 
             return q, k_full, v_full
 
-        q, k, v, up = checkpoint(prepare, use_reentrant=False)
+        q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
         return x + o + self.down_proj(F.relu(up)**2)  # swiglu(up)
