@@ -11,7 +11,6 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
 </tr></table>
 
 ## Các khái niệm cốt lõi (từ bài báo)
-
 1.  **Học End-to-End trực tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định (như BPE). Thay vào đó, nó học trực tiếp từ các byte thô, cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
 
 2.  **Gộp chuỗi động (Dynamic Chunking - DC):** Đây là cơ chế trung tâm. Mô hình học cách phân đoạn một chuỗi thành các "đoạn" (chunk) có độ dài thay đổi dựa trên sự tương đồng về nội dung. Quá trình này phụ thuộc vào ngữ cảnh, linh hoạt hơn token cố định.
@@ -21,30 +20,27 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
 4.  **Hiệu suất và Độ bền vững:** Bài báo cho thấy H-Net vượt trội hơn các mô hình Transformer dựa trên token có cùng quy mô. Bản chất xử lý ở cấp độ byte giúp nó bền vững trước các lỗi chính tả, từ hiếm và dữ liệu đa ngôn ngữ.
 
 ## Phân tích triển khai chính (Kết nối giữa Code và Lý thuyết)
-
-### 1. Cấu trúc phân cấp đệ quy (`hnet/hnet.py`)
+1. Cấu trúc phân cấp đệ quy (`hnet.py`)
 Bản chất phân cấp của H-Net được triển khai một cách thanh lịch bằng cách sử dụng đệ quy.
-- Class `HNet` chứa một module `main_network`.
-- Trong quá trình khởi tạo, nếu tầng hiện tại không phải là tầng cuối cùng (`is_innermost` là False), `self.main_network` sẽ trở thành một thực thể khác của `HNet` với `stage_idx` được tăng lên.
+- Trong quá trình khởi tạo `main_network`, nếu tầng hiện tại không phải là tầng cuối cùng (`is_innermost` là False), `self.main_network` sẽ trở thành một thực thể khác của `HNet` với `stage_idx` được tăng lên.
 - Vòng đệ quy này dừng lại ở tầng trong cùng, nơi `main_network` là một mô hình `Isotropic` (một chuỗi các khối xử lý tuần tự). Thiết kế này phản ánh hoàn hảo cấu trúc phân cấp lý thuyết.
 
-### 2. Cơ chế Gộp chuỗi động (`hnet/dynamic_chunking.py`)
+2. Cơ chế Gộp chuỗi động (`dynamic_chunking.py`)
 Đây là phần hiện thực hóa ý tưởng cốt lõi của bài báo.
-- **`RoutingModule`**: Dự đoán ranh giới của chunk. Nó tính toán độ tương đồng cosine (cosine similarity) giữa các trạng thái ẩn của hai token liền kề (`t` và `t+1`). Độ tương đồng thấp (khoảng cách lớn) cho thấy một ranh giới tự nhiên, dẫn đến `boundary_prob` cao.
-- **`ChunkLayer`**: Một lớp đơn giản nhưng hiệu quả, sử dụng `boundary_mask` từ `RoutingModule` để lọc chuỗi, chỉ chuyển các trạng thái ẩn tại các vị trí ranh giới lên tầng phân cấp tiếp theo.
-- **`DeChunkLayer`**: Phần phức tạp nhất, thực hiện việc "trải phẳng" chuỗi đã xử lý. Nó sử dụng một phép quét giống như EMA (Trung bình động hàm mũ) để lan truyền thông tin từ các biểu diễn của chunk trở lại chuỗi có độ dài ban đầu. **Một điểm thú vị là nó tái sử dụng một cách thông minh kernel `mamba_chunk_scan_combined` để thực hiện thao tác này một cách hiệu quả.**
+- `RoutingModule`: Dự đoán ranh giới của chunk. Nó tính toán độ tương đồng cosine (cosine similarity) giữa các trạng thái ẩn của hai token liền kề (`t` và `t+1`). Độ tương đồng thấp (khoảng cách lớn) cho thấy một ranh giới tự nhiên, dẫn đến `boundary_prob` cao.
+- `ChunkLayer`: Một lớp đơn giản nhưng hiệu quả, sử dụng `boundary_mask` từ `RoutingModule` để lọc chuỗi, chỉ chuyển các trạng thái ẩn tại các vị trí ranh giới lên tầng phân cấp tiếp theo.
+- `DeChunkLayer`: Phần phức tạp nhất, thực hiện việc "trải phẳng" chuỗi đã xử lý. Nó sử dụng một phép quét giống như EMA (Trung bình động hàm mũ) để lan truyền thông tin từ các biểu diễn của chunk trở lại chuỗi có độ dài ban đầu. **Một điểm thú vị là nó tái sử dụng một cách thông minh kernel `mamba_chunk_scan_combined` để thực hiện thao tác này một cách hiệu quả.**
 
-### 3. Huấn luyện một quyết định "Cứng" (`hnet/hnet.py`)
+3. Huấn luyện một quyết định "Cứng" (`hnet.py`)
 Việc quyết định một ranh giới chunk là một lựa chọn rời rạc, không khả vi. Vấn đề này được giải quyết bằng **Bộ ước tính truyền thẳng (Straight-Through Estimator - STE)**.
 - Class `STE` được định nghĩa để hoạt động như một hàm đồng nhất (identity function) trong quá trình lan truyền ngược (`backward(ctx, grad_output): return grad_output`).
-- Điều này "đánh lừa" bộ tối ưu hóa bằng cách cho phép gradient đi qua điểm quyết định cứng như thể nó là một hàm liên tục, giúp `RoutingModule` có thể được huấn luyện end-to-end. Hàm `residual_func` đã áp dụng kỹ thuật này.
+- Điều này _"đánh lừa"_ bộ tối ưu hóa bằng cách cho phép gradient đi qua điểm quyết định cứng như thể nó là một hàm liên tục, giúp `RoutingModule` có thể được huấn luyện end-to-end. Hàm `residual_func` đã áp dụng kỹ thuật này.
 
-### 4. Kiến trúc linh hoạt, lai (Hybrid) (`hnet/config_hnet.py`, `hnet/block.py`)
+4. Kiến trúc linh hoạt, lai (Hybrid) (`config_hnet.py`, `block.py`)
 Mô hình không bị trói buộc vào một loại khối xử lý duy nhất. `HNetConfig` cho phép định nghĩa một `arch_layout` để thiết kế các kiến trúc rất linh hoạt.
 
-**Giải thích `arch_layout`:**
-- **`M`**: Viết tắt của khối **Mamba**.
-- **`T`**: Viết tắt của khối **Attention** (Transformer).
+- `M`: Viết tắt của khối **Mamba**.
+- `T`: Viết tắt của khối **Attention** (Transformer).
 - **Số liền sau (ví dụ `6` trong `M6`)**: Là số lần lặp lại của khối đó. `M6` nghĩa là 6 khối Mamba nối tiếp nhau.
 - **Cấu trúc lồng nhau `[..., [...], ...]`**: Thể hiện các tầng phân cấp. Phần tử ở giữa `[...]` là tầng xử lý sâu hơn.
 
@@ -64,10 +60,10 @@ Mô hình không bị trói buộc vào một loại khối xử lý duy nhất.
 4.  **Trải phẳng (De-chunking)**.
 5.  **Tầng 0 (Decoder - `M2T4`)**: Dữ liệu cuối cùng đi qua 2 khối Mamba, rồi kết thúc bằng 4 khối Attention.
 
-Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khối: Attention giỏi trong việc nắm bắt các mối quan hệ phức tạp, trong khi Mamba lại rất hiệu quả trong việc xử lý các chuỗi dài.
+Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khối: Attention giỏi trong việc nắm bắt các mối quan hệ phức tạp, trong khi Mamba lại rất hiệu quả trong việc xử lý / nén dữ liệu thô.
 
 ---
-## Sơ đồ hành trình: Từ Byte đến Byte
+## Hành trình: Từ Byte đến Byte
 
 Để hiểu rõ cách H-Net hoạt động, hãy cùng theo dõi toàn bộ hành trình của dữ liệu, từ lúc là byte đầu vào cho đến khi dự đoán ra byte tiếp theo. Ta sẽ dùng kiến trúc `["M6", ["M12"], "M6"]` làm ví dụ.
 
@@ -80,22 +76,16 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 
 ### Hành trình đi ngược ra (De-chunking & Decoding)
 `z` không trực tiếp dự đoán byte. Nó bắt đầu một hành trình đi ngược ra để làm giàu thông tin cho các tầng bên ngoài.
-
 6.  **DeChunkLayer (Dùng EMA)**: Lớp này nhận `z` và `boundary_mask`. Nó dùng cơ chế EMA để "trải" thông tin trừu tượng trong `z` ra lại thành một chuỗi có độ dài đầy đủ, gọi là `h_dechunked`.
-7.  **Kết nối phần còn lại (Residual Connection)**: Đây là bước cực kỳ quan trọng. Mô hình kết hợp `h_dechunked` (thông tin trừu tượng, mượt mà) với `h_encoded` (thông tin chi tiết, nguyên bản được giữ lại từ trước). Việc này cho phép mô hình có được cả hai: cái nhìn tổng quan từ tầng sâu VÀ chi tiết cụ thể từ tầng nông.
+7.  **Kết nối phần còn lại (Residual Connection)**: Đây là bước cực kỳ quan trọng. Mô hình kết hợp `h_dechunked` (thông tin trừu tượng, mượt mà) với `h_encoded` (thông tin chi tiết, nguyên bản được giữ lại từ trước). Việc này cho phép mô hình có được cả hai:
+  - cái nhìn tổng quan từ tầng sâu VÀ
+  - chi tiết cụ thể từ tầng nông.
 8.  **Decoder của tầng ngoài (`M6`)**: Vector kết hợp ở trên tiếp tục đi qua các khối xử lý cuối cùng của tầng ngoài (`M6`) để hòa trộn hai nguồn thông tin lại với nhau. Kết quả là `h_final`.
 9.  **Chiếu ra Byte (LM Head)**: **Chỉ bây giờ**, `h_final` mới được đưa vào lớp `lm_head`. Lớp này chiếu `h_final` thành một vector `logits` có 256 chiều (tương ứng với 256 giá trị byte).
 10. **Dự đoán**: Một hàm `softmax` được áp dụng lên `logits` để tạo ra phân phối xác suất, và byte có xác suất cao nhất được chọn làm dự đoán.
 
-> **Ghi chú quan trọng về việc hòa trộn thông tin:**
-> Bước 7 (Kết nối phần còn lại) là nơi sức mạnh của kiến trúc phân cấp tỏa sáng. Nó hòa trộn hai nguồn thông tin thiết yếu:
-> - **Thông tin "Từ trên xuống" (`h_dechunked`):** Mang ngữ cảnh trừu tượng, tổng quan từ tầng xử lý sâu. Giống như "cái nhìn chiến lược".
-> - **Thông tin "Từ dưới lên" (`h_encoded`):** Mang chi tiết cục bộ, nguyên bản từ tầng nông. Giống như "báo cáo tại hiện trường".
-> Việc kết hợp này cho phép mô hình có được cả **cái nhìn tổng quan** và **chi tiết cụ thể** để đưa ra dự đoán cuối cùng chính xác nhất.
-
 ---
 ## Phân tích sâu: Cơ chế Gộp chuỗi động (`hnet/dynamic_chunking.py`)
-
 File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành phần chính hoạt động như một dây chuyền:
 
 1.  **`RoutingModule`**: **Người Ra Quyết Định** - Quyết định xem vị trí nào nên là ranh giới của một "chunk".
@@ -137,18 +127,14 @@ File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành ph�
 
 `DeChunkLayer` là một trong những thành phần thông minh và quan trọng nhất của H-Net. Nó giải quyết một bài toán khó: Làm thế nào để "trải" hoặc "lan tỏa" thông tin từ một vài vector biểu diễn chunk (đã được xử lý ở tầng sâu) ra tất cả các byte con mà nó đại diện một cách mượt mà?
 
-#### Vấn đề cần giải quyết
-
+### Vấn đề cần giải quyết
 - **Đầu vào:** Một chuỗi ngắn gồm các vector `z` của chunk (ví dụ: 3 vector cho 3 chunk `[Học]`, `[chuỗi]`, `[phân cấp]`).
 - **Đầu ra cần tạo:** Một chuỗi dài có cùng độ dài với chuỗi byte ban đầu (ví dụ: 18 vector cho 18 ký tự), trong đó mỗi byte đều có một vector biểu diễn mới, đã được làm giàu thông tin.
 
 Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất cả các byte con. Tuy nhiên, cách này tạo ra các "vách đá" thông tin đột ngột ở ranh giới chunk và làm mất thông tin về vị trí tương đối của byte bên trong chunk.
 
-#### Giải pháp thanh lịch với EMA (Trung bình động hàm mũ)
-
+### Giải pháp thanh lịch với EMA (Trung bình động hàm mũ)
 `DeChunkLayer` sử dụng một cơ chế tương tự EMA để giải quyết vấn đề này một cách hoàn hảo. Hãy tưởng tượng EMA như một cách "làm mịn" hoặc "lan tỏa" giá trị theo thời gian.
-
-**Cơ chế hoạt động:**
 
 1.  **Khi gặp một ranh giới chunk (ví dụ, byte 'c' trong "chuỗi"):**
     - Xác suất ranh giới `boundary_prob` (đóng vai trò là cổng `alpha` trong EMA) sẽ cao.
