@@ -55,15 +55,15 @@ class Rotary(nn.Module):
             assert self.rotary_dim == dim
             x_rot = x
 
+        # apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
         ## Áp dụng phép quay cho x_rot
-        # cos    = self.cos[:ctxlen, None, :]
-        # sin    = self.sin[:ctxlen, None, :]
-        # x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
-        # y1     = x1 * (+cos) + x2 * sin
-        # y2     = x1 * (-sin) + x2 * cos
-        # x_rot  = torch.cat((y1, y2), -1).type_as(x)
+        cos    = self.cos[:ctxlen, None, :]
+        sin    = self.sin[:ctxlen, None, :]
+        x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
+        y1     = x1 * (+cos) + x2 * sin
+        y2     = x1 * (-sin) + x2 * cos
+        x_rot  = torch.cat((y1, y2), -1).type_as(x)
 
-        apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
         if half: return torch.cat((x_pass, x_rot), dim=-1)
         else:    return x_rot
 
@@ -123,7 +123,7 @@ class Block(nn.Module):
         q, k, v = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
-        return x + o + self.down_proj(F.relu(up)**2)  # swiglu(up)
+        return x + o + self.down_proj(F.relu(up).square())  # swiglu(up)
 
 
 class WinGPT(nn.Module):
