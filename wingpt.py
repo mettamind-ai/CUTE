@@ -55,18 +55,19 @@ class Rotary(nn.Module):
             assert self.rotary_dim == dim
             x_rot = x
 
+        ## cu_seqlens có thể khiến apply_rotary_emb bị chậm?
         # apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
-        apply_rotary_emb(x_rot, self.cos, self.sin, inplace=True)
-        ## Áp dụng phép quay cho x_rot
-        # cos    = self.cos[:ctxlen, None, :]
-        # sin    = self.sin[:ctxlen, None, :]
-        # x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
-        # y1     = x1 * (+cos) + x2 * sin
-        # y2     = x1 * (-sin) + x2 * cos
-        # x_rot  = torch.cat((y1, y2), -1).type_as(x)
 
-        # if half: return torch.cat((x_pass, x_rot), dim=-1)
-        # else:    return x_rot
+        ## Áp dụng phép quay cho x_rot
+        cos    = self.cos[:ctxlen, None, :]
+        sin    = self.sin[:ctxlen, None, :]
+        x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
+        y1     = x1 * (+cos) + x2 * sin
+        y2     = x1 * (-sin) + x2 * cos
+        x_rot  = torch.cat((y1, y2), -1).type_as(x)
+
+        if half: return torch.cat((x_pass, x_rot), dim=-1)
+        else:    return x_rot
 
 
 class Block(nn.Module):
