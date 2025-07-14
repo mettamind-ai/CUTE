@@ -20,7 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-if args.bs is None: args.bs = 32
+if args.bs is None: args.bs = 16
 tokens_per_batch =  args.bs*1024
 args.cu_steps = 128 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
 model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
