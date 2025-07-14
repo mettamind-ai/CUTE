@@ -5,9 +5,8 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
 - **Bài báo:** [Dynamic Chunking for End-to-End Hierarchical Sequence Modeling](https://arxiv.org/html/2507.07955v1)
 - **Mã nguồn:** `hnet/*.py`
 
-| ![Code](https://github.com/goombalab/hnet/raw/main/assets/code.gif) | ![Chinese](https://github.com/goombalab/hnet/raw/main/assets/chinese.gif) |
+| ![Code](https://github.com/goombalab/hnet/raw/main/assets/code.gif) | ![](https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png) |
 |:-------------------------------------------------------------------:|:-------------------------------------------------------------------------:|
-![](https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png)
 
 ## Các khái niệm cốt lõi (từ bài báo)
 
