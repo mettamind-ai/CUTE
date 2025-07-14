@@ -5,8 +5,11 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
 - **Bài báo:** [Dynamic Chunking for End-to-End Hierarchical Sequence Modeling](https://arxiv.org/html/2507.07955v1)
 - **Mã nguồn:** `hnet/*.py`
 
-<img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif" width="50%">
-<img src="https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png" width="50%">
+<table><tr>
+<td width="50%"><img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif"></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png"></td>
+</tr></table>
+
 ## Các khái niệm cốt lõi (từ bài báo)
 
 1.  **Học End-to-End trực tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định (như BPE). Thay vào đó, nó học trực tiếp từ các byte thô, cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
