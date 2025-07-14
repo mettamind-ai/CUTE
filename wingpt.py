@@ -84,11 +84,11 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.  up_proj = nn.Linear(dim, 8*dim, bias=False)
+        self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
         self.down_proj = nn.Linear(4*dim, dim, bias=False)
 
         with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(8*dim, dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
             self.down_proj.weight.zero_()
 
 
@@ -97,10 +97,10 @@ class Block(nn.Module):
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
 
-        def prepare():
-            xn = norm(x) if self.layer_id != 0 else x
-            up = self.up_proj(xn)
+        xn = norm(x) if self.layer_id != 0 else x
+        up = self.up_proj(xn)
 
+        def prepare():
             e       = self.ple(input_seq)       # get per-layer embedding
             q, v, k = torch.split(up[..., : D + VD + HD//2], [D, VD, HD//2], dim=-1)
 
@@ -118,12 +118,12 @@ class Block(nn.Module):
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
-            return q, k_full, v_full, up
+            return q, k_full, v_full
 
         q, k, v, up = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
-        return x + o + self.down_proj(swiglu(up))
+        return x + o + self.down_proj(F.relu(up)**2)  # swiglu(up)
 
 
 class WinGPT(nn.Module):
