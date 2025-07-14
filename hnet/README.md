@@ -31,7 +31,7 @@ Bản chất phân cấp của H-Net được triển khai một cách thanh l�
 - `ChunkLayer`: Một lớp đơn giản nhưng hiệu quả, sử dụng `boundary_mask` từ `RoutingModule` để lọc chuỗi, chỉ chuyển các trạng thái ẩn tại các vị trí ranh giới lên tầng phân cấp tiếp theo.
 - `DeChunkLayer`: Phần phức tạp nhất, thực hiện việc "trải phẳng" chuỗi đã xử lý. Nó sử dụng một phép quét giống như EMA (Trung bình động hàm mũ) để lan truyền thông tin từ các biểu diễn của chunk trở lại chuỗi có độ dài ban đầu. **Một điểm thú vị là nó tái sử dụng một cách thông minh kernel `mamba_chunk_scan_combined` để thực hiện thao tác này một cách hiệu quả.**
 
-3. Huấn luyện một quyết định "Cứng" (`hnet.py`)
+3. Huấn luy���n một quyết định "Cứng" (`hnet.py`)
 Việc quyết định một ranh giới chunk là một lựa chọn rời rạc, không khả vi. Vấn đề này được giải quyết bằng **Bộ ước tính truyền thẳng (Straight-Through Estimator - STE)**.
 - Class `STE` được định nghĩa để hoạt động như một hàm đồng nhất (identity function) trong quá trình lan truyền ngược (`backward(ctx, grad_output): return grad_output`).
 - Điều này _"đánh lừa"_ bộ tối ưu hóa bằng cách cho phép gradient đi qua điểm quyết định cứng như thể nó là một hàm liên tục, giúp `RoutingModule` có thể được huấn luyện end-to-end. Hàm `residual_func` đã áp dụng kỹ thuật này.
@@ -75,7 +75,7 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 5.  `h_chunked` được đưa vào tầng trong cùng (`M12`) để xử lý. Kết quả là `z`, một vector chứa thông tin ngữ cảnh ở mức độ rất cao và trừu tượng.
 
 ### Hành trình đi ngược ra (De-chunking & Decoding)
-`z` không trực tiếp dự đoán byte. Nó bắt đầu một hành trình đi ngược ra để làm giàu thông tin cho các tầng bên ngoài.
+`z` không trực tiếp dự đoán byte. Nó bắt đầu một hành trình đi ngược ra để làm giàu thông tin cho các t��ng bên ngoài.
 6.  **DeChunkLayer (Dùng EMA)**: Lớp này nhận `z` và `boundary_mask`. Nó dùng cơ chế EMA để "trải" thông tin trừu tượng trong `z` ra lại thành một chuỗi có độ dài đầy đủ, gọi là `h_dechunked`.
 7.  **Kết nối phần còn lại (Residual Connection)**: Đây là bước cực kỳ quan trọng. Mô hình kết hợp `h_dechunked` (thông tin trừu tượng, mượt mà) với `h_encoded` (thông tin chi tiết, nguyên bản được giữ lại từ trước). Việc này cho phép mô hình có được cả hai:
   - cái nhìn tổng quan từ tầng sâu VÀ
@@ -85,7 +85,7 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 10. **Dự đoán**: Một hàm `softmax` được áp dụng lên `logits` để tạo ra phân phối xác suất, và byte có xác suất cao nhất được chọn làm dự đoán.
 
 ---
-## Phân tích sâu: Cơ chế Gộp chuỗi động (`hnet/dynamic_chunking.py`)
+## Phân tích sâu: Cơ ch�� Gộp chuỗi động (`hnet/dynamic_chunking.py`)
 File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành phần chính hoạt động như một dây chuyền:
 
 1.  **`RoutingModule`**: **Người Ra Quyết Định** - Quyết định xem vị trí nào nên là ranh giới của một "chunk".
@@ -146,10 +146,9 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 
 **Kết quả của việc dùng EMA:**
 - **Chuyển tiếp mượt mà:** Thay vì một "vách đá", thông tin từ một chunk sẽ "phai" hoặc "lan tỏa" dần qua các byte bên trong nó.
-- **Tạo nhận thức về vị trí:** Do hiệu ứng "phai" dần này, vector của byte ở đầu chunk sẽ hơi khác một chút so với vector của byte ở cuối chunk. Điều này giúp mô hình giữ lại được thông tin vị trí tương đối bên trong chunk.
+- **Tạo nhận thức về vị trí:** Do hiệu ứng "phai" dần này, vector của byte ở đầu chunk sẽ hơi khác một chút so với vector của byte ở cuối chunk. Điều này giúp mô h��nh giữ lại được thông tin vị trí tương đối bên trong chunk.
 
 ---
-
 # Đánh giá Tổng quan: Sức mạnh và Tiềm năng của H-Net
 
 **Nói một cách ngắn gọn: H-Net không chỉ là một cải tiến nhỏ, mà là một sự thay đổi trong tư duy nền tảng về cách mô hình xử lý chuỗi thông tin. Sức mạnh của nó đến từ việc giải quyết một vấn đề gốc rễ, và tiềm năng của nó là vô cùng to lớn vì nó mở ra những hướng đi mới.**
@@ -158,7 +157,7 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 
 1.  **Giải quyết "Tội lỗi Nguyên thủy" của Tokenization:**
     *   Hầu hết các mô hình ngôn ngữ hiện đại (như GPT, Llama) đều bị phụ thuộc vào một bước tiền xử lý gọi là "tokenization" - chia câu thành các mảnh nhỏ dựa trên một bộ từ điển cố định. Điều này giống như việc bắt một đứa trẻ chỉ được đọc những từ có trong từ điển, nếu gặp từ mới, nó sẽ bối rối và phải bẻ từ đó ra thành các mảnh vô nghĩa.
-    *   **Sức mạnh của H-Net:** Nó vứt bỏ bộ từ điển cố định đó. Thay vào đó, nó **tự học** cách nhóm các ký tự lại thành các đơn vị có ý nghĩa (từ, cụm từ) một cách linh động, tùy thuộc vào ngữ cảnh. Điều này giúp nó xử lý ngôn ngữ phức tạp, từ lóng, thuật ngữ chuyên ngành, và thậm chí cả các loại dữ liệu không phải văn bản (như DNA, code) một cách tự nhiên và hiệu quả hơn nhiều.
+    *   **Sức mạnh của H-Net:** Nó vứt bỏ bộ từ điển cố định đó. Thay vào đó, nó **tự học** cách nhóm các ký tự lại thành các đơn vị có ý nghĩa (từ, cụm từ) m���t cách linh động, tùy thuộc vào ngữ cảnh. Điều này giúp nó xử lý ngôn ngữ phức tạp, từ lóng, thuật ngữ chuyên ngành, và thậm chí cả các loại dữ liệu không phải văn bản (như DNA, code) một cách tự nhiên và hiệu quả hơn nhiều.
 
 2.  **Hiệu quả tính toán vượt trội:**
     *   Các mô hình Transformer truyền thống có chi phí tính toán tăng theo cấp số nhân với độ dài chuỗi (`O(N^2)`), khiến chúng rất khó xử lý văn bản dài.
@@ -184,6 +183,33 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 3.  **Trở thành "Mô hình Chuỗi Tổng quát" (General Sequence Model):**
     *   **Tiềm năng:** Vì không bị ràng buộc bởi tokenization, H-Net có tiềm năng trở thành một kiến trúc phổ quát cho **bất kỳ loại dữ liệu tuần tự nào**, từ mã nguồn lập trình, chuỗi gen, dữ liệu tài chính theo thời gian, cho đến nốt nhạc.
 
-## Kết luận
+---
+# Bối cảnh rộng hơn: Sự đối đầu giữa SSM và Transformer
 
-H-Net không phải là một "viên đạn bạc" giải quyết mọi vấn đề, và nó vẫn còn mới, cần được kiểm chứng ở quy mô lớn hơn. Tuy nhiên, không chỉ là một kiến trúc mạnh mẽ, nó còn là một **ý tưởng đẹp**. Nó giải quyết một vấn đề cơ bản một cách thanh lịch và hiệu quả, đồng thời mở ra một con đường đầy hứa hẹn hướng tới các mô hình AI thông minh hơn, linh hoạt hơn và có khả năng hiểu thế giới theo cách gần giống con người hơn.
+Để thực sự hiểu tại sao H-Net lại là một hướng đi quan trọng, chúng ta cần đặt nó vào bối cảnh của cuộc "đối đầu" giữa hai trường phái kiến trúc: **SSM (mà Mamba là đại diện) và Transformer**. Bài blog "On the Tradeoffs of SSMs and Transformers" của Albert Gu đã đưa ra một góc nhìn triết lý rất sâu sắc về vấn đề này.
+
+## 1. Hai triết lý xử lý thông tin hoàn toàn khác nhau
+Sự khác biệt cốt lõi không nằm ở công thức, mà ở cách chúng "ghi nhớ" quá khứ:
+
+*   **Transformers giống như một "Cơ sở dữ liệu" (Database):**
+    * Nó lưu lại một bản sao (cache) của **mọi token** nó đã thấy trong KV cache.
+    * **Điểm mạnh:** Khả năng truy hồi thông tin (recall) hoàn hảo và chính xác đến từng chi tiết.
+    * **Điểm yếu:** Kích thước bộ nhớ tăng tuyến tính, và nó bị "trói buộc" vào các token được cung cấp.
+
+*   **SSMs (như Mamba/H-Net) giống như một "Bộ não" (Brain):**
+    * Nó liên tục **nén (compress)** toàn bộ lịch sử vào một trạng thái ẩn có kích thước **không đổi**.
+    * **Điểm mạnh:** Xử lý online hiệu quả, có "bộ nhớ" dài vô tận (dù mờ ảo), và có thiên hướng tự học cách trừu tượng hóa thông tin.
+    * **Điểm yếu:** Khả năng truy hồi thông tin chi tiết, chính xác sẽ kém hơn Transformer.
+
+## 2. "Tội lỗi" của Tokenization và vai trò của H-Net
+Đây là luận điểm mạnh mẽ nhất, giải thích tại sao các mô hình như H-Net lại cần thiết:
+
+*   **Transformer phụ thuộc vào `Token "có ý nghĩa`":** Transformer hoạt động tốt nhất khi được cung cấp các token đã được tiền xử lý để có "ý nghĩa" ở một "mức độ trừu tượng phù hợp". Thiên hướng của Attention là muốn "chú ý" đến một vài token cụ thể. Nếu các token là vô nghĩa (ví dụ: từng ký tự một), Transformer sẽ bị "nhiễu" và hoạt động kém hiệu quả.
+*   **SSMs tỏa sáng khi không có Tokenization:** Ngược lại, vì các mô hình này có thiên hướng "nén" thông tin, chúng rất phù hợp để xử lý dữ liệu thô, có độ phân giải cao (như ký tự, byte, DNA). **Cơ chế "Dynamic Chunking" của H-Net chính là hiện thực hóa của triết lý này**: nó tự động học cách nhóm các đơn vị vô nghĩa (byte) thành các khái niệm có ý nghĩa hơn (chunk), thay vì dựa vào một bộ token cố định.
+
+## 3. Kết luận: Tại sao H-Net quan trọng?
+H-Net không chỉ là một kiến trúc mới. Nó đại diện cho một triết lý khác biệt, giải quyết những điểm yếu cố hữu của Transformer:
+
+1.  **Giải phóng khỏi Tokenization:** Bằng cách học trực tiếp từ byte và tự tạo ra các "chunk" có ý nghĩa, H-Net đi theo đúng tinh thần của deep learning là học end-to-end, mở ra tiềm năng cho dữ liệu đa ngôn ngữ, đa phương thức một cách tự nhiên.
+
+2.  **Thiên hướng Nén và Trừu tượng hóa:** Việc ép mô hình phải nén thông tin (từ byte thành chunk, từ chunk thành biểu diễn cấp cao hơn) có thể chính là một "tính năng", buộc nó phải học các quy luật và cấu trúc cơ bản của dữ liệu, thay vì chỉ ghi nhớ bề mặt. Đây có thể là một bước tiến quan trọng hướng tới khả năng suy luận thực sự.
