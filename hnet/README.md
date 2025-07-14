@@ -6,8 +6,8 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
 - **Mã nguồn:** `hnet/*.py`
 
 <table><tr>
-<td width="50%"><img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif"></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png"></td>
+<td width="45%"><img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif"></td>
+<td width="55%"><img src="https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png"></td>
 </tr></table>
 
 ## Các khái niệm cốt lõi (từ bài báo)
