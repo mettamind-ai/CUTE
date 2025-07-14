@@ -55,6 +55,8 @@ class Rotary(nn.Module):
             assert self.rotary_dim == dim
             x_rot = x
 
+        # apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
+        apply_rotary_emb(x_rot, self.cos, self.sin, inplace=True)
         ## Áp dụng phép quay cho x_rot
         # cos    = self.cos[:ctxlen, None, :]
         # sin    = self.sin[:ctxlen, None, :]
@@ -63,9 +65,8 @@ class Rotary(nn.Module):
         # y2     = x1 * (-sin) + x2 * cos
         # x_rot  = torch.cat((y1, y2), -1).type_as(x)
 
-        apply_rotary_emb(x_rot, self.cos, self.sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen, inplace=True)
-        if half: return torch.cat((x_pass, x_rot), dim=-1)
-        else:    return x_rot
+        # if half: return torch.cat((x_pass, x_rot), dim=-1)
+        # else:    return x_rot
 
 
 class Block(nn.Module):
@@ -84,11 +85,11 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
+        self.  up_proj = nn.Linear(dim, 8*dim, bias=False)
         self.down_proj = nn.Linear(4*dim, dim, bias=False)
 
         with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(8*dim, dim)))
             self.down_proj.weight.zero_()
 
 
@@ -118,7 +119,7 @@ class Block(nn.Module):
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
-            return q, k_full, v_full, F.relu(up).square() # swiglu(up) # F.relu(up).square()
+            return q, k_full, v_full, swiglu(up) # F.relu(up).square()
 
         q, k, v, activated = checkpoint(prepare, use_reentrant=False)
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
