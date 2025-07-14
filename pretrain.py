@@ -22,8 +22,8 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 32
 tokens_per_batch =  args.bs*1024
-args.cu_steps = 96 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
-model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+args.cu_steps = 128 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
+model = WinGPT(dim=1024, n_layers=26, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
