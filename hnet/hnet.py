@@ -33,6 +33,7 @@ class HNetState:
     dechunk_state: Optional[DeChunkState] = None
     decoder_state: Optional[IsotropicInferenceParams] = None
 
+
 class HNet(nn.Module):
     def __init__(self, config: HNetConfig, stage_idx: int, device=None, dtype=None) -> None:
         super().__init__()
@@ -60,6 +61,7 @@ class HNet(nn.Module):
                 _stage_idx = stage_idx      # << giữ nguyên stage_idx
                 _pos_idx = None
                 if _name == "encoder": _pos_idx = 0
+
                 # if innermost, then len(layer_layout) == 1
                 elif self.is_innermost: _pos_idx = 0
                 elif _name == "decoder": _pos_idx = 2
@@ -77,10 +79,10 @@ class HNet(nn.Module):
             )
             self.add_module(_name, _sub_model)
 
-        if not self.is_innermost:
+        if not self.is_innermost:  # chưa phải stage cuối trong hierachy
             self.routing_module = RoutingModule(self.d_model, **factory_kwargs)
-            self.chunk_layer = ChunkLayer()
-            self.dechunk_layer = DeChunkLayer(self.d_model)
+            self.chunk_layer    = ChunkLayer()
+            self.dechunk_layer  = DeChunkLayer(self.d_model)
 
             # do the residual in fp32
             self.residual_proj = nn.Linear(
@@ -91,13 +93,11 @@ class HNet(nn.Module):
             self.residual_func = lambda out, residual, p: out * ste_func(p) + residual
 
         if stage_idx > 0 and self.d_model - config.d_model[stage_idx - 1] > 0:
-            self.pad_dimension = nn.Parameter(
-                torch.zeros(
-                    self.d_model - config.d_model[stage_idx - 1], **factory_kwargs
+                self.pad_dimension = nn.Parameter(
+                    torch.zeros(self.d_model - config.d_model[stage_idx - 1], **factory_kwargs)
                 )
-            )
-        else:
-            self.pad_dimension = None
+        else:   self.pad_dimension = None
+
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None):
         """
@@ -240,44 +240,31 @@ class HNet(nn.Module):
         hidden_states = hidden_states[..., :D]
         return hidden_states, [bpred_output, *prev_boundary_predictions]
 
+
     def step(self, hidden_states, inference_params):
         D = hidden_states.shape[-1]
 
         if self.pad_dimension is not None:
-            hidden_states = torch.cat(
-                (
-                    hidden_states,
-                    self.pad_dimension.expand(hidden_states.shape[:-1] + (-1,)),
-                ),
-                dim=-1,
-            )
+            # Tạo padding tensor có kích thước [batch_size, sequence_length, pad_dim]
+            padding = self.pad_dimension.expand(hidden_states.shape[:-1] + (-1,))
+            hidden_states = torch.cat([hidden_states, padding], dim=-1)
 
         if self.is_innermost:
-            hidden_states = self.main_network.step(
-                hidden_states, inference_params.main_network_state
-            )
+            hidden_states = self.main_network.step(hidden_states, inference_params.main_network_state)
             hidden_states = hidden_states[..., :D]
             return hidden_states, []
 
         hidden_states = self.encoder.step(hidden_states, inference_params.encoder_state)
-        hidden_states_for_residual = hidden_states.to(
-            dtype=self.residual_proj.weight.dtype
-        )
+        hidden_states_for_residual = hidden_states.to(dtype=self.residual_proj.weight.dtype)
         residual = self.residual_proj(hidden_states_for_residual)
 
-        bpred_output = self.routing_module.step(
-            hidden_states, inference_params.routing_module_state
-        )
-        hidden_states_inner = self.chunk_layer.step(
-            hidden_states, bpred_output.boundary_mask
-        )
+        bpred_output = self.routing_module.step(hidden_states, inference_params.routing_module_state)
+        hidden_states_inner = self.chunk_layer.step(hidden_states, bpred_output.boundary_mask)
 
+        prev_boundary_predictions = []
         if hidden_states_inner.shape[0] > 0:
-            hidden_states_inner, prev_boundary_predictions = self.main_network.step(
-                hidden_states_inner, inference_params.main_network_state
-            )
-        else:
-            prev_boundary_predictions = []
+            hidden_states_inner, prev_boundary_predictions = \
+                self.main_network.step(hidden_states_inner, inference_params.main_network_state)
 
         hidden_states = self.dechunk_layer.step(
             hidden_states_inner,

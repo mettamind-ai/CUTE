@@ -10,9 +10,11 @@ Tài liệu này tóm tắt những ý tưởng chính từ bài báo H-Net và 
   <tr><td><img src="https://github.com/goombalab/hnet/raw/main/assets/chinese.gif" alt="Chinese" width="100%"></td></tr>
 </table>
 
+![](https://raw.githubusercontent.com/goombalab/hnet/refs/heads/main/assets/arch.png)
+
 ## Các khái niệm cốt lõi (từ bài báo)
 
-1.  **Học End-to-End tr���c tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định (như BPE). Thay vào đó, nó học trực tiếp từ các byte thô, cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
+1.  **Học End-to-End trực tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định (như BPE). Thay vào đó, nó học trực tiếp từ các byte thô, cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
 
 2.  **Gộp chuỗi động (Dynamic Chunking - DC):** Đây là cơ chế trung tâm. Mô hình học cách phân đoạn một chuỗi thành các "đoạn" (chunk) có độ dài thay đổi dựa trên sự tương đồng về nội dung. Quá trình này phụ thuộc vào ngữ cảnh, linh hoạt hơn token cố định.
 
