@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
-parser.add_argument("--steps",  type=int, default=20000)
+parser.add_argument("--steps",  type=int, default=100_000)
 parser.add_argument("--vocab",  type=int, default=1024*64)
 
 args = parser.parse_args()
@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 32
 tokens_per_batch =  args.bs*1024
-args.cu_steps = 256 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
+args.cu_steps = 1 # grad accum để đạt batch size ( total training tokens / step ) mong muốn
 model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
@@ -96,7 +96,7 @@ adam_params = [
     dict(params=model.unembeds.parameters(), lr=0.002, weight_decay=0),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, fused=True)
-muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.01)
+muon_optim  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -116,7 +116,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.25)
+lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
 cu_steps = args.cu_steps
 
 for step in range(args.steps):  # training loop

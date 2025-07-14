@@ -97,10 +97,10 @@ class Block(nn.Module):
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
 
-        xn = norm(x) if self.layer_id != 0 else x
-        up = self.up_proj(xn)
-
         def prepare():
+            xn = norm(x) if self.layer_id != 0 else x
+            up = self.up_proj(xn)
+
             e       = self.ple(input_seq)       # get per-layer embedding
             q, v, k = torch.split(up[..., : D + VD + HD//2], [D, VD, HD//2], dim=-1)
 
