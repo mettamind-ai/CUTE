@@ -118,12 +118,12 @@ class Block(nn.Module):
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
-            return q, k_full, v_full
-        q, k, v = checkpoint(prepare, use_reentrant=False)
+            return q, k_full, v_full, F.relu(up).square() # F.sigmoid(up)*up #
+
+        q, k, v, act = checkpoint(prepare, use_reentrant=False)
+
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
-
-        act = F.sigmoid(up)*up # F.relu(up).square()
         return x + o + self.down_proj(act)
 
 
