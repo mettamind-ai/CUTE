@@ -9,7 +9,7 @@
 - MTP dùng concat(last_hidden, next token embedding) from DeepSeek V3
 - Các kỹ thuật tối ưu khác trong `optimus.py` (int8 mixed matmul, fused linear LCE, Muon optimizer)
 '''
-import os, math, torch, torch.nn.functional as F
+import os, math, torch, torch.nn.functional as F, time
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision
@@ -20,6 +20,20 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
 
+
+TIMESPENT = {'norm': 0, 'prepare': 0, 'attn': 0, 'up': 0, 'down': 0, 'LCE': 0}
+def measure(timer, func):
+    global TIMESPENT
+    started_at = time.time()
+    result = func()
+    TIMESPENT[timer] += time.time() - started_at
+    return result
+###
+def timespent():
+    total = sum(TIMESPENT.values())
+    return {timer: int(spent * 1000 / total) / 10 for timer, spent in TIMESPENT.items()}
+
+
 @torch.no_grad()
 def init_linear(w: Tensor):
     val = 0.632  # change from 0.5 to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
@@ -28,9 +42,10 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
-    return F.rms_norm(x, (x.size(-1),))
+    func = lambda: F.rms_norm(x, (x.size(-1),))
+    return measure("norm", func)
 
-SLIDING_WINDOW = 2048
+SLIDING_WINDOW = 1024
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
@@ -95,8 +110,8 @@ class Block(nn.Module):
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
 
-        xn = norm(x) if self.layer_id != 0 else x
-        up = self.up_proj(xn)
+        xn = x if self.layer_id == 0 else norm(x)
+        up = measure("up", lambda: self.up_proj(xn))
 
         def prepare():
             e       = self.ple(input_seq)       # get per-layer embedding
@@ -117,11 +132,12 @@ class Block(nn.Module):
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
             return q, k_full, v_full, F.relu(up).square() # F.sigmoid(up)*up
-        q, k, v, act = checkpoint(prepare, use_reentrant=False)
+        q, k, v, act = measure("prepare", lambda: checkpoint(prepare, use_reentrant=False))
 
-        o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+        attn = lambda: flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
             window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
-        return x + o + self.down_proj(act)
+
+        return x + measure("attn", attn) + measure("down", lambda: self.down_proj(act))
 
 
 class WinGPT(nn.Module):
@@ -163,9 +179,11 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     n_ignore += 1
     w = model.unembeds.weight
 
-    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
-    return xloss + yloss
+    def final():
+        xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
+        yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
+        return xloss + yloss
+    return measure("LCE", final)
 
 
 def get_cu_max_seqlens_from(input_seq, eot):
@@ -216,3 +234,5 @@ if __name__ == "__main__":
 
         loss_model.backward()
         optim.step(); aptim.step()
+
+    print("timespent", timespent())

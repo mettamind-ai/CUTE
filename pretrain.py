@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
+from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf, timespent
 from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
@@ -165,20 +165,22 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    muon_lr = muon_optim.param_groups[0]["lr"]
-    tokens_seen = tokens_per_batch * step * cu_steps
-    tokens_per_second_K = int(tokens_per_batch * cu_steps / (time.time() - started_at))/1000
-    logger.log(dict(
-        loss                 = lossv, 
-        lr                   = muon_lr, 
-        grad_norm            = grad_norm,
-        max_memory_allocated = torch.cuda.max_memory_allocated(), 
-        tokens_seen_M        = tokens_seen / 1e6,
-        tokens_per_second_K  = tokens_per_second_K,
-        n_samples            = n_samples,
-        kmax                 = max_seqlen//1000,
-    ), step=step)
-    pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
+    if step % 2 == 0: # update stats
+        muon_lr = muon_optim.param_groups[0]["lr"]
+        tokens_seen = tokens_per_batch * step * cu_steps
+        tokens_per_second_K = int(tokens_per_batch * cu_steps / (time.time() - started_at))/1000
+        logger.log(dict(
+            loss                 = lossv, 
+            lr                   = muon_lr, 
+            grad_norm            = grad_norm,
+            max_memory_allocated = torch.cuda.max_memory_allocated(), 
+            tokens_seen_M        = tokens_seen / 1e6,
+            tokens_per_second_K  = tokens_per_second_K,
+            n_samples            = n_samples,
+            kmax                 = max_seqlen//1000,
+        ), step=step)
+        pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
+        if step % 10 == 0: print("timespent", timespent())
     pbar.update()
 
     if (step + 1) % 300 == 0 or step == args.steps - 1:

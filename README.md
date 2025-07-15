@@ -79,9 +79,3 @@
   - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
   - [ ] PolyReLU  https://arxiv.org/abs/2411.03884v3
   - [ ] 1.3x FFN  https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
-
-- [ ] Hybrid Attn với Mamba2 (tham khảo [LIWIN](/LIWIN.md))
-  - [ ] Thay 8K long attn layers bằng Mamba2
-  - Mamba2 comparable performance at `2K` sequence length and becomes up to 6 times faster at 16K sequence length
-  - [ ] Hymba https://huggingface.co/nvidia/Hymba-1.5B-Instruct | https://youtu.be/a31C8ahIDhk
-    - https://github.com/NVlabs/hymba/tree/main/barebones_hymba
