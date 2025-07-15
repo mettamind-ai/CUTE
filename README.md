@@ -72,6 +72,12 @@
   - Sparsing law https://www.alphaxiv.org/abs/2411.02335 => ReLU tuân theo quy luật logspace power-law giảm dần
     => càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
     => Mô hình 2.4B với ReLU đạt sparsity ratio 93.52% và tăng tốc 4.1× so với phiên bản dense.
-  - Sparse MLP https://www.alphaxiv.org/abs/2506.06644
+  - ReLU^2 vs SwiGLU
+    - https://www.kimi.com/chat/d1r0a3qmvdmaumfm51m0
+    - https://www.kimi.com/chat/d1qrtv0gts46t9q4cvr0
+  - Spark Transformers (sparse both mlp & attn) https://www.alphaxiv.org/abs/2506.06644
   - [ ] MegaBlock hỗ trợ SSD, DSD, DDS matmul
   - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-Small
+  - [ ] PolyReLU  https://arxiv.org/abs/2411.03884v3
+  - [ ] 1.3x FFN  https://arxiv.org/abs/2503.16672v1 2:4 sparse
+    - https://pytorch.org/blog/accelerating-neural-network-training
