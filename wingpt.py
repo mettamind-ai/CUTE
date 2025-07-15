@@ -45,7 +45,6 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
     func = lambda: F.rms_norm(x, (x.size(-1),))
     return measure("norm", func)
 
-SLIDING_WINDOW = 1024
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
@@ -81,6 +80,7 @@ class Rotary(nn.Module):
         else:    return x_rot
 
 
+SLIDING_WINDOW = 1024
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id):
         super().__init__()
@@ -91,7 +91,7 @@ class Block(nn.Module):
         self.vdim = dim//(2 * self.group)
         self.ple = nn.Embedding(vocab_size, self.vdim)
 
-        self.window = SLIDING_WINDOW * 4 if self.long else SLIDING_WINDOW
+        self.window = SLIDING_WINDOW * 8 if self.long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
 
         self.head_dim  = head_dim
