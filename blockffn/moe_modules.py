@@ -1,11 +1,9 @@
-import tree
 import torch
 import bmtrain as bmt
 from typing import Optional
 import torch.nn.functional as F
 from .activation_function import get_activation_fn
 from .activation_context import ActivationContext
-from fmoe.layers import _fmoe_general_global_forward
 
 
 class MoELinearActiveGate(bmt.DistributedModule):
@@ -108,82 +106,3 @@ class MoEUpDownExperts(bmt.DistributedModule):
             # [num_expert-e, seq_len-s, dim_expert-d] @ [num_expert-e, dim_model-m, dim_expert-d]
             x_out = torch.einsum("esd,emd->sm", scored_x_in, self.moe_w_out)
         return x_out
-
-
-class TopkRouter(bmt.DistributedModule):
-    """
-    Select top_k expert each time, with a learnable gate_network controlling expert scores.
-    https://arxiv.org/pdf/2101.03961.pdf
-    """
-    def __init__(self,
-        dim_model: int,
-        num_experts: int,
-        top_k: int,
-        dtype: torch.dtype,
-        init_mean: float = 0,
-        init_std: float = 0.01
-    ):
-        super().__init__()
-        self.top_k = top_k
-        self.num_experts = num_experts
-        self.weight = bmt.DistributedParameter(
-            torch.empty((num_experts, dim_model), dtype=dtype),
-            init_method=bmt.ParameterInitializer(torch.nn.init.normal_, mean=init_mean, std=init_std)
-        )
-
-    def forward(self, x: torch.Tensor):
-        # [bs, seq_len, hidden_size]
-        x = x.view(-1, x.shape[-1])
-        # [bs * seq_len, hidden_size]
-        scores = F.linear(x, self.weight)
-        # [bs * seq_len, num_experts]
-        scores_prob = F.softmax(scores, dim=-1, dtype=torch.float32)
-        # [bs * seq_len, num_experts]
-        expert_weights, expert_indices = torch.topk(scores_prob, self.top_k, dim=-1)
-        # NOTE: mixtral use topk norm, deepseek-moe does't norm topk probs
-        expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True)
-        # [bs * seq_len, topk], [bs * seq_len, topk]
-
-        # calculate load balancing loss
-        token_num = x.shape[0]
-        load = expert_indices.view(-1).bincount(minlength=self.num_experts)
-        load_mean = load / (token_num * self.top_k)
-        importance_mean = scores_prob.mean(dim=0)
-        balance_loss = self.num_experts * torch.sum(importance_mean * load_mean)
-
-        return {
-            "topk_indices": expert_indices,
-            "topk_scores": expert_weights.to(x.dtype),
-            "load": load_mean,
-            "balance_loss": balance_loss
-        }
-
-
-class FastTopkCalculator:
-    def __init__(self, num_experts, top_k):
-        self.num_experts = num_experts
-        self.top_k = top_k
-
-    def forward(self, hidden_states, topk_indices, topk_weights, experts, **kwargs):
-        batch_size, seq_len, dim = hidden_states.shape
-        hidden_states = hidden_states.view(batch_size * seq_len, dim)
-        fwd = _fmoe_general_global_forward(
-            hidden_states, topk_indices, experts, self.num_experts, world_size=1, experts=experts,
-        )
-
-        def view_func(tensor):
-            n_dim = tensor.shape[-1]
-            tensor = tensor.view(-1, self.top_k, n_dim)
-            return tensor
-
-        moe_output = tree.map_structure(view_func, fwd)
-        topk_weights = topk_weights.unsqueeze(1)
-
-        def bmm_func(tensor):
-            n_dim = tensor.shape[-1]
-            tensor = torch.bmm(topk_weights, tensor).reshape(-1, n_dim)
-            return tensor
-
-        moe_output = tree.map_structure(bmm_func, moe_output)
-        moe_output = moe_output.view(batch_size, seq_len, -1)
-        return moe_output

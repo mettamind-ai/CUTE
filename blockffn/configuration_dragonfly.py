@@ -63,7 +63,6 @@ class DragonflyConfig(PretrainedConfig):
         dim_expert=128,
         num_expert=64,
         ffn_type="block",
-        moe_top_k=2,
         norm_after_router="sum",
         norm_scale=1.0,
         **kwargs,
@@ -111,7 +110,6 @@ class DragonflyConfig(PretrainedConfig):
         self.dim_expert = dim_expert
         self.num_expert = num_expert
         self.ffn_type = ffn_type
-        self.moe_top_k = moe_top_k
         self.norm_after_router = norm_after_router
         self.norm_scale = norm_scale
 

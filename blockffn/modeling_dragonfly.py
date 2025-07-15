@@ -15,7 +15,6 @@ from .attention import Attention, MultiLatentAttention
 from .activation_recorder import ActivationRecorder
 from .vanilla_feedforward import VanillaFeedForward
 from .blockffn import BLockFeedForward
-from .moe_feedforward import MoEFeedForward
 from .mega_blockffn import MegaBLockFeedForward
 
 
@@ -158,7 +157,6 @@ class FFNBlock(torch.nn.Module):
         init_std: float = 0.02,
         scale_width: float = 1.0,
         scale_depth: float = -1,
-        top_k: int = 2,
         layer_id: int = 0,
         num_layers: int = 0,
     ):
@@ -220,21 +218,6 @@ class FFNBlock(torch.nn.Module):
                 scale=scale,
                 init_std=init_std,
                 scale_width=scale_width,
-                layer_id=layer_id,
-            )
-        elif ffn_type == "moe":
-            self.ffn = MoEFeedForward(
-                dim_model,
-                dim_expert=dim_expert,
-                num_experts=num_expert,
-                ffn_activate_fn=ffn_activate_fn,
-                dtype=dtype,
-                dropout_p=dropout_p,
-                tp=tp,
-                scale=scale,
-                init_std=init_std,
-                scale_width=scale_width,
-                top_k=top_k,
                 layer_id=layer_id,
             )
         else:
@@ -313,7 +296,6 @@ class TransformerBlock(torch.nn.Module):
         scale_width: float = 1.0,
         scale_depth: float = -1,
         qk_norm: bool = False,
-        top_k: int = 2,
         layer_id: int = 0,
         num_layers: int = 0,
         config: DragonflyConfig = None,
@@ -420,7 +402,6 @@ class Encoder(bmt.DistributedModule):
         scale_width: float = 1.0,
         scale_depth: float = -1,
         qk_norm: bool = False,
-        top_k: int = 2,
         use_checkpoint: bool = True,
         config: DragonflyConfig = None,
     ):
@@ -451,7 +432,6 @@ class Encoder(bmt.DistributedModule):
                         scale_width=scale_width,
                         scale_depth=scale_depth,
                         qk_norm=qk_norm,
-                        top_k=top_k,
                         layer_id=layer_id,
                         num_layers=num_layers,
                         config=config,

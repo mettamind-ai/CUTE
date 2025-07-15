@@ -66,7 +66,8 @@
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
-- [ ] MoA: Mixture Of Anthing
+- [ ] MoA: Mixture Of Anthing (Expert, Depth ...)
+  - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
 - [ ] Quy chiếu MoA / Sparse Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
   - Sparsing law https://www.alphaxiv.org/abs/2411.02335 => ReLU tuân theo quy luật logspace power-law giảm dần
@@ -75,6 +76,10 @@
   - ReLU^2 vs SwiGLU https://www.kimi.com/chat/d1r0a3qmvdmaumfm51m0 | https://www.kimi.com/chat/d1qrtv0gts46t9q4cvr0
   - Spark Transformers (sparse both mlp & attn) https://www.alphaxiv.org/abs/2506.06644
   - [ ] MegaBlock hỗ trợ SSD, DSD, DDS matmul
-  - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-Small
+  - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
   - [ ] PolyReLU  https://arxiv.org/abs/2411.03884v3
   - [ ] 1.3x FFN  https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
+
+- [ ] Hybrid Attn với Mamba2 và Liquid Time-constant Networks (LTCs)
+  - https://huggingface.co/LiquidAI/LFM2-1.2B
+  - `winget install llama.cpp; llama-cli -hf unsloth/LFM2-1.2B-GGUF:Q8_K_XL`
