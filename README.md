@@ -80,12 +80,10 @@
   - [ ] PolyReLU  https://arxiv.org/abs/2411.03884v3
   - [ ] 1.3x FFN  https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
 
-- [ ] Hybrid Attn với Mamba2 và Liquid Time-constant Networks (LTCs)
+- [ ] Hybrid Attn với Mamba2 (tham khảo [LIWIN](/LIWIN.md))
   - Mamba2 comparable performance at `2K` sequence length and becomes up to 6 times faster at 16K sequence length
-  - LFM2 vs Mamba2 https://www.kimi.com/chat/d1r4lub67ti1k3vtkjcg
-  - https://huggingface.co/LiquidAI/LFM2-1.2B
+  - LFM2 (local) vs Mamba2 (global) https://www.kimi.com/chat/d1r4lub67ti1k3vtkjcg
+  - LFM2 có thể thay thế SWA ở early layers https://huggingface.co/LiquidAI/LFM2-1.2B
   - `winget install llama.cpp; llama-cli -hf unsloth/LFM2-1.2B-GGUF:Q8_K_XL`
-  - Hymba: 
-    - https://www.youtube.com/watch?v=a31C8ahIDhk
-    - https://asap-seminar.github.io/assets/slides/ASAP%20Talk_%20Hymba-Small%20Hybrid%20Language%20Model.pdf
-    
+  - [ ] Hymba https://huggingface.co/nvidia/Hymba-1.5B-Instruct | https://youtu.be/a31C8ahIDhk
+    - https://github.com/NVlabs/hymba/tree/main/barebones_hymba
