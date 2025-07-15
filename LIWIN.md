@@ -1,7 +1,10 @@
-## `LiWin` `Li`near Attention + `Win`dow Attention (samba linh hoạt)
+## `LiWin` `Li`near Attention + `Win`dow Attention
 __Kết hợp best SWA (local) với Linear Attention (global)__
 ![](/.save/liwin-00-crunch.png)
-
+- Hymba: 
+    - https://www.youtube.com/watch?v=a31C8ahIDhk
+    - https://asap-seminar.github.io/assets/slides/ASAP%20Talk_%20Hymba-Small%20Hybrid%20Language%20Model.pdf
+    
 ### [Taipan: Mamba + Selective Attention Layers (SALs)](https://arxiv.org/html/2410.18572v1)
 ![](https://arxiv.org/html/2410.18572v1/x2.png)
 ![](https://arxiv.org/html/2410.18572v1/x3.png)
