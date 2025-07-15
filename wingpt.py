@@ -31,7 +31,7 @@ def init_linear(w: Tensor):
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
 
-SLIDING_WINDOW = 1024
+SLIDING_WINDOW = 2048
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
