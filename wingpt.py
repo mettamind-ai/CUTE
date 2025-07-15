@@ -22,6 +22,7 @@ torch.set_default_dtype(torch.bfloat16)
 
 
 TIMESPENT = {'norm': 0, 'prepare': 0, 'attn': 0, 'up': 0, 'down': 0, 'LCE': 0}
+# timespent {'norm': 8.6, 'prepare': 15.4, 'attn': 9.4, 'up': 21.1, 'down': 25.2, 'LCE': 20.0}
 ###
 @torch.compiler.disable
 def time_time(): return time.time()
@@ -46,8 +47,7 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
-    func = lambda: F.rms_norm(x, (x.size(-1),))
-    return measure("norm", func)
+    return F.rms_norm(x, (x.size(-1),))
 
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
@@ -115,7 +115,7 @@ class Block(nn.Module):
         G, VD = self.group, self.vdim
 
         xn = x if self.layer_id == 0 else norm(x)
-        up = measure("up", lambda: self.up_proj(xn))
+        up = self.up_proj(xn)
 
         def prepare():
             e       = self.ple(input_seq)       # get per-layer embedding
@@ -135,13 +135,14 @@ class Block(nn.Module):
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
-            return q, k_full, v_full, F.relu(up).square() # F.sigmoid(up)*up
-        q, k, v, act = measure("prepare", lambda: checkpoint(prepare, use_reentrant=False))
+            act = F.relu(up).square() # F.sigmoid(up)*up
+            att = flash_attn_varlen_func(q, k_full, v_full, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+                window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-        attn = lambda: flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-            window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
+            return act, att
 
-        return x + measure("attn", attn) + measure("down", lambda: self.down_proj(act))
+        act, att = checkpoint(prepare, use_reentrant=False)
+        return x + att + self.down_proj(act)
 
 
 class WinGPT(nn.Module):
@@ -239,4 +240,4 @@ if __name__ == "__main__":
         loss_model.backward()
         optim.step(); aptim.step()
 
-    print("timespent", timespent())
+    # print("timespent", timespent())

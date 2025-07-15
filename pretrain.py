@@ -180,7 +180,7 @@ for step in range(args.steps):  # training loop
             kmax                 = max_seqlen//1000,
         ), step=step)
         pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
-        if step % 10 == 0: print("timespent", timespent())
+        # if step % 10 == 0: print("timespent", timespent())
     pbar.update()
 
     if (step + 1) % 300 == 0 or step == args.steps - 1:
