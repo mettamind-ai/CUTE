@@ -52,8 +52,8 @@
 - VLM đọc screenshots
 
 ---
-
 # TODO
+
 - [ ] Hyper param tuning
   - [x] Batch size Warmup giống MiMo7B
   - [x] Mutliple step learning rates giống DeepSeek và MiMo7B
@@ -69,6 +69,9 @@
 - [ ] MoA: Mixture Of Anthing
 - [ ] Quy chiếu MoA / Sparse Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
-  - MLP  https://www.alphaxiv.org/abs/2506.06644
-    - [ ] MegaBlock và https://www.deepspeed.ai/tutorials/sparse-attention hỗ trợ SSD, DSD, DDS matmul
-    - [ ] https://huggingface.co/SparseLLM/BlockFFN-Small
+  - Sparsing law https://www.alphaxiv.org/abs/2411.02335 => ReLU tuân theo quy luật logspace power-law giảm dần
+    => càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
+    => Mô hình 2.4B với ReLU đạt sparsity ratio 93.52% và tăng tốc 4.1× so với phiên bản dense.
+  - Sparse MLP https://www.alphaxiv.org/abs/2506.06644
+  - [ ] MegaBlock hỗ trợ SSD, DSD, DDS matmul
+  - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-Small
