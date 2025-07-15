@@ -79,5 +79,4 @@
   - [ ] MegaBlock hỗ trợ SSD, DSD, DDS matmul
   - [ ] BlockFFN  https://huggingface.co/SparseLLM/BlockFFN-Small
   - [ ] PolyReLU  https://arxiv.org/abs/2411.03884v3
-  - [ ] 1.3x FFN  https://arxiv.org/abs/2503.16672v1 2:4 sparse
-    - https://pytorch.org/blog/accelerating-neural-network-training
+  - [ ] 1.3x FFN  https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
