@@ -118,8 +118,7 @@ class Block(nn.Module):
             k_full  = torch.cat([kv_half, k_half], dim=-1)
             v_full  = torch.cat([kv_half, v_half], dim=-1)
 
-            return q, k_full, v_full, F.relu(up).square() # F.sigmoid(up)*up #
-
+            return q, k_full, v_full, F.relu(up).square() # F.sigmoid(up)*up
         q, k, v, act = checkpoint(prepare, use_reentrant=False)
 
         o = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \

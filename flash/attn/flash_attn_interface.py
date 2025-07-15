@@ -26,11 +26,8 @@ NVCC_FLAGS = [
 ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
 
-NVCC_FLAGS += ["-gencode", f"arch=compute_89,code=sm_89"]
-os.environ['TORCH_CUDA_ARCH_LIST'] = "8.6;8.9" # RTX 30xx, 40xx
-
-# NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
-# os.environ['TORCH_CUDA_ARCH_LIST'] = "8.0" # A100, RTX 30xx, RTX 40xx
+NVCC_FLAGS += ["-gencode", f"arch=compute_80,code=sm_80"]
+os.environ['TORCH_CUDA_ARCH_LIST'] = "8.0" # A100, RTX 30xx, RTX 40xx
 
 abspath = Path(__file__).parent
 started_at = time.time()
