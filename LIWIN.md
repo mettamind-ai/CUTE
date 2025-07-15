@@ -12,6 +12,11 @@ __Kết hợp best SWA (local) với Linear Attention (global)__
 ### [Based = Li + Win mỏng (Linear Attn + SWA mỏng)](https://www.alphaxiv.org/abs/2402.18668v2)
 ![](https://arxiv.org/html/2402.18668v2/x1.png)
 
+### Liquid Languge Model (LFM2)
+  - LFM2 (local) vs Mamba2 (global) https://www.kimi.com/chat/d1r4lub67ti1k3vtkjcg
+  - LFM2 có thể thay thế SWA ở early layers https://huggingface.co/LiquidAI/LFM2-1.2B
+  - `winget install llama.cpp; llama-cli -hf unsloth/LFM2-1.2B-GGUF:Q8_K_XL`
+
 ## Các biến thể của Attn
 - `Glo` thiên về tóm tắt / toàn cục, kiểu như `Li`
 - `Sel` chọn những khối tokens quan trọng để attn
