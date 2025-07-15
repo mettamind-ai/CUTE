@@ -22,11 +22,13 @@ torch.set_default_dtype(torch.bfloat16)
 
 
 TIMESPENT = {'norm': 0, 'prepare': 0, 'attn': 0, 'up': 0, 'down': 0, 'LCE': 0}
+@torch.compiler.disable
+def time_time(): return time.time()
 def measure(timer, func):
     global TIMESPENT
-    started_at = time.time()
+    started_at = time_time()
     result = func()
-    TIMESPENT[timer] += time.time() - started_at
+    TIMESPENT[timer] += time_time() - started_at
     return result
 ###
 def timespent():
