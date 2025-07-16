@@ -57,8 +57,8 @@
 - [ ] Hyper param tuning
   - [x] ~~Mutliple step learning rates giống DeepSeek và MiMo7B~~ (không hiệu quả)
   - [x] bỏ weight decay ở embedding và lm_head
-  - [ ] áp dụng Muon qk clipping (kimi K2)
-  - [ ] optim hyperparam tuning for small batch size https://arxiv.org/abs/2506.12543
+  - [x] optim hyperparam tuning for small batch size https://arxiv.org/abs/2506.12543
+  - [ ] áp dụng Muon qk clipping như kimi K2 (chờ PyTorch impl https://x.com/soumithchintala/status/1945297225988354315)
   - Reading:
     - https://x.com/giffmana/status/1943384733418950815
     - https://x.com/YouJiacheng/status/1944696254623264926
