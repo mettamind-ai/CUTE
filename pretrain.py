@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
-parser.add_argument("--steps",  type=int, default=50_000)
+parser.add_argument("--steps",  type=int, default=100_000)
 parser.add_argument("--vocab",  type=int, default=1024*50)
 
 args = parser.parse_args()
@@ -112,7 +112,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 maxlen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
+lr_schedule = LRSchedule(args.steps, warmup=0.02, decay=0.13)
 
 for step in range(args.steps):  # training loop
     started_at = time.time()
