@@ -231,7 +231,7 @@ class FusedCE(torch.autograd.Function):
 #################################################################
 
 @torch.compile()
-def zeropower_newtonschulz5(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
+def zeropower_newtonschulz6(X:Tensor)->Tensor:  # zero(excess)power có nghĩa là spectral norm = 1 => perfect balance
     need_invert = X.size(-2) > X.size(-1)       # Sẽ báo lỗi nếu X.dim < 2
     if need_invert: X = X.mT                    # Ensure số cột ≥ số hàng; giúp NS hoạt động tốt
     X /= X.norm(dim=(-2,-1), keepdim=True)+1e-7 # Ensure spectral norm ≤ 1, điều kiện bắt buộc để NS hội tụ
@@ -263,7 +263,7 @@ class Muon1GPU(torch.optim.Optimizer):
                 g = g.lerp_(st['mm'], group['mm'])  # gradient = gradient * 0.05 + momentum * 0.95
 
                 assert g.dim() == 2, "Muon only supports 2D weight matrices"
-                g = zeropower_newtonschulz5(g)      # Trực giao hoá g
+                g = zeropower_newtonschulz6(g)      # Trực giao hoá g qua 6 bước
 
                 # Cập nhật tham số p, theo gradient, learning rate và weight decay với 2 phép tính:
                 p.mul_(1 - group['lr']*group['wd']) # 1) p *= (1 - lr*wd) <= thu nhỏ p nếu wd > 0

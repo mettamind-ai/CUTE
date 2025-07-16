@@ -55,11 +55,19 @@
 # TODO
 
 - [ ] Hyper param tuning
-  - [x] Batch size Warmup giống MiMo7B
-  - [x] Mutliple step learning rates giống DeepSeek và MiMo7B
+  - [x] ~~Mutliple step learning rates giống DeepSeek và MiMo7B~~ (không hiệu quả)
   - [x] bỏ weight decay ở embedding và lm_head
   - [ ] áp dụng Muon qk clipping (kimi K2)
-  - [ ] optim hyperparam tuning for small batch size
+  - [ ] optim hyperparam tuning for small batch size https://arxiv.org/abs/2506.12543
+  - Reading:
+    - https://x.com/giffmana/status/1943384733418950815
+    - https://x.com/YouJiacheng/status/1944696254623264926
+    - https://x.com/YouJiacheng/status/1943930850724524245
+    - https://x.com/konstmish/status/1945113604534985012
+    - https://x.com/konstmish/status/1945105731352469875
+    - https://x.com/krizna_b/status/1944854671728005588
+    - https://x.com/BetaTomorrow/status/1943614107258601829
+    - https://x.com/krizna_b/status/1944854671728005588
 
 - [ ] dùng hnet + tknz nhẹ (giống pre-processing) để cải thiện token embedding / representation
   - [ ] hnet có giúp loại bỏ sparse attn?
