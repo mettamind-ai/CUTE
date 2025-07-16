@@ -120,7 +120,7 @@ for step in range(args.steps):  # training loop
     n_samples = lossv = 0
 
     cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
-    loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
+    loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=1)
     tokens, targets = next(train_loader)
     loss.backward()
     lossv += loss.item()
