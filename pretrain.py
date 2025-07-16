@@ -88,11 +88,11 @@ class LRSchedule:
 
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
 adam_params = [ # https://www.alphaxiv.org/abs/2506.12543 vvvvvvvvvvvvvvv
-    dict(params=model.embeds.parameters(),   lr=0.003, betas=(0.98, 0.95), weight_decay=0),  
-    dict(params=model.unembeds.parameters(), lr=0.002, betas=(0.98, 0.95), weight_decay=0),
+    dict(params=model.embeds.parameters(),   lr=0.003),  
+    dict(params=model.unembeds.parameters(), lr=0.002),
 ]
-adam_optim  = torch.optim.AdamW(adam_params, fused=True)
-muon_optim  = Muon(muon_params, lr=0.015, momentum=0.98, weight_decay=0.006)
+adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
+muon_optim  = Muon(muon_params, lr=0.015, momentum=0.95, weight_decay=0.006)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -112,7 +112,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 maxlen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.15)
+lr_schedule = LRSchedule(args.steps, warmup=0.2, decay=0.13)
 
 for step in range(args.steps):  # training loop
     started_at = time.time()
@@ -134,7 +134,7 @@ for step in range(args.steps):  # training loop
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:  # muon momentum warmup
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.98
+                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
     muon_optim.step()
     adam_optim.step()

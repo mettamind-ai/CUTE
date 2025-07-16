@@ -4,6 +4,7 @@
 - https://goombalab.github.io/blog/2025/hnet-past
 - https://goombalab.github.io/blog/2025/hnet-future
 - https://goombalab.github.io/blog/2025/tradeoffs
+- https://main-horse.github.io/posts/hnet-inf
 
 <table><tr>
 <td width="45%"><img src="https://github.com/goombalab/hnet/raw/main/assets/code.gif"></td>

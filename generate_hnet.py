@@ -1,3 +1,4 @@
+# Tham khảo thêm https://github.com/main-horse/hnet/blob/main/generate.py
 import torch, numpy as np
 import json, argparse, sys
 from omegaconf import ListConfig
