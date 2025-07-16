@@ -12,7 +12,7 @@
 import os, math, torch, torch.nn.functional as F, time
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
+from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead, OhMaiEmbedding
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
@@ -128,7 +128,7 @@ class WinGPT(nn.Module):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i) for i in range(n_layers)])
-        self.embeds   = nn.Embedding(vocab_size, dim)
+        self.embeds   = OhMaiEmbedding(vocab_size, dim)
         self.mtp_head = Block(dim, head_dim, vocab_size, -2)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
