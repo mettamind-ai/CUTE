@@ -93,9 +93,7 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-
-        xn = x if self.layer_id == 0 else norm(x)
-        up = self.up_proj(xn)
+        up    = self.up_proj(norm(x))
 
         def prepare():
             splits  = [HD//2, VD, D]
@@ -116,7 +114,6 @@ class Block(nn.Module):
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
             act = F.relu(y).square() # F.sigmoid(y)*y
-
             return act, att
 
         act, att = checkpoint(prepare, use_reentrant=False)
@@ -137,7 +134,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = norm(self.embeds(input_seq))
+        x = self.embeds(input_seq)
         for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, input_seq, self.rotary)
         return x
 
