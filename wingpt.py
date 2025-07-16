@@ -96,8 +96,8 @@ class Block(nn.Module):
         up    = self.up_proj(norm(x))
 
         def prepare():
-            splits  = [HD//2, VD, D]
-            k, v, q = torch.split(up[..., : sum(splits)], splits, dim=-1)
+            k_v_q = [HD//2, VD, D]
+            k,v,q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
 
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
