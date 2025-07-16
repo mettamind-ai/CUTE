@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf, timespent
+from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
 from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
 
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
