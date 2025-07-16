@@ -114,10 +114,10 @@ class Block(nn.Module):
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
             act = F.relu(y).square() # F.sigmoid(y)*y
-            return act, att
+            return x + att, act
 
-        act, att = checkpoint(prepare, use_reentrant=False)
-        return x + att + self.down_proj(act)
+        x_plus_attn, act = checkpoint(prepare, use_reentrant=False)
+        return x_plus_attn + self.down_proj(act)
 
 
 class WinGPT(nn.Module):
