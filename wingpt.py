@@ -12,32 +12,13 @@
 import os, math, torch, torch.nn.functional as F, time
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, convert_int8_mixed_precision
+from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
-
-
-TIMESPENT = {'norm': 0, 'prepare': 0, 'attn': 0, 'up': 0, 'down': 0, 'LCE': 0}
-# timespent {'norm': 8.6, 'prepare': 15.4, 'attn': 9.4, 'up': 21.1, 'down': 25.2, 'LCE': 20.0}
-###
-@torch.compiler.disable
-def time_time(): return time.time()
-###
-def measure(timer, func):
-    global TIMESPENT
-    started_at = time_time()
-    result = func()
-    TIMESPENT[timer] += time_time() - started_at
-    return result
-###
-def timespent():
-    total = sum(TIMESPENT.values())
-    return {timer: int(spent * 1000 / total) / 10 for timer, spent in TIMESPENT.items()}
-
 
 @torch.no_grad()
 def init_linear(w: Tensor):
@@ -61,7 +42,7 @@ class Rotary(nn.Module):
         self.sin = nn.Buffer(theta.sin(), persistent=False)
 
 
-    def forward(self, x: Tensor, cu_seqlens, max_seqlen, half=False):
+    def forward(self, x: Tensor, half=False):
         ctxlen, head, dim = x.shape
         assert self.cos.shape[0] >= ctxlen
 
@@ -92,8 +73,7 @@ class Block(nn.Module):
         self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
-        self.vdim = dim//(2 * self.group)
-        self.ple = nn.Embedding(vocab_size, self.vdim)
+        self.vdim = dim//self.group
 
         self.window = SLIDING_WINDOW * 8 if self.long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
@@ -102,7 +82,7 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.  up_proj = nn.Linear(dim, 4*dim, bias=False)
-        self.down_proj = nn.Linear(4*dim, dim, bias=False)
+        self.down_proj = nn.Linear(3*dim, dim, bias=False)
 
         with torch.no_grad():
             self.  up_proj.weight.copy_(init_linear(torch.empty(4*dim, dim)))
@@ -118,26 +98,24 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            e       = self.ple(input_seq)       # get per-layer embedding
-            q, v, k = torch.split(up[..., : D + VD + HD//2], [D, VD, HD//2], dim=-1)
+            splits  = [HD//2, VD, D]
+            k, v, q = torch.split(up[..., : sum(splits)], splits, dim=-1)
 
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
-            q       = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q, dim)
-            kv_half = v.view(T, H//G, HD//2)    # KV_half ∈ R^(ctxlen, head_kv, dim//2)
-            v_half  = e.view(T, H//G, HD//2)    # Nửa còn lại của value lấy từ PLE (per layer embedding)
-            k       = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1, dim/2)
-            k_half  = repeat(k, 'T 1 d -> T h d', h=H//G)
+            q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
+            v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
+            k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
+            k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
-            if not self.long:  # Chỉ áp dụng rope cho short layers
-                q = rotary(q, cu_seqlens, max_seqlen, half=True) # quay nửa sau dim
-                k_half = rotary(k_half, cu_seqlens, max_seqlen)  # quay toàn bộ dim//2
+            if not self.long: q, k = rotary(q, half=True), rotary(k)
+            k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            k_full  = torch.cat([kv_half, k_half], dim=-1)
-            v_full  = torch.cat([kv_half, v_half], dim=-1)
-
-            act = F.relu(up).square() # F.sigmoid(up)*up
-            att = flash_attn_varlen_func(q, k_full, v_full, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
+            # TODO: Với non-rotate tạo hàm flash_attn mới nhận k chưa repeat để speedup cho long attention
+            att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
+
+            y = up[..., -self.down_proj.weight.shape[-1] : ]
+            act = F.relu(y).square() # F.sigmoid(y)*y
 
             return act, att
 
@@ -153,10 +131,9 @@ class WinGPT(nn.Module):
         self.embeds   = nn.Embedding(vocab_size, dim)
         self.mtp_head = Block(dim, head_dim, vocab_size, -2)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
-        self.unembeds = nn.Linear(dim, vocab_size, bias=False)
+        self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
         with torch.no_grad():
             self.mtp_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
-            self.unembeds.weight.zero_()
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
@@ -165,8 +142,11 @@ class WinGPT(nn.Module):
         return x
 
 
-def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, ignore=-100, cu_steps=1):
+def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, ignore=-100, cu_steps=1):
+    target = model.unembeds.activate(target)
     x = model(input_seq, cu_seqlens, max_seqlen)
+    model.unembeds.update_new_tokens_weight()
+
     def prepare():
         xn    = norm(x)
         x0    = norm(model.embeds(input_seq))
@@ -179,13 +159,12 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=0, 
     xn, y = checkpoint(prepare, use_reentrant=False)
     yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, input_seq, model.rotary))
 
-    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
     target[0] = ignore
-    n_ignore += 1
-    w = model.unembeds.weight
+    w = model.unembeds.active_weight
 
-    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.7 / cu_steps)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.3 / cu_steps)  # MTP: Next of next token prediction
+    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
+    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.8 / cu_steps)  # NTP: Next token prediction
+    yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.2 / cu_steps)  # MTP: Next of next token prediction
     return xloss + yloss
 
 
@@ -204,7 +183,7 @@ if __name__ == "__main__":
     from optimus import Muon1GPU as Muon
 
     ctxlen = 1024
-    vocab_size = 32*1024
+    vocab_size = 64*1024
     dim, head_dim, n_layers = 256, 64, 8
     print(f"win config: layers={n_layers}, dim={dim}, heads={dim//head_dim}; ctxlen={ctxlen}")
 
@@ -238,4 +217,4 @@ if __name__ == "__main__":
         loss_model.backward()
         optim.step(); aptim.step()
 
-    # print("timespent", timespent())
+    model.unembeds.update_async_weight()

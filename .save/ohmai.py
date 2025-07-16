@@ -179,7 +179,7 @@ class OhMaiHead(nn.Module):
         self.inverse_map[self.active] = torch.arange(len(self.active), device=indices.device)
         return self.inverse_map[indices]
 
-
+    @torch.no_grad()
     @torch.compiler.disable
     def update_new_tokens_weight(self):
         self.active_weight.data[ self.new_token_indices ] = \

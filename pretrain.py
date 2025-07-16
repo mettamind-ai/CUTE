@@ -13,16 +13,16 @@ from torch import Tensor, nn
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",     type=int, default=None)
-parser.add_argument("--steps",  type=int, default=20_000)
-parser.add_argument("--vocab",  type=int, default=1024*64)
+parser.add_argument("--steps",  type=int, default=50_000)
+parser.add_argument("--vocab",  type=int, default=1024*50)
 
 args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-if args.bs is None: args.bs = 40
+if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-args.cu_steps = 256 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
+# args.cu_steps = 256 // args.bs # grad accum để đạt batch size ( total training tokens / step ) mong muốn
 model = WinGPT(dim=1024, n_layers=28, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
@@ -88,10 +88,7 @@ class LRSchedule:
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-ple_params  = [p for n, p in model.named_parameters() if "ple" in n]
-
 adam_params = [
-    dict(params=ple_params,                  lr=0.003, weight_decay=0),  
     dict(params=model.embeds.parameters(),   lr=0.003, weight_decay=0),  
     dict(params=model.unembeds.parameters(), lr=0.002, weight_decay=0),
 ]
@@ -115,39 +112,28 @@ save_dir.mkdir(parents=True, exist_ok=True)
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 logger = wandb.init(dir="/tmp", config=args,)
 
-total_docs = maxlen = tokens_seen = muon_lr = lossv = 0
+maxlen = muon_lr = lossv = 0
 lr_schedule = LRSchedule(args.steps, warmup=0.05, decay=0.10)
-cu_steps = args.cu_steps
 
 for step in range(args.steps):  # training loop
-
     started_at = time.time()
-
     n_samples = lossv = 0
-    for _ in range(cu_steps):
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
-        loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
-        tokens, targets = next(train_loader)
-        loss.backward()
-        lossv += loss.item()
-        n_samples += len(cu_seqlens)
-        if max_seqlen > maxlen: maxlen = max_seqlen
 
-    total_docs += n_samples
+    cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
+    loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=cu_steps)
+    tokens, targets = next(train_loader)
+    loss.backward()
+    lossv += loss.item()
+    n_samples += len(cu_seqlens)
+
+    if max_seqlen > maxlen: maxlen = max_seqlen
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
-
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
-    # cu_steps = math.ceil(max(frac, 0.3) * args.cu_steps)  # batch size warmup
-
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
-            ## Multi step learning rates
-            # if step == int(args.steps * 0.3): group["init_lr"] *= 0.5
-            # if step == int(args.steps * 0.6): group["init_lr"] *= 0.5
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
@@ -158,13 +144,15 @@ for step in range(args.steps):  # training loop
     if   step == 0:
         time0 = time.time() # cần time0 asap để tính tokens_per_second
         pbar = tqdm(total=args.steps, dynamic_ncols=True, disable=False)
+
     elif step == 1:
         print(f">>> First Step Took {int(time.time() - started_at)} Seconds <<<")
         time1 = time.time()
+
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-
+    
     muon_lr = muon_optim.param_groups[0]["lr"]
     tokens_seen = tokens_per_batch * step * cu_steps
     tokens_per_second_K = int(tokens_per_batch * cu_steps / (time.time() - started_at))/1000
@@ -179,14 +167,15 @@ for step in range(args.steps):  # training loop
         kmax                 = max_seqlen//1000,
     ), step=step)
     pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
-    # if step % 10 == 0: print("timespent", timespent())
     pbar.update()
 
+    '''
     if (step + 1) % 300 == 0 or step == args.steps - 1:
         args.current_step = step
         torch.save(args, save_dir / "hyperparams.pth")
         torch.save(model     .state_dict(), save_dir / "model.pth")
         torch.save(muon_optim.state_dict(), save_dir / "muon_optim.pth")
         torch.save(adam_optim.state_dict(), save_dir / "adam_optim.pth")
-
+    # '''
 logger.finish()
+model.unembeds.update_async_weight()
