@@ -289,7 +289,7 @@ class OhMaiEmbFunction(torch.autograd.Function):
         return grad_weight, None
 
 class OhMaiEmbedding(nn.Module):
-    def __init__(self, vocab, dim, active_vocab=1024*12):
+    def __init__(self, vocab, dim, active_vocab=1024*13):
         super().__init__()
         self.vocab = vocab
         print(f"OhMaiEmbedding: active_vocab = {active_vocab} / {vocab}")
