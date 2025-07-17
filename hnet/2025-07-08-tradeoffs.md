@@ -1,32 +1,10 @@
 ---
-layout: distill
 title: On the Tradeoffs of SSMs and Transformers
 description: (or - tokens are bs)
-tags:
-giscus_comments: false
 date: 2025-07-08
-featured: false
-thumbnail: assets/img/2025-07-08-tradeoffs/meme.jpg
-
 authors:
   - name: Albert Gu
-    url:
-    affiliations:
-      name: CMU, Cartesia AI
-
-bibliography: albert.bib
-
-# Optionally, you can add a table of contents to your post.
-# NOTES:
-#   - make sure that TOC names match the actual section names
-#     for hyperlinks within the post to work correctly.
-#   - we may want to automate TOC generation in the future using
-#     jekyll-toc plugin (https://github.com/toshimaru/jekyll-toc).
 toc:
-    # if a section has subsections, you can add them as follows:
-    # subsections:
-    #   - name: Example Child Subsection 1
-    #   - name: Example Child Subsection 2
   - name: State Space Models
     subsections:
       - name: The three ingredients
@@ -51,82 +29,79 @@ toc:
 
 ---
 
-This blog post was adapted from a talk I've given a handful of times over the last year.
-It was meant to be a high-level talk accessible to a fairly broad audience, but hopefully has some interesting insights, opinions, and intuitions around sequence models for the dedicated researchers too.
-
-
 ## State Space Models
-
-Just so we're on the same page, I'll start by defining what I mean by a state space model.
-(This section isn't strictly necessary to get to the main part of this post though; feel free to skip directly to [the next section](#states-brains-and-databases).)
-
+A state space model definition:
 $$
 \begin{equation}
 \label{eq:ssm}
 \begin{aligned}
 h_{t} &= A_t h_{t-1} + B_t x_t \\
-y_t &= C_t^{\top} h_t
+y_t &= C_t h_t
 \end{aligned}
 \end{equation}
 $$
 
-These equations define the (structured) state space model (SSM) as developed in a line of work <d-cite key="gu2023thesis"></d-cite>
-culminating in Mamba <d-cite key="gu2023mamba"></d-cite>.
-They can be viewed as a modern version of a recurrent neural network (RNN) with a few key characteristics.
+These equations define the (structured) state space model (SSM) as developed in a line of work <d-cite key="gu2023thesis"/> culminating in Mamba <d-cite key="gu2023mamba"/>. They can be viewed as a modern version of a recurrent neural network (RNN) with a few key characteristics.
+
 While a lot of technical work was involved in getting this family of models to work, I'll start by trying to abstract away what I view as the main high-level ingredients that made these models successful, e.g. match the performance of Transformers on language modeling.
 
 ### The three ingredients
 
 #### 1. State size
-A characteristic of the SSM is that its hidden state $h_t$ has a larger size than the the inputs and outputs $x_t, y_t$.
-The key idea is that the hidden state of any recurrent model is its only access to the model's context (in an autoregressive setting). So for modeling information-dense modalities such as language, the model needs a large enough state to store the relevant information that it wants to access later.
+A characteristic of the SSM is that its hidden state $h_t$ has a `larger size` than the the inputs and outputs $x_t, y_t$`.
 
-In SSMs, if each input $x_t$ is a 1-dimensional scalar, then the hidden state $h_t$ is an $\mathtt{N}$-dimensional vector, where $\mathtt{N}$ is an independent hyperparameter called the *state size, state dimension, or state expansion factor*. This is also known as a SISO (single-input single-output) SSM and allows the models to store $\mathtt{N}$ times as much information as older RNNs such as LSTMs and GRUs <d-cite key="lstm"></d-cite><d-cite key="chung2014empirical"></d-cite>.
+The key idea is that the hidden state of any recurrent model is its `only access to the model's context`. So for modeling information-dense modalities such as language, the model `needs a large enough state` to store the relevant information that it wants to access later.
+
+In SSMs, if each input $x_t$ is a 1-dimensional scalar, then the hidden state $h_t$ is an $\mathtt{N}$-dimensional vector, where $\mathtt{N}$ is an independent hyperparameter called the **state size, state dimension, or state expansion factor**. This is also known as a SISO (single-input single-output) SSM and allows the models to store $\mathtt{N}$ times as much information as older RNNs such as LSTMs and GRUs <d-cite key="lstm"/><d-cite key="chung2014empirical"/>.
 
 #### 2. State expressivity
-Not only does the model need to have a large enough state to *theoretically* store relevant context, it needs to have an expressive enough state update function to encode and access exactly the information it needs.
+Not only does the model need to have a large enough state to *theoretically* store relevant context, it needs to have an `expressive enough` state update function to encode and access exactly the information it needs.
 
-Earlier versions of "linear time-invariant" SSMs used simple recurrences $h_{t} = A h_{t-1} + B x_t$ whose updates are constant at every time step <d-cite key="gu2023thesis"></d-cite>.
-While this works great for compressible data like audio, it doesn't provide enough flexibility for sequences with variable information rates like language, where the model may have to selectively choose what information to remember.
-**Selective SSMs** like Mamba fix this by making the recurrence more expressive by letting the transition matrices vary through time and depend on the data itself.
-These mechanisms are closely related to the gating mechanisms of classical RNNs!
+Earlier versions of "linear time-invariant" SSMs used simple recurrences $h_{t} = A h_{t-1} + B x_t$ whose updates are constant at every time step <d-cite key="gu2023thesis"/>.
+While this works great for compressible data like audio, it doesn't provide enough flexibility for sequences with variable information rates like language, where the model may `have to selectively choose` what information to remember.
+
+**Selective SSMs** like Mamba fix this by making the recurrence more expressive by letting the transition matrices vary through time and depend on the data itself. These mechanisms are closely related to the gating mechanisms of classical RNNs!
 
 This is the area with the most active research on modern recurrent models, which are focused on understanding the theoretical expressivity of different parameterizations of the transition matrix $A_t$ and what they allow the model to remember in its state.
 
 #### 3. Training efficiency
-
-Having a larger and more expressive recurrent state is important, but comes with a critical trade-off -- the model becomes much harder to compute.
-Mamba addressed this with careful parameterization of the recurrence and utilizing the classic parallel scan algorithm<d-cite key="blelloch1990prefix"></d-cite><d-cite key="martin2018parallelizing"></d-cite>.
+Having a larger and more expressive recurrent state is important, but comes with a critical trade-off -- the model becomes much harder to compute. Mamba addressed this with careful parameterization of the recurrence and utilizing the `classic parallel scan` algorithm<d-cite key="blelloch1990prefix"/><d-cite key="martin2018parallelizing"/>.
 
 Many other algorithmic innovations have appeared, all with a few shared characteristics:
+
 - **Parallelization**: They aim to be parallelizable and practically efficient on accelerators like GPUs and TPUs -- preferably leveraging matrix multiplications (matmuls) as the workhorse.
-- **Memory management**: They have to control memory usage carefully. In particular, any model that uses state expansion can't actually materialize the state in main memory! While Mamba brute-forced the problem using clever awareness of the GPU memory hierarchy <d-cite key="gu2023mamba"></d-cite>, most alternatives find ways of rewriting the equations entirely to use different computation paths that don't need to compute the state explicitly during a parallel training pass.
+
+- **Memory management**: They have to control memory usage carefully. In particular, any model that uses state expansion can't actually materialize the state in main memory! While Mamba brute-forced the problem using clever awareness of the GPU memory hierarchy <d-cite key="gu2023mamba"/>, most alternatives find ways of `rewriting the equations` entirely to use different computation paths that don't need to compute the state explicitly during a parallel training pass.
+
 - **Linearity**: The model generally has to be linear in $x_t$, leading some to call this whole family of models *linear recurrent models*. Linearity plays a role in both computational efficiency as well as modeling/optimization ability, which I won't get into here.
 
 
 ### Mamba - putting it all together
 None of these three ingredients is new:
-1. Linear attention <d-cite key="katharopoulos2020transformers"></d-cite><d-cite key="sun2023retentive"></d-cite> and earlier SSMs <d-cite key="gu2021combining"></d-cite><d-cite key="gu2022efficiently"></d-cite> had similar equations utilizing state expansion.
-2. Selectivity was inspired by, and closely related to, gating mechanisms in classical RNNs like the LSTM and GRU <d-cite key="lstm"></d-cite><d-cite key="chung2014empirical"></d-cite>.
-3. Parallel scans were utilized in earlier SSMs/linear RNNs like S5 <d-cite key="smith2023s5"></d-cite> and LRU <d-cite key="orvieto2023resurrecting"></d-cite>. Linear attention variants also used parallelizable training algorithms leveraging matmuls.
+1. Linear attention <d-cite key="katharopoulos2020transformers"/><d-cite key="sun2023retentive"/> and earlier SSMs <d-cite key="gu2021combining"/><d-cite key="gu2022efficiently"/> had *similar equations utilizing state expansion*.
+
+2. Selectivity was inspired by, and closely related to, gating mechanisms in classical RNNs like the LSTM and GRU <d-cite key="lstm"/><d-cite key="chung2014empirical"/>.
+
+3. Parallel scans were utilized in earlier SSMs/linear RNNs like S5 <d-cite key="smith2023s5"/> and LRU <d-cite key="orvieto2023resurrecting"/>. Linear attention variants also used parallelizable training algorithms leveraging matmuls.
 
 What Mamba did was show that **combining all of these together** was the key to a step change in empirical performance and approaching Transformers on language modeling.
 
 
 ### Modern recurrent models
-Since then, there's been a flurry of activity on continuing to understand and improve recurrent models.
-Many of them come from different motivations with different nomenclatures and terminologies.
-- Some models such as RWKV <d-cite key="peng2023rwkv"></d-cite><d-cite key="peng2024eagle"></d-cite><d-cite key="peng2025rwkv"></d-cite>, xLSTM <d-cite key="katharopoulos2020transformers"></d-cite>, and Griffin <d-cite key="de2024griffin"></d-cite> come from an **RNN-centric** point of view and call Ingredient 1 *matrix-valued states* and Ingredient 2 *gating*.
-- **Linear attention** <d-cite key="katharopoulos2020transformers"></d-cite> first combined Ingredients 1 and 3; later variants such as GLA<d-cite key="yang2024gated"></d-cite> and Gated DeltaNet<d-cite key="yang2025gated"></d-cite> incorporate various forms of selectivity (data-dependent recurrence) and use attention-based terminology such as using $(K, Q, V)$ instead of $(B, C, X)$. Mamba-2 can also be simultaneously seen as either an SSM or a linear attention <d-cite key="dao2024transformers"></d-cite>.
-- Recently, many of these models have been cast into a framework of **test-time training/regression**<d-cite key="liu2024longhorn"></d-cite><d-cite key="sun2024learning"></d-cite><d-cite key="wang2025test"></d-cite><d-cite key="von2025mesanet"></d-cite>, which views the recurrent update as online optimization on some objective for remembering the context. The state is viewed as an *associative memory* and parallelization happens through a notion of *minibatch gradient descent*.
+Since then, there's been a flurry of activity on continuing to understand and improve recurrent models. Many of them come from different motivations with different nomenclatures and terminologies.
 
+- Some models such as RWKV <d-cite key="peng2023rwkv"/><d-cite key="peng2024eagle"/><d-cite key="peng2025rwkv"/>, xLSTM <d-cite key="katharopoulos2020transformers"/>, and Griffin <d-cite key="de2024griffin"/> come from an **RNN-centric** point of view and call Ingredient 1 *matrix-valued states* and Ingredient 2 *gating*.
+
+- **Linear attention** <d-cite key="katharopoulos2020transformers"/> first combined Ingredients 1 and 3; later variants such as GLA<d-cite key="yang2024gated"/> and Gated DeltaNet<d-cite key="yang2025gated"/> incorporate various forms of selectivity (data-dependent recurrence) and use attention-based terminology such as using $(K, Q, V)$ instead of $(B, C, X)$. Mamba-2 can also be simultaneously seen as either an SSM or a linear attention <d-cite key="dao2024transformers"/>.
+
+- Recently, many of these models have been cast into a framework of **test-time training/regression**<d-cite key="liu2024longhorn"/><d-cite key="sun2024learning"/><d-cite key="wang2025test"/><d-cite key="von2025mesanet"/>, which views the recurrent update as online optimization on some objective for remembering the context. The state is viewed as an *associative memory* and parallelization happens through a notion of *minibatch gradient descent*.
 
 A core commonality is that almost all of these models can be cast into the same SSM equation \eqref{eq:ssm}, with the main axes of variations being in the structure of $A_t$ (Ingredient 2) and corresponding efficient training algorithms (Ingredient 3).
 So I'll use the term **state space model** (or just "modern recurrent model") to refer broadly to this large class of new models, as it captures their main shared characteristics (e.g. SISO linear recurrence with state expansion).
 But of course, there are many other reasonable names given the closely related ideas!
 
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/recurrent_models.png" 
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/recurrent_models.png" 
 caption="This figure is from Songlin Yang's excellent <a href='https://arxiv.org/abs/2406.06484'>DeltaNet</a> paper, which shows how the huge proliferation of modern recurrent models all fits into this framework (using linear attention notation)."
 %}
 
@@ -145,20 +120,24 @@ In some sense, every *autoregressive model* -- one that generates data sequentia
 
 ### Autoregressive states of sequence models
 
-(Causal) self-attention, the core component of autoregressive Transformers, is often defined through a specific operation involving computing the pairwise interactions between every element of the sequence <d-cite key="vaswani2017attention"></d-cite>.
+(Causal) self-attention, the core component of autoregressive Transformers, is often defined through a specific operation involving computing the pairwise interactions between every element of the sequence <d-cite key="vaswani2017attention"/>.
 Consequently, its computation cost scales *quadratically* in the sequence length, which is often viewed as the main drawback of attention.
 
 On the other hand, because computing one step of the recurrence \eqref{eq:ssm} takes constant time, processing an entire sequence scales *linearly* with the length of the sequence, which is often viewed as the main advantage of state space models.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/state.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/state.png" %}
 
-But instead of thinking of the training cost of these models, I find it more illuminating to think about what happens at inference time when they process a new input.
+
+Instead of thinking of the training cost of these models, I find it more illuminating to think about what happens at inference time when they process a new input.
+
 - When a self-attention layer receives a new token, it needs to compare it to all the previously seen elements of the sequence, which means that *it must have cached a representation for every single prior token in the context*. Every new input it sees must get added to the cache, which therefore grows linearly in the context size.
 - On the other hand, a state space model has always summarized its context $x_1, \cdots, x_t$ into the hidden state $h_t$ (equation \eqref{eq:ssm}), which always has a constant size. This fixed-size state is the only means by which the model can interact with data: it streams data in, compresses it into its state, and uses that to make decisions or produce new outputs.
 
 Without even getting into the details of the definitions of these various models, I think it's roughly accurate to say that we could have defined them from first principles through their autoregressive states:
-- **Transformers (self-attention) are characterized by a state that caches every element of its history**, and interacts with new data by doing a pass over every element of the cache.
-- **SSMs are characterized by a state that compresses all its history**, and interacts with new data in an online streaming fashion.
+
+- **Transformers (self-attention) are characterized by a state that `caches` every element of its history**, and interacts with new data by doing a pass over every element of the cache.
+
+- **SSMs are characterized by a state that `compresses` all its history**, and interacts with new data in an online streaming fashion.
 
 {% details Aside: The "KV" cache %}
 The Transformer cache is, of course, more formally known as the **KV cache**, where "KV" refers to specific parts of how attention was first defined and named (key and value).
@@ -174,65 +153,60 @@ As an aside, it's rather interesting/amusing to me that often when I talk to LLM
 Although SSMs are often viewed as more efficient but somewhat weaker versions of Transformers, it's not as simple as that. Even ignoring computational efficiency, these models do have different tradeoffs in their inductive biases (or modeling power).
 Given the nature of the way they process data, here's a rough analogy that I like.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/analogy.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/analogy.png" %}
 
 **Transformers are like databases**: they treat every new observation as an important item that is filed away for future reference.
 
 On the other hand, **SSMs are like brains**: finite-sized memories that are always on, processing new inputs and producing new outputs in real-time.
 
 
-This analogy is a bit superficial, but does help intuitively explain some of the empirical behaviors that are observed.
-For example, SSMs can't memorize a phonebook in one pass and then recite it back, or recall an arbitary person's phone number from memory <d-cite key="jelassi2024repeat"></d-cite><d-cite key="waleffe2024empirical"></d-cite>.
-But then of course, neither can humans -- we're hopelessly bad at exact memorization and retrieval -- but that doesn't seem to hinder intelligence from arising!
+This analogy is a bit superficial, but does help intuitively explain some of the empirical behaviors that are observed. For example, SSMs can't memorize a phonebook in one pass and then recite it back, or recall an arbitary person's phone number from memory <d-cite key="jelassi2024repeat"/><d-cite key="waleffe2024empirical"/>. But then of course, neither can humans -- we're hopelessly bad at exact memorization and retrieval -- but that doesn't seem to hinder intelligence from arising!
+
 On the other hand, Transformers have a fundamental hard limit on context length (once the cache size is exceeded), while recurrent models like SSMs can hypothetically maintain an infinitely long (but fuzzy) memory of the past like humans have.
 
-{% details Aside: Context compression %}
-The aforementioned limitation on context length might be circumvented by newer context compression techniques, which involve a more clever iterative process of throwing out the entire cache and trying to compress it into a shorter summary, so that new information can be processed that otherwise would overflow the cache.
-This of course must be lossy, and makes the whole system start resembling an SSM more.
 
-Similarly, the limitations of SSM may be alleviated by more clever iterative techniques of interacting with the data. For example, issues with recall might be remedied by giving them another pass over the data -- just as how humans will look things up in external references.
+{% details Aside: Context compression %}
+The aforementioned limitation on context length might be circumvented by newer **context compression** techniques, which involve a more clever iterative process of throwing out the entire cache and trying to compress it into a shorter summary, so that new information can be processed that otherwise would overflow the cache. This of course must be lossy, and makes the whole system start **resembling an SSM more**.
+
+Similarly, the limitations of SSM may be alleviated by more clever iterative techniques of interacting with the data. For example, issues with recall might be remedied by `giving them another pass over the data` -- just as how humans will **look things up in external references**.
 
 The theme here is that sometimes limitations of methods are not so black-and-white.
-They can depend on the way in which models are used and more generally on higher system-level changes.
-But we're not going to get into these nuances for the purposes of this post.
+They can depend on the way in which models are used and more generally on higher system-level changes. But we're not going to get into these nuances for the purposes of this post.
 {% enddetails %}
 
 
 {% details Aside: Long context %}
-Something worth pointing out is that "long context" is a very popular, but horribly overloaded and ill-defined term.
-Both Transformers and SSMs have been touted as having better "long-context abilities" as a blanket statement, which can't both be accurate.
+Something worth pointing out is that "long context" is a very popular, but horribly overloaded and ill-defined term. Both Transformers and SSMs have been touted as having better "long-context abilities" as a blanket statement, which can't both be accurate.
 
-The reason is because they have very different *types* of memory.
-Going back to the analogy, I wouldn't say that there is a clear winner comparing, say, my own memory vs. my research notes. They're both just different: my notes lets me refer back to specific details I may have forgotten, but my brain remembers a much longer history of fuzzy context.
-Transformers and SSMs probably have similar qualitative differences that are difficult to measure.
+The reason is because they have very different *types* of memory. Going back to the analogy, I wouldn't say that there is a clear winner comparing, say, my own memory vs. my research notes. They're both just different: my notes lets me refer back to specific details I may have forgotten, but my brain remembers a much longer history of fuzzy context. Transformers and SSMs probably have similar qualitative differences that are difficult to measure.
 
-I'm very curious, for example, if large-scale SSMs (if trained properly with modern [length extrapolation techniques](https://goombalab.github.io/blog/2025/improving-length-generalization/) <d-cite key="buitrago2025understanding"></d-cite>) would overcome the finite context problem that some chatbot users have complained about.
+I'm very curious, for example, if large-scale SSMs (if trained properly with modern [length extrapolation techniques](https://goombalab.github.io/blog/2025/improving-length-generalization/) <d-cite key="buitrago2025understanding"/>) would overcome the finite context problem that some chatbot users have complained about.
 Maintaining a continual conversation with an assistant is much more like human conversations and relationships:
 what matters is a long, persistent *summary* of the context, remembering the *shape and flow* of the interactions without needing to recall every specific detail. No one needs a scratchpad to have a continual relationship with their friend. This is exactly where the more brain-like nature of SSMs is more suitable than the database-like nature of Transformers, which instead may be better suited for AI tasks requiring precision and retrieval.
 {% enddetails %}
 
-
-
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/intelligence_hybrid.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/intelligence_hybrid.png" %}
 
 
 A more intriguing empirical finding that might be predicted from the analogy is that combining both types of information processing may be even more capable!
+
 Just as human intelligence is augmented by having explicit scratch pads and external references, language models get better when combining SSMs with attention layers by a simple interleaving strategy.
 
-And what's even more intriguing is that the optimal ratio of these layers, as independently verified by dozens of research groups by now ([H3](https://arxiv.org/abs/2212.14052), [Jamba](https://arxiv.org/abs/2403.19887), [Zamba](https://arxiv.org/abs/2405.16712), [Samba](https://arxiv.org/abs/2406.07522), and many more that followed after)<d-cite key="dao2023hungry"></d-cite><d-cite key="lieber2024jamba"></d-cite><d-cite key="glorioso2024zamba"></d-cite><d-cite key="ren2025samba"></d-cite>, is somewhere between a roughly 3:1 to 10:1 ratio of SSM:attention layers.<d-footnote>Note that this isn't factoring in computation cost (which is usually what's highlighted when comparing Transformers vs SSMs) - we're just talking about raw modeling ability. Put another way, taking a pure Transformer model and replacing some (or most) of the layers with SSM layers would both improve efficiency *and* performance.</d-footnote>
+And what's even more intriguing is that the optimal ratio of these layers, as independently verified by dozens of research groups by now ([H3](https://arxiv.org/abs/2212.14052), [Jamba](https://arxiv.org/abs/2403.19887), [Zamba](https://arxiv.org/abs/2405.16712), [Samba](https://arxiv.org/abs/2406.07522), and many more that followed after)<d-cite key="dao2023hungry"/><d-cite key="lieber2024jamba"/><d-cite key="glorioso2024zamba"/><d-cite key="ren2025samba"/>, is somewhere between a roughly 3:1 to 10:1 ratio of SSM:attention layers.<d-footnote>Note that this isn't factoring in computation cost (which is usually what's highlighted when comparing Transformers vs SSMs) - we're just talking about raw modeling ability. Put another way, taking a pure Transformer model and replacing some (or most) of the layers with SSM layers would both improve efficiency *and* performance.</d-footnote>
+
 This might track the coarse analogy if one believed that human intelligence is mostly in the brain and augmented by lightweight access to external databases!
-These hybrid models have now been scaled up to very serious sizes (e.g. MoE with 560B total parameters) by major labs, like NVIDIA's [Nemotron-H](https://research.nvidia.com/labs/adlr/nemotronh/) <d-cite key="blakeman2025nemotron"></d-cite> and Tencent's [T1/TurboS](https://tencent.github.io/llm.hunyuan.T1/README_EN.html) <d-cite key="liu2025hunyuan"></d-cite>
+
+These hybrid models have now been scaled up to very serious sizes (e.g. MoE with 560B total parameters) by major labs, like NVIDIA's [Nemotron-H](https://research.nvidia.com/labs/adlr/nemotronh/) <d-cite key="blakeman2025nemotron"/> and Tencent's [T1/TurboS](https://tencent.github.io/llm.hunyuan.T1/README_EN.html) <d-cite key="liu2025hunyuan"/>
 with state-of-the-art performance.<d-footnote>Fun fact: both of these models were announced on the same day, my birthday 😂 (completely by coincidence)</d-footnote>
 
 
 {% details Aside: Perplexity %}
 When I talk about performance here, I'm specifically referring to perplexity.
-As a community, we now know that there are more nuances to the downstream performance, in particular *algorithmic capabilities* of different types of models<d-cite key="bick2025understanding"></d-cite>.
-But perplexity is still perhaps the most pure metric of the *statistical ability to model language as a distribution of sequences*, the original definition of language modeling.
+As a community, we now know that there are more nuances to the downstream performance, in particular *algorithmic capabilities* of different types of models<d-cite key="bick2025understanding"/>. But perplexity is still perhaps the most pure metric of the *statistical ability to model language as a distribution of sequences*, the original definition of language modeling.
 
-I actually believe that pound-for-pound (or FLOP-for-FLOP), SSMs are better than Transformers at modeling language, in this sense.
-But of course, there are many other downstream capabilities that have other differences and are important to understand.
+I actually believe that pound-for-pound (or FLOP-for-FLOP), SSMs are better than Transformers at modeling language, in this sense. But of course, there are many other downstream capabilities that have other differences and are important to understand.
 {% enddetails %}
+
 
 ## Is Attention All You Need?
 
@@ -244,7 +218,7 @@ There's a perception of Transformers being the ultimate architecture that can le
 > Just throw your data at a Transformer *🙂*
 {: .block-danger }
 
-Well, not quite. Attention is indeed amazing and has become an effective backbone for pretty much all modalities, from its original applications in language to [vision](https://arxiv.org/abs/2010.11929) and [audio](https://arxiv.org/abs/2005.08100) and beyond<d-cite key="dosovitskiy2021image"></d-cite><d-cite key="gulati2020conformer"></d-cite>.
+Well, not quite. Attention is indeed amazing and has become an effective backbone for pretty much all modalities, from its original applications in language to [vision](https://arxiv.org/abs/2010.11929) and [audio](https://arxiv.org/abs/2005.08100) and beyond<d-cite key="dosovitskiy2021image"/><d-cite key="gulati2020conformer"/>.
 But there is some more nuance to it.
 
 > #### Reality
@@ -258,18 +232,15 @@ To support this claim, let's look at how they're actually used in practice.
 
 <div class="row mt-3">
   <div class="col-sm mt-3 mt-md-0">
-    {% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/patches.png" %}
+    {% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/patches.png" %}
   </div>
   <div class="col-sm mt-3 mt-md-0">
-    {% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/tokenizers.png" %}
+    {% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/tokenizers.png" %}
   </div>
 </div>
-<!-- <div class="caption"> -->
-<!--   A simple, elegant caption looks good between image rows, after each row, or doesn't have to be there at all. -->
-<!-- </div> -->
 
-In pretty much all real pipelines, raw data is processed by an encoder before being fed to a Transformer, for example:
-- The **patchification** step in vision pipelines (whether [classification](https://arxiv.org/abs/2010.11929) or [generation](https://arxiv.org/abs/2212.09748))<d-cite key="dosovitskiy2021image"></d-cite><d-cite key="peebles2023scalable"></d-cite>.
+In pretty much all real pipelines, `raw data is processed by an encoder` before being fed to a Transformer, for example:
+- The **patchification** step in vision pipelines (whether [classification](https://arxiv.org/abs/2010.11929) or [generation](https://arxiv.org/abs/2212.09748))<d-cite key="dosovitskiy2021image"/><d-cite key="peebles2023scalable"/>.
 - The **tokenization** step of language modeling.
 
 This may seem intuitive: after all, because of the quadratic complexity of attention, of course it makes sense to try to simplify the data (such as shortening input sequences).
@@ -281,10 +252,10 @@ Let's dig in more here.
 
 ### Should we get rid of tokenization?
 
-Tokenization is a notorious step of all language modeling pipelines (most commonly the "BPE" algorithm <d-cite key="sennrich2016neural"></d-cite>, which I'll use interchangeably with "tokenization"), where textual data is processed into contiguous chunks, essentially encoding them into coarser features than the raw character-level data.
+Tokenization is a notorious step of all language modeling pipelines (most commonly the "BPE" algorithm <d-cite key="sennrich2016neural"/>, which I'll use interchangeably with "tokenization"), where textual data is processed into contiguous chunks, essentially encoding them into coarser features than the raw character-level data.
 It has a number of failure modes such as the [SolidGoldMagikarp](https://www.lesswrong.com/posts/aPeJE8bSo6rAFoLqg/solidgoldmagikarp-plus-prompt-generation) edge case and the infamous "How many R‘s are there in the word 'strawberry'?" test.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/karpathy.png" caption="Taken with permission from the most prominent <a href='https://x.com/karpathy/status/1657949234535211009'>hater</a> <a href='https://x.com/karpathy/status/1759996551378940395'>of</a> <a href='https://x.com/karpathy/status/1816637781659254908'>tokenizers</a>. The enemy of my enemy is a friend of mine!"%}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/karpathy.png" caption="Taken with permission from the most prominent <a href='https://x.com/karpathy/status/1657949234535211009'>hater</a> <a href='https://x.com/karpathy/status/1759996551378940395'>of</a> <a href='https://x.com/karpathy/status/1816637781659254908'>tokenizers</a>. The enemy of my enemy is a friend of mine!"%}
 
 So why do we use it?
 
@@ -302,7 +273,7 @@ In this case, I think that the consequences of overcoming tokenization *will ext
 > We should care about removing tokenization, not (just) for the practical reasons, but for the aesthetic and intangible reasons.
 
 Besides fixing the edge cases, removing tokenization simply **adheres closer to the spirit of deep learning**.
-Deep learning has always been about replacing handcrafted feature engineering with powerful end-to-end neural networks that can learn patterns automatically from data. From CNNs replacing manually engineered edge detectors in computer vision, to Transformers replacing linguistic features in NLP, major advances in AI have always happened with **less data processing and more automatic learning** (as popularly espoused by [The Bitter Lesson](http://www.incompleteideas.net/IncIdeas/BitterLesson.html))<d-cite key="sutton2019bitter"></d-cite>.
+Deep learning has always been about replacing handcrafted feature engineering with powerful end-to-end neural networks that can learn patterns automatically from data. From CNNs replacing manually engineered edge detectors in computer vision, to Transformers replacing linguistic features in NLP, major advances in AI have always happened with **less data processing and more automatic learning** (as popularly espoused by [The Bitter Lesson](http://www.incompleteideas.net/IncIdeas/BitterLesson.html))<d-cite key="sutton2019bitter"/>.
 
 I believe that replacing tokenization with end-to-end models will have huge consequences for
 - **scaling laws**: learning better patterns from raw data always leads to more powerful models;
@@ -321,9 +292,9 @@ and much more, some of which I see and some of which I haven't thought of yet.
 In the modern era of LLMs, there've been astonishingly few papers that have thought about or tried to address this problem. It's hard to even find trustworthy benchmarks about the performance of tokenizer-free models.
 
 So here's a plot from our upcoming paper where we carefully ran standard architectures on byte-level language modeling (essentially, treating each English character as a separate token).
-(Note: Byte-level modeling with Mamba was first attempted by [MambaByte](https://arxiv.org/abs/2401.13660) <d-cite key="wang2024mambabyte"></d-cite> from Sasha Rush's group. This is a reproduction.)
+(Note: Byte-level modeling with Mamba was first attempted by [MambaByte](https://arxiv.org/abs/2401.13660) <d-cite key="wang2024mambabyte"/> from Sasha Rush's group. This is a reproduction.)
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/bpb_curve.png" caption="Byte-level models trained on FineWeb-Edu (context length 8192). Sliding window attention (width=1024) is FLOP matched to Mamba, while global attention uses $2\times$ the FLOPs." %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/bpb_curve.png" caption="Byte-level models trained on FineWeb-Edu (context length 8192). Sliding window attention (width=1024) is FLOP matched to Mamba, while global attention uses $2\times$ the FLOPs." %}
 
 There are a number of implications here that most LLM researchers seem to find surprising.
 
@@ -339,7 +310,7 @@ So keeping the *same models* and the *same data*, but simply untokenizing the in
 [//]: # As one consequence: I'll go out on a limb and say that perhaps one of the reasons that tokenization has been so difficult to remove has been the over-reliance on Transformers.
 
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/dna_scaling.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/dna_scaling.png" %}
 
 Here's another example. This plot is from the original Mamba paper, where we showed that Mamba scaled substantially better than Transformer out-of-the-box on DNA language modeling.
 Once again, this is a "tokenization-free" language with high-resolution input and small vocabulary size (just 4!), and the SSM strongly outperforms the Transformer when *data-matched* (while using less compute).
@@ -381,7 +352,7 @@ This is why I do think that attention is indispensable for data like tokenized l
 On the other hand, when the data is generally not meaningful (in the sense of requiring a model to pay attention to individual units), such as character-level language or DNA<d-footnote>I'm aware that sometimes you do need to pay attention to individual characters or base pairs, and that understanding the interactions of single base pairs is actually a big problem for machine learning on DNA. This heuristic is a deliberate oversimplification that I still think is generally useful.</d-footnote>, Transformers don't work well, and other models like SSMs hold a clear edge.
 SSMs in particular, with their compressed states, may be particularly suited for these because when data appears at resolutions that are too high to be useful, what the model needs to do is **compress the data into more meaningful abstractions**.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/applications.png" caption="Mamba applications in the first 6 months after its release." %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/applications.png" caption="Mamba applications in the first 6 months after its release." %}
 
 The above figure, which was helpfully sent to me by the hosts of [The Cognitive Revolution](https://www.cognitiverevolution.ai/) podcast, shows the breakdown of where Mamba was actually used after being published.
 Despite being motivated by and focusing on language modeling in the paper, the majority of its applications were actually in other modalities!<d-footnote>I don't work in computer vision, and part of me is unsure how much of Mamba's popularity there is just trend following 😜 but I've been told, at least, that SSMs work pretty well!</d-footnote><d-footnote>Without giving away too much, I can also say that they are certainly <a href="https://cartesia.ai">very powerful for audio</a> if understood well and used correctly.</d-footnote>
@@ -394,9 +365,9 @@ But I've found it helpful for intuition and has been pretty good at predicting w
 {% details Aside: Theories of tokenization %}
 As people start thinking about tokenization more, there are some interesting theoretical results that have emerged which support this central thesis (that Transformers require meaningful tokens).
 
-1. [Tokenization Is More Than Compression](https://arxiv.org/abs/2402.18376) examined the hypothesis that *the primary role of tokenization is to shrink the input sequence length*. They invented a new tokenizer that has even higher compression rates than BPE (actually, they even keep the same vocabulary, but simply find different segmentations that are more compressed) yet leads to worse language models, providing evidence against the hypothesis<d-cite key="schmidt2024tokenization"></d-cite>.
+1. [Tokenization Is More Than Compression](https://arxiv.org/abs/2402.18376) examined the hypothesis that *the primary role of tokenization is to shrink the input sequence length*. They invented a new tokenizer that has even higher compression rates than BPE (actually, they even keep the same vocabulary, but simply find different segmentations that are more compressed) yet leads to worse language models, providing evidence against the hypothesis<d-cite key="schmidt2024tokenization"/>.
 
-2. [An Analysis of Tokenization: Transformers under Markov Data](https://openreview.net/forum?id=wm9JZq7RCe) showed that for certain data distributions, applying tokenization qualitatively changes what Transformers can learn. Intuitively, commonly used tokenizers like BPE and Unigram are somewhat based in information-theoretic heuristics, and play a particular role in smoothing out the non-uniform information rate of raw data into a form that's more easily processed by a Transformer<d-cite key="rajaraman2024analysis"></d-cite>.
+2. [An Analysis of Tokenization: Transformers under Markov Data](https://openreview.net/forum?id=wm9JZq7RCe) showed that for certain data distributions, applying tokenization qualitatively changes what Transformers can learn. Intuitively, commonly used tokenizers like BPE and Unigram are somewhat based in information-theoretic heuristics, and play a particular role in smoothing out the non-uniform information rate of raw data into a form that's more easily processed by a Transformer<d-cite key="rajaraman2024analysis"/>.
 {% enddetails %}
 
 {% details Aside: Do SSMs not need meaningful input? %}
@@ -419,7 +390,7 @@ Humans also learn just fine from noisy data!
 
 So, what happens in a very simple scenario where information-less filler tokens are inserted into the sequence?
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/thoughtexperiment.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/thoughtexperiment.png" %}
 
 This figure illustrates a redundancy factor of $2\times$, but of course this can be arbitrarily increased to $k\times$ in the thought experiment.
 I think this shows another clear failure mode of standard attention: the compute shouldn't be scaling as $k^2$, and the (inference) memory certainly shouldn't scale in $k$ either -- caching the noise tokens is pointless.
@@ -439,7 +410,7 @@ We should expect "the right architecture" to behave essentially identically on b
 
 {% details Aside: Convolutions for language modeling %}
 On a somewhat tangential note, I originally came up with the thought experiment in the figure above years ago, as a means to convince myself that convolutions don't work for language modeling.
-When [S4](https://arxiv.org/abs/2111.00396) was published, the community was excited about its potential on various modalities, and it spawned a wave of follow-up work on [pure convolutional language models](https://arxiv.org/abs/2302.10866) <d-cite key="gu2022efficiently"></d-cite><d-cite key="poli2023hyena"></d-cite>.
+When [S4](https://arxiv.org/abs/2111.00396) was published, the community was excited about its potential on various modalities, and it spawned a wave of follow-up work on [pure convolutional language models](https://arxiv.org/abs/2302.10866) <d-cite key="gu2022efficiently"/><d-cite key="poli2023hyena"/>.
 
 But over the course of working on linear time-invariant SSMs, I quickly realized they were hopeless for language modeling.
 This example shows why: because language doesn't have an intrinsic "sampling rate", tokens can be spaced somewhat arbitrarily. 
@@ -486,10 +457,10 @@ I want to note, however, that I think there are strengths that are more subtle, 
 
 Going back to the [[brain analogy](#a-coarse-analogy)], one question that intrigues me is whether **compression is actually fundamental to intelligence**.<d-footnote>My student Isaac has explored this hypothesis from a different angle: <a href="https://iliao2345.github.io/blog_posts/arc_agi_without_pretraining/arc_agi_without_pretraining.html">[link]</a></d-footnote>
 Is it possible that forcing information into a smaller state forces a model to learn more useful patterns and abstractions?
-While compressed states are often viewed as a [drawback](https://arxiv.org/abs/2402.01032) in the literature<d-cite key="jelassi2024repeat"></d-cite>,
+While compressed states are often viewed as a [drawback](https://arxiv.org/abs/2402.01032) in the literature<d-cite key="jelassi2024repeat"/>,
 I think it might be because it's very easy to measure these particular weaknesses but very hard to measure more subtle qualitative effects.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/bugfeature.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/bugfeature.png" %}
 
 At any rate, there are certainly many interesting applications where SSMs are the right tool for the job right now.
 And in my lab's next release, we'll show another interesting and important use case (for language!) where the *compressive inductive bias of SSMs turns out to be essential*.
@@ -525,8 +496,8 @@ For example, I hypothesize that the same weakness is present for any variant of 
 in particular, for example, any type of sparse attention.
 The core weakness is still there (and perhaps even exacerbated in the case of sparse attention): the model is biased toward *attending* to individual tokens.
 
-On the other hand, some variants of efficient attention "blur" the boundaries of tokens, including [low-rank approximations](https://arxiv.org/abs/2006.04768)<d-cite key="wang2020linformer"></d-cite> and any variant of linear attention.
-(More abstractly, these belong to a larger family of attention variants that make *[structured approximations](https://arxiv.org/abs/2405.21060)* to the quadratic attention matrix<d-cite key="dao2024transformers"></d-cite>, any of which would have similar properties, I think.)
+On the other hand, some variants of efficient attention "blur" the boundaries of tokens, including [low-rank approximations](https://arxiv.org/abs/2006.04768)<d-cite key="wang2020linformer"/> and any variant of linear attention.
+(More abstractly, these belong to a larger family of attention variants that make *[structured approximations](https://arxiv.org/abs/2405.21060)* to the quadratic attention matrix<d-cite key="dao2024transformers"/>, any of which would have similar properties, I think.)
 Because of lacking a token-level cache, these models would not have the same weakness and would instead inherit properties much closer to SSMs.
 
 Incidentally, this is another more subtle reason why I somewhat prefer using "state space model" or "recurrent model" as a descriptive term over "linear attention".<d-footnote>I still like the term linear attention though for interesting theoretical connections, as well as the historical significance.</d-footnote>
@@ -542,7 +513,7 @@ To end, let's talk about one of the major drivers of the current wave of progres
 These laws are always plotted with FLOPs on the x-axis and some measure of performance on the y-axis, with the idea being that the slope of this line measures "the rate at which **compute** is converted into **capabilities**".
 Indeed, I think there's a popular viewpoint that Transformers are simply a vehicle that optimally performs this conversion.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/scaling.png" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/scaling.png" %}
 
 And I think this is a great depiction of the goal of architecture research.
 We're simply looking for **the black box that performs this conversion in the best way possible**.
@@ -569,7 +540,7 @@ Don't get me wrong: despite being known as a leader of the Transformer-alternati
 But I also think it's clear that they, by themselves, are not the final solution.
 We still have work to do.
 
-{% include figure.liquid loading="eager" path="assets/img/2025-07-08-tradeoffs/meme.jpg" %}
+{% include figure.liquid loading="eager" path="https://goombalab.github.io/assets/img/2025-07-08-tradeoffs/meme.jpg" %}
 
 ### What's next
 

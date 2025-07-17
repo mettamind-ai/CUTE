@@ -214,3 +214,90 @@ H-Net không chỉ là một kiến trúc mới. Nó đại diện cho một tri
 1.  **Giải phóng khỏi Tokenization:** Bằng cách học trực tiếp từ byte và tự tạo ra các "chunk" có ý nghĩa, H-Net đi theo đúng tinh thần của deep learning là học end-to-end, mở ra tiềm năng cho dữ liệu đa ngôn ngữ, đa phương thức một cách tự nhiên.
 
 2.  **Thiên hướng Nén và Trừu tượng hóa:** Việc ép mô hình phải nén thông tin (từ byte thành chunk, từ chunk thành biểu diễn cấp cao hơn) có thể chính là một "tính năng", buộc nó phải học các quy luật và cấu trúc cơ bản của dữ liệu, thay vì chỉ ghi nhớ bề mặt. Đây có thể là một bước tiến quan trọng hướng tới khả năng suy luận thực sự.
+
+---
+## Transformers (điểm mạnh và yếu của softmax attention)
+
+Transformer hoạt động xuất sắc, và trên thực tế, chúng gần như là công cụ duy nhất cho các tác vụ đòi hỏi phải chú ý đến từng token riêng lẻ trong ngữ cảnh.
+
+> ### Điểm mạnh
+> Transformer có khả năng **truy xuất hoàn hảo** và **thao tác tinh vi** trên từng token riêng lẻ trong ngữ cảnh của chúng.
+
+Vậy còn các nhược điểm thì sao? Mọi người đều biết điểm yếu chính của Transformer là độ phức tạp bậc hai của chúng, phải không?
+
+Không hẳn là vậy. Transformer *thực sự có những thiên kiến quy nạp* tạo ra các điểm yếu về năng lực mô hình hóa, chứ không chỉ về mặt hiệu suất. Và cũng giống như với SSM, cả điểm mạnh và điểm yếu ở cấp độ cao của Transformer đều là hai mặt của cùng một đồng xu, là `hệ quả từ cấu trúc trạng thái` tự hồi quy của chúng: bộ nhớ đệm token **duy trì nguyên vẹn độ chi tiết của đầu vào** mà nó nhận được.
+
+> ### Điểm yếu
+> Transformer ***bị trói buộc*** vào các **token** mà chúng được cung cấp.
+
+---
+## 4. Transformer có thể được "cast" về SSM không?
+
+Câu trả lời ngắn gọn là **không**, một Transformer tiêu chuẩn (với cơ chế attention bậc hai, toàn cục) **không thể** được cast trực tiếp về dạng phương trình SSM. Lý do chính nằm ở **bản chất của trạng thái tự hồi quy (autoregressive state)** của chúng.
+
+### Trạng thái của SSM: Kích thước Cố định (Fixed-Size)
+Phương trình SSM là:
+$$ h_{t} = A_t h_{t-1} + B_t x_t $$
+Điểm mấu chốt ở đây là vector trạng thái `h` luôn có một **kích thước cố định**, không đổi. Dù chuỗi đầu vào dài 10 token hay 10,000 token, `h_t` vẫn luôn là một vector có kích thước không đổi. Nó phải **nén** mọi kinh nghiệm vào cấu trúc đó.
+
+### Trạng thái của Transformer: Kích thước Tăng dần (Growing-Size)
+Trạng thái của Transformer chính là **KV Cache**. Khi xử lý một token mới `x_t`, Transformer sẽ **nối (append)** các vector Key (`K_t`) và Value (`V_t`) mới vào một bộ nhớ đệm chứa tất cả các Key và Value của các token trước đó.
+
+Điều này có nghĩa là kích thước của trạng thái (KV Cache) **tăng tuyến tính** với độ dài của chuỗi. Đây là một **trạng thái có kích thước thay đổi, ngày càng lớn**.
+
+### Sự xung đột cơ bản
+Bạn không thể "cast" một trạng thái có kích thước tăng dần (KV Cache của Transformer) vào một phương trình đòi hỏi một trạng thái có kích thước cố định (phương trình SSM). Đây là một sự khác biệt về mặt cấu trúc và triết lý nền tảng.
+
+*   **SSM** là một **phép toán hồi quy (recurrence)** thực sự: trạng thái hiện tại chỉ phụ thuộc trực tiếp vào trạng thái ngay trước đó.
+*   **Transformer** là một **phép toán toàn cục (global operation)**: để tính toán đầu ra cho token thứ `t`, nó phải truy cập và so sánh với **toàn bộ** `t-1` token trước đó trong KV Cache.
+
+### Vùng giao thoa: Linear Attention
+Tuy nhiên, có một họ các biến thể của attention được gọi là **Linear Attention**. Các mô hình này sửa đổi công thức attention để loại bỏ phép toán `softmax` và sắp xếp lại thứ tự tính toán. Một cách kỳ diệu, công thức của Linear Attention **có thể** được viết lại dưới dạng một phép toán hồi quy, giống hệt như phương trình SSM.
+
+Đây chính là lý do tại sao các mô hình như Mamba-2, RetNet, hay GLA được xem là nằm ở vùng giao thoa giữa hai thế giới.
+
+### Bảng so sánh
+| Tiêu chí | Transformer (Attention bậc hai) | SSM (Mamba, H-Net) | Linear Attention |
+| :--- | :--- | :--- | :--- |
+| **Bản chất Trạng thái** | Cache (Lưu trữ) | Vector nén (Compress) | Vector nén (khi ở dạng hồi quy) |
+| **Kích thước Trạng thái** | Tăng tuyến tính | **Cố định** | **Cố định** |
+| **Phép toán cập nhật** | Toàn cục (Global) | Cục bộ (Local Recurrence) | Cục bộ (Local Recurrence) |
+| **Có thể cast về SSM?** | **Không** | **Có** (theo định nghĩa) | **Có** |
+
+**Kết luận:** Transformer tiêu chuẩn và SSM là hai "loài" kiến trúc khác nhau về cơ bản. Tuy nhiên, ranh giới này trở nên mờ nhòe khi chúng ta xem xét các biến thể "lai" như Linear Attention, vốn mang trong mình cả DNA của Transformer và linh hồn của SSM.
+
+---
+# Tư duy lại về Scaling: Từ Tăng Tham Số đến Tăng Tính Tổ Hợp
+
+Một trong những ý tưởng nền tảng và mạnh mẽ nhất mà các kiến trúc như H-Net hay Mixture-of-Experts (MoE) mang lại là
+một sự thay đổi trong triết lý "scaling" (mở rộng quy mô). Thay vì chỉ đơn thuần tăng số lượng tham số một cách "thô"
+(brute-force scaling), chúng ta có thể giữ số lượng tham số ở mức quản lý được nhưng tăng số lượng đường đi tính
+toán (computational paths) một cách tổ hợp.
+
+Các mô hình truyền thống, dày đặc (dense models) giống như một nhân viên "biết tuốt" nhưng không phải chuyên gia.
+Mọi tham số phải học cách xử lý mọi loại thông tin, dẫn đến sự "trung bình hóa" kiến thức. Ngược lại, phương pháp
+"tăng tính tổ hợp" hay Tính toán có điều kiện (Conditional Computation) mang lại những lợi điểm vượt trội:
+
+1. Sự Chuyên Môn Hóa (Specialization): Giống như một công ty có nhiều phòng ban chuyên môn, mỗi "expert" (module) có thể trở nên cực kỳ giỏi trong việc xử lý một loại thông tin hoặc một kiểu mẫu cụ thể. Mô hình sẽ học cách "định tuyến" (route) thông tin đến đúng chuyên gia, mang lại kết quả chính xác và sâu sắc hơn.
+
+2. Giảm thiểu "xuyên nhiễu" (Negative Interference): Khi học một kiến thức mới, mô hình chỉ cần cập nhậtcác expert liên quan, thay vì toàn bộ hàng tỷ tham số. Điều này giúp mô hình ghi nhớ kiến thức mới hiệu quả hơn mà không "ghi đè" hay làm hỏng kiến thức cũ.
+
+3. Hiệu quả Suy luận (Inference Efficiency): Mặc dù tổng số tham số có thể rất lớn, tại mỗi bước suy luận, mô hình chỉ kích hoạt một phần nhỏ trong số đó. Điều này cho phép chúng ta có được sức mạnh của một mô hình khổng lồ với chi phí tính toán của một mô hình nhỏ hơn nhiều.
+
+## Những Phép Ẩn Dụ về Sức Mạnh Vô Hạn từ Tài Nguyên Hữu Hạn
+Để thực sự nắm bắt được sức mạnh của triết lý này, chúng ta có thể nhìn qua lăng kính của một vài phép ẩn dụ mạnh mẽ.
+
+###  Phép chia Vô hạn
+* Bất kỳ một con số nào khác 0, dù nhỏ đến đâu, cũng có thể được chia cho một số khác để tạo ra một giá trị còn nhỏ hơn nữa, và quá trình này có thể lặp lại vô tận mà không bao giờ chạm đến số 0 tuyệt đối.
+
+* Tương tự, một tập hợp tham số hữu hạn không phải là một nguồn tài nguyên tĩnh. Nó là một không gian tiềm năng. Bằng cách kết hợp chúng theo những cách khác nhau (giống như chọn các 'số chia' khác nhau), mô hình có thể tạo ra một số lượng các 'hàm' hay 'thuật toán' xử lý gần như vô hạn để giải quyết các vấn đề. Mỗi sự kết hợp là một "lần chia" mới, tạo ra một năng lực mới, tinh vi hơn.
+
+### Nếp nhăn của Bộ não
+Có lẽ, phép ẩn dụ mạnh mẽ và phù hợp nhất đến từ chính tự nhiên: sự hình thành các nếp nhăn của bộ não.
+* Bộ não con người không tăng sức mạnh bằng cách phình to ra một cách vô hạn. Nó bị giới hạn bởi thể tích của hộp sọ.
+
+* Thay vào đó, để tối đa hóa diện tích bề mặt xử lý (vỏ não), nó tự gấp lại, tạo ra vô số các nếp nhăn (gyri and sulci). Mỗi nếp nhăn mới làm tăng theo cấp số nhân số lượng các kết nối thần kinh tiềm năng.
+
+* Đây chính là 'tăng tính tổ hợp' trong thế giới sinh học. Các mô hình như H-Net đang cố gắng mô phỏng nguyên tắc này: thay vì chỉ xây một 'bộ não' lớn hơn (nhiều tham số hơn), chúng ta dạy nó cách 'tạo ra nếp nhăn' (sử dụng các tham số hiện có một cách linh hoạt, có điều kiện, và tạo ra các cấp độ trừu tượng mới).
+
+Tương lai của AI không chỉ nằm ở quy mô, mà còn nằm ở sự phức tạp, chiều sâu, và tính hiệu quả trong cách sử dụng tài nguyên. Đây chính là bước chuyển từ việc chỉ xây dựng các mô hình lớn hơn sang việc xây dựng các mô hình thông minh hơn.
