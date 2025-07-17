@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=25, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
+model = WinGPT(dim=1024, n_layers=24, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch)
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -92,7 +92,7 @@ adam_params = [ # https://www.alphaxiv.org/abs/2506.12543 vvvvvvvvvvvvvvv
     dict(params=model.unembeds.parameters(), lr=0.001),
 ]
 adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
-muon_optim  = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.006)
+muon_optim  = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
