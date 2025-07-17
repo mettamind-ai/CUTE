@@ -87,12 +87,16 @@ class LRSchedule:
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-adam_params = [ # https://www.alphaxiv.org/abs/2506.12543 vvvvvvvvvvvvvvv
-    dict(params=model.embeds.parameters(),   lr=0.002),  
-    dict(params=model.unembeds.parameters(), lr=0.001),
+adam_params = [
+    dict(params=model.embeds.parameters(),   lr=0.003),
+    dict(params=model.unembeds.parameters(), lr=0.002),
 ]
-adam_optim  = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
-muon_optim  = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
+# adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
+# muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
+
+## beta1 and momentum follow https://www.alphaxiv.org/abs/2506.12543
+adam_optim = torch.optim.AdamW(adam_params, betas=(0.98, 0.95), weight_decay=0, fused=True)
+muon_optim = Muon(muon_params, lr=0.015, momentum=0.98, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -134,7 +138,7 @@ for step in range(args.steps):  # training loop
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
             if opt == muon_optim:  # muon momentum warmup
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+                group["momentum"] = (1 - frac) * 0.85 + frac * 0.98
 
     muon_optim.step()
     adam_optim.step()
