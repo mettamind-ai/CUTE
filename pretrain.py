@@ -112,7 +112,7 @@ print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / st
 logger = wandb.init(dir="/tmp", config=args,)
 
 maxlen = muon_lr = lossv = 0
-lr_schedule = LRSchedule(args.steps, warmup=0.2, decay=0.13)
+lr_schedule = LRSchedule(args.steps, warmup=0.02, decay=0.13)
 
 for step in range(args.steps):  # training loop
     started_at = time.time()
