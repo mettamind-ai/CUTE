@@ -12,7 +12,7 @@
 import os, math, torch, torch.nn.functional as F, time
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead, OhMaiEmbedding
+from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from einops import repeat
 
