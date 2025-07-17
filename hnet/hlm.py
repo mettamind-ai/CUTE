@@ -1,18 +1,8 @@
-from collections import namedtuple
-from dataclasses import dataclass
-
 import torch, torch.nn as nn
 
 from hnet import HNet, HNetState
 from config import HNetConfig
 from dc import RoutingModuleOutput
-
-@dataclass
-class CausalLMOutput:
-    logits: torch.Tensor
-    bpred_output: list[RoutingModuleOutput]
-    inference_params: HNetState
-# CausalLMOutput = namedtuple("CausalLMOutput", ["logits", "bpred_output", "inference_params"])
 
 class HNetForCausalLM(nn.Module):
     def __init__(self, config: HNetConfig, device=None, dtype=None,) -> None:
@@ -25,10 +15,8 @@ class HNetForCausalLM(nn.Module):
         self.lm_head = nn.Linear(d_embed, vocab_size, bias=False, device=device, dtype=dtype)
         if self.config.tie_embeddings: self.lm_head.weight = self.embeddings.weight
 
-
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
         return self.backbone.allocate_inference_cache(batch_size, max_seqlen, dtype=dtype, **kwargs)
-
 
     def forward(self, input_ids, mask=None, inference_params=None, num_last_tokens=0, **mixer_kwargs):
         """ num_last_tokens: if > 0, only return the logits for the last n tokens """
@@ -49,7 +37,7 @@ class HNetForCausalLM(nn.Module):
         x = x.view(B, L, D)
         if num_last_tokens > 0: x = x[:, -num_last_tokens:]
         logits = self.lm_head(x)
-        return CausalLMOutput(logits, bpred_output, inference_params)
+        return (logits, bpred_output, inference_params)
 
     def step(self, input_ids, inference_params):
         bs = input_ids.shape[0]
@@ -57,4 +45,4 @@ class HNetForCausalLM(nn.Module):
         x = self.embeddings(input_ids)
         x, bpred_output = self.backbone.step(x, inference_params)
         logits = self.lm_head(x)
-        return CausalLMOutput(logits, bpred_output, inference_params)
+        return (logits, bpred_output, inference_params)

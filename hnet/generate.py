@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # Tham khảo thêm https://github.com/main-horse/hnet/blob/main/generate.py
-import torch, numpy as np
-import json, argparse, sys, os
-from omegaconf import ListConfig
+import json, torch, numpy as np, os, sys
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..'))
@@ -54,40 +52,31 @@ def generate(model, prompt:str, max_tokens=512, temperature=.6):
 
     with torch.inference_mode():  # khởi tạo và chạy forward lần đầu
         mask = torch.ones(input_ids.shape, device=device, dtype=torch.bool)
-        output = model.forward(input_ids, mask=mask, inference_params=inference_cache)
+        logits, _, _ = model.forward(input_ids, mask=mask, inference_params=inference_cache)
 
     for _ in range(max_tokens):
         # Get logits and apply temperature
-        logits = output.logits[0, -1, :] / temperature
+        logits = logits[0, -1, :] / temperature
         probs = torch.softmax(logits, dim=-1)
         next_token = torch.multinomial(probs, 1)
         current_token = next_token.unsqueeze(0)
         yield current_token
 
         if next_token.item() == tokenizer.eos_idx: break  # dừng sinh khi gặp EOS token
-        with torch.inference_mode(): output = model.step(current_token, inference_cache)
+        with torch.inference_mode(): logits, _, _ = model.step(current_token, inference_cache)
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Generate text from an H-Net model")
-    parser.add_argument("--model-path",  type=str,   default="hnet/2stage_L.pt",   help="Path to the model checkpoint")
-    parser.add_argument("--config-path", type=str,   default="hnet/2stage_L.json", help="Path to the model configuration")
-    parser.add_argument("--max-tokens",  type=int,   default=512, help="Maximum number of tokens to generate")
-    parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature")
-    args = parser.parse_args()
-
-    print("Loading model...")
-    model = load_from_pretrained(args.model_path, args.config_path)
+    model = load_from_pretrained("hnet/2stage_L.pt", "hnet/2stage_L.json")
     tokenizer = ByteTokenizer()
 
     while True:
         prompt = input("\nPrompt: ").strip()
-        print(f"\nGenerating (max_tokens={args.max_tokens}, temperature={args.temperature})")
         print(f"\033[92m{prompt}\033[0m", end="")
         buf = []
 
-        for token in generate(model, prompt, max_tokens=args.max_tokens, temperature=args.temperature):
+        for token in generate(model, prompt, max_tokens=512, temperature=0.6):
             buf.append(token)
             for j in range(1, min(len(buf), 4)):
                 try:
