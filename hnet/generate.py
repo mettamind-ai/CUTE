@@ -10,7 +10,7 @@ from hnet import HNet
 from utils import HNetConfig, AttnConfig, SSMConfig
 
 class HNetForCausalLM(nn.Module):
-    def __init__(self, config: HNetConfig, device=None, dtype=None,) -> None:
+    def __init__(self, config: HNetConfig, device=None, dtype=None) -> None:
         self.config = config
         super().__init__()
 

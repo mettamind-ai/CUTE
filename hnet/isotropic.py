@@ -103,8 +103,7 @@ class Isotropic(nn.Module):
         self.attn_cfg  = get_stage_cfg(config.attn_cfg, stage_idx)
 
         arch_layout = config.arch_layout
-        for _ in range(stage_idx):
-            arch_layout = arch_layout[1]
+        for _ in range(stage_idx): arch_layout = arch_layout[1]
         arch_layout = arch_layout[pos_idx]
         layout_parse = re.findall(r"([mMtT])(\d+)", arch_layout)
 
@@ -117,8 +116,7 @@ class Isotropic(nn.Module):
             assert n_layer.isdigit()
             layers += [
                 create_block(
-                    arch,
-                    self.d_model,
+                    arch, self.d_model,
                     d_intermediate=config.d_intermediate[self.stage_idx],
                     ssm_cfg=self.ssm_cfg,
                     attn_cfg=self.attn_cfg,
@@ -131,8 +129,8 @@ class Isotropic(nn.Module):
             layer_idx += int(n_layer)
 
         self.layers = nn.ModuleList(layers)
-
         self.rmsnorm = RMSNorm(self.d_model, eps=1e-5, **factory_kwargs)
+
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None):
         """
@@ -147,42 +145,27 @@ class Isotropic(nn.Module):
         """
         key_value_memory_dict = {}
         for i, layer in enumerate(self.layers):
-            key_value_memory_dict[i] = layer.allocate_inference_cache(
-                batch_size, max_seqlen, dtype=dtype
-            )
+            key_value_memory_dict[i] = layer.allocate_inference_cache(batch_size, max_seqlen, dtype=dtype)
+
         return IsotropicInferenceParams(
             key_value_memory_dict=key_value_memory_dict,
             max_seqlen=max_seqlen,
             max_batch_size=batch_size,
         )
 
-    def forward(
-        self,
-        hidden_states,
-        cu_seqlens=None,
-        max_seqlen=None,
-        mask=None,
-        inference_params=None,
-        **mixer_kwargs,
-    ):
-        assert (mask is not None) or (
-            cu_seqlens is not None and max_seqlen is not None
-        ), "Either mask or cu_seqlens and max_seqlen must be provided"
+    def forward(self, hidden_states, cu_seqlens=None, max_seqlen=None, mask=None, inference_params=None, **mixer_kwargs):
+        assert (mask is not None) or (cu_seqlens is not None and max_seqlen is not None), \
+            "Either mask or cu_seqlens and max_seqlen must be provided"
 
         attn_mixer_kwargs = copy.deepcopy(mixer_kwargs)
         ssm_mixer_kwargs = copy.deepcopy(mixer_kwargs)
+
         if mask is not None:
             packed = False
-            assert (
-                hidden_states.dim() == 3
-            ), "Hidden states must be (B, L, D) in unpacked mode"
+            hidden_states.dim() == 3, "Hidden states must be (B, L, D) in unpacked mode"
         else:
-            attn_mixer_kwargs.update(
-                {"cu_seqlens": cu_seqlens.int(), "max_seqlen": max_seqlen}
-            )
-            ssm_mixer_kwargs.update(
-                {"seq_idx": get_seq_idx(cu_seqlens, device=hidden_states.device)}
-            )
+            attn_mixer_kwargs.update({"cu_seqlens": cu_seqlens.int(), "max_seqlen": max_seqlen})
+            ssm_mixer_kwargs.update({"seq_idx": get_seq_idx(cu_seqlens, device=hidden_states.device)})
             packed = True
 
         residual = None
@@ -192,6 +175,7 @@ class Isotropic(nn.Module):
                 if hidden_states.dim() == 2:
                     hidden_states = hidden_states.unsqueeze(0)
                     residual = None if residual is None else residual.unsqueeze(0)
+
             elif arch in ("t", "T"):
                 layer_mixer_kwargs = attn_mixer_kwargs
                 if hidden_states.dim() == 3 and packed:
@@ -209,12 +193,8 @@ class Isotropic(nn.Module):
             )
 
         # Setting prenorm=False ignores the residual
-        hidden_states = self.rmsnorm(
-            hidden_states, residual=residual, prenorm=False, residual_in_fp32=True
-        )
-
-        if hidden_states.dim() == 3 and packed:
-            hidden_states = hidden_states.squeeze(0)
+        hidden_states = self.rmsnorm(hidden_states, residual=residual, prenorm=False, residual_in_fp32=True)
+        if hidden_states.dim() == 3 and packed: hidden_states = hidden_states.squeeze(0)
 
         if inference_params is not None:
             # here we also explicitly assume the mask is all True
@@ -223,19 +203,15 @@ class Isotropic(nn.Module):
 
         return hidden_states
 
+
     def step(self, hidden_states, inference_params):
-        """
-        Assumes hidden_states is (B, 1, D). Steps each of the layers in order, and then steps the main model.
+        """ Assumes hidden_states is (B, 1, D). Steps each of the layers in order, and then steps the main model.
         """
         residual = None
         for layer in self.layers:
-            hidden_states, residual = layer.step(
-                hidden_states, inference_params, residual=residual
-            )
+            hidden_states, residual = layer.step(hidden_states, inference_params, residual=residual)
 
-        hidden_states = self.rmsnorm(
-            hidden_states, residual=residual, prenorm=False, residual_in_fp32=True
-        )
+        hidden_states = self.rmsnorm(hidden_states, residual=residual, prenorm=False, residual_in_fp32=True)
         inference_params.seqlen_offset += 1
 
         return hidden_states
