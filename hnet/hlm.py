@@ -7,8 +7,8 @@ import torch.nn as nn
 from flash.utils.generation import GenerationMixin
 
 from .hnet import HNet, HNetState
-from .config_hnet import HNetConfig
-from .dynamic_chunking import RoutingModuleOutput
+from .config import HNetConfig
+from .dc import RoutingModuleOutput
 
 
 @dataclass

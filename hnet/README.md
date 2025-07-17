@@ -12,11 +12,11 @@
 </tr></table>
 
 ## Các khái niệm cốt lõi (từ bài báo)
-1.  **Học End-to-End trực tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định (như BPE). Thay vào đó, nó học trực tiếp từ các byte thô, cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
+1.  **Học End-to-End trực tiếp từ Byte:** H-Net loại bỏ hoàn toàn bước tiền xử lý token hóa với một bộ từ vựng cố định. Thay vào đó, nó học trực tiếp từ byte, và cho phép mô hình tự xây dựng các biểu diễn của riêng mình.
 
-2.  **Gộp chuỗi động (Dynamic Chunking - DC):** Đây là cơ chế trung tâm. Mô hình học cách phân đoạn một chuỗi thành các "đoạn" (chunk) có độ dài thay đổi dựa trên sự tương đồng về nội dung. Quá trình này phụ thuộc vào ngữ cảnh, linh hoạt hơn token cố định.
+2.  **Gộp chuỗi động (Dynamic Chunking - DC):** Đây là cơ chế trung tâm. Mô hình học cách phân đoạn một chuỗi thành các "đoạn" (chunk) có độ dài thay đổi dựa trên sự tương đồng về nội dung. Quá trình này phụ thuộc vào ngữ cảnh, nên linh hoạt hơn token cố định.
 
-3.  **Xử lý phân cấp:** Kiến trúc có nhiều tầng. Tầng thấp nhất xử lý các byte thô để tạo ra các chunk. Các tầng cao hơn xử lý các biểu diễn của những chunk này, cho phép mô hình học các cấu trúc phức tạp và các phụ thuộc xa.
+3.  **Xử lý phân cấp:** Kiến trúc có nhiều tầng. Tầng thấp nhất xử lý các byte để tạo ra các chunk. Các tầng cao hơn xử lý các biểu diễn của những chunk này, cho phép mô hình học các cấu trúc phức tạp và các phụ thuộc xa.
 
 4.  **Hiệu suất và Độ bền vững:** Bài báo cho thấy H-Net vượt trội hơn các mô hình Transformer dựa trên token có cùng quy mô. Bản chất xử lý ở cấp độ byte giúp nó bền vững trước các lỗi chính tả, từ hiếm và dữ liệu đa ngôn ngữ.
 
@@ -26,7 +26,7 @@ Bản chất phân cấp của H-Net được triển khai một cách thanh l�
 - Trong quá trình khởi tạo `main_network`, nếu tầng hiện tại không phải là tầng cuối cùng (`is_innermost` là False), `self.main_network` sẽ trở thành một thực thể khác của `HNet` với `stage_idx` được tăng lên.
 - Vòng đệ quy này dừng lại ở tầng trong cùng, nơi `main_network` là một mô hình `Isotropic` (một chuỗi các khối xử lý tuần tự). Thiết kế này phản ánh hoàn hảo cấu trúc phân cấp lý thuyết.
 
-2. Cơ chế Gộp chuỗi động (`dynamic_chunking.py`)
+2. Cơ chế Gộp chuỗi động (`dc.py`)
 Đây là phần hiện thực hóa ý tưởng cốt lõi của bài báo.
 - `RoutingModule`: Dự đoán ranh giới của chunk. Nó tính toán độ tương đồng cosine (cosine similarity) giữa các trạng thái ẩn của hai token liền kề (`t` và `t+1`). Độ tương đồng thấp (khoảng cách lớn) cho thấy một ranh giới tự nhiên, dẫn đến `boundary_prob` cao.
 - `ChunkLayer`: Một lớp đơn giản nhưng hiệu quả, sử dụng `boundary_mask` từ `RoutingModule` để lọc chuỗi, chỉ chuyển các trạng thái ẩn tại các vị trí ranh giới lên tầng phân cấp tiếp theo.
@@ -37,7 +37,7 @@ Việc quyết định một ranh giới chunk là một lựa chọn rời rạ
 - Class `STE` được định nghĩa để hoạt động như một hàm đồng nhất (identity function) trong quá trình lan truyền ngược (`backward(ctx, grad_output): return grad_output`).
 - Điều này _"đánh lừa"_ bộ tối ưu hóa bằng cách cho phép gradient đi qua điểm quyết định cứng như thể nó là một hàm liên tục, giúp `RoutingModule` có thể được huấn luyện end-to-end. Hàm `residual_func` đã áp dụng kỹ thuật này.
 
-4. Kiến trúc linh hoạt, lai (Hybrid) (`config_hnet.py`, `block.py`)
+4. Kiến trúc linh hoạt, lai (Hybrid) (`config.py`, `block.py`)
 Mô hình không bị trói buộc vào một loại khối xử lý duy nhất. `HNetConfig` cho phép định nghĩa một `arch_layout` để thiết kế các kiến trúc rất linh hoạt.
 
 - `M`: Viết tắt của khối **Mamba**.
@@ -86,8 +86,8 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 10. **Dự đoán**: Một hàm `softmax` được áp dụng lên `logits` để tạo ra phân phối xác suất, và byte có xác suất cao nhất được chọn làm dự đoán.
 
 ---
-## Phân tích sâu: Cơ chế Gộp chuỗi động (`hnet/dynamic_chunking.py`)
-File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành phần chính hoạt động như một dây chuyền:
+## Phân tích sâu: Cơ chế Gộp chuỗi động (`hnet/dc.py`)
+File `dc.py` là trái tim của H-Net. Nó bao gồm 3 thành phần chính hoạt động như một dây chuyền:
 
 1.  **`RoutingModule`**: **Người Ra Quyết Định** - Quyết định xem vị trí nào nên là ranh giới của một "chunk".
 2.  **`ChunkLayer`**: **Người Thực Thi** - Dựa trên quyết định, nó thực sự lọc và tạo ra chuỗi ngắn hơn.
@@ -323,7 +323,7 @@ Tóm lại, logarit giúp chúng ta **nhìn thấy và phân tích được toà
 
 Bạn có muốn xem một ví dụ minh họa bằng hình ảnh về sự khác biệt khi biểu diễn phổ bằng thang đo tuyến tính và thang đo logarit không?
 
-[ thuật ngữ 1: Decibel (dB): một đơn vị đo lường dựa trên thang đo logarit, thường được dùng để đo cường độ âm thanh hoặc công suất tín hiệu. ; thuật ngữ 2: dải động (dynamic range): tỉ lệ giữa giá trị lớn nhất và nhỏ nhất mà một hệ thống có thể xử lý hoặc đo lường. ]
+[ Decibel (dB): một đơn vị đo lường dựa trên thang đo logarit, thường được dùng để đo cường độ âm thanh hoặc công suất tín hiệu. ; dải động (dynamic range): tỉ lệ giữa giá trị lớn nhất và nhỏ nhất mà một hệ thống có thể xử lý hoặc đo lường. ]
 
 ---
 ## Thang đo Logarit và Cảm nhận của Con người
@@ -352,4 +352,4 @@ Trong cả hai trường hợp, sự thay đổi tuyệt đối là như nhau (+
 
 **Tóm lại:** Thang đo logarit không phải là một công cụ toán học trừu tượng, mà nó là sự phản ánh toán học của cách bộ não và các giác quan của chúng ta đã tiến hóa để xử lý một thế giới có dải kích thích cực kỳ rộng, từ những thứ rất nhỏ bé đến những thứ cực kỳ to lớn.
 
-[ thuật ngữ 1: Định luật Weber-Fechner: một định luật trong tâm vật lý học cho rằng mối quan hệ giữa cường độ vật lý của một kích thích và sự cảm nhận của con người về nó là theo hàm logarit. ]
+[ Định luật Weber-Fechner: một định luật trong tâm vật lý học cho rằng mối quan hệ giữa cường độ vật lý của một kích thích và sự cảm nhận của con người về nó là theo hàm logarit. ]
