@@ -5,7 +5,7 @@ import json, torch, numpy as np, os, sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..'))
 
-from config import AttnConfig, SSMConfig, HNetConfig
+from hnet import AttnConfig, SSMConfig, HNetConfig
 from hlm import HNetForCausalLM
 
 class ByteTokenizer:

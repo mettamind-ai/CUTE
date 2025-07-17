@@ -1,7 +1,6 @@
 import torch, torch.nn as nn
 
-from hnet import HNet, HNetState
-from config import HNetConfig
+from hnet import HNet, HNetConfig
 from dc import RoutingModuleOutput
 
 class HNetForCausalLM(nn.Module):

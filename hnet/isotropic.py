@@ -3,7 +3,6 @@ import torch, torch.nn as nn
 
 from typing import Optional
 from block import create_block
-from config import HNetConfig
 from flash.ops.layer_norm import RMSNorm
 from flash.modules.utils import get_seq_idx, get_stage_cfg
 from dataclasses import dataclass, field
@@ -36,7 +35,7 @@ class IsotropicInferenceParams:
 class Isotropic(nn.Module):
     def __init__(
         self,
-        config: HNetConfig,
+        config, # hnet.HNetConfig
         pos_idx: int,
         stage_idx: int,
         device=None,

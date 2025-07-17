@@ -1,10 +1,9 @@
-from dataclasses import dataclass
-from typing import Union, Optional
+from dataclasses import dataclass, field
+from typing import List, Union, Optional
 
 import torch, torch.nn as nn
 from dc import RoutingModule, ChunkLayer, DeChunkLayer, RoutingModuleState, DeChunkState
 from isotropic import Isotropic, IsotropicInferenceParams
-from config import HNetConfig
 
 class STE(torch.autograd.Function):
     '''Straight-Through Estimator
@@ -20,10 +19,41 @@ nó sẽ làm tròn thành 1.0.
 Nó sao chép gradient một cách trực tiếp đi qua, như thể bước đó chỉ là một hàm đồng nhất (identity function).
     '''
     @staticmethod
-    def forward(ctx, x): return torch.ones_like(x)
+    def forward(ctx, x):
+        return torch.ones_like(x)
+
     @staticmethod
-    def backward(ctx, grad_output): return grad_output
-def ste_func(x): return STE.apply(x)
+    def backward(ctx, grad_output):
+        return grad_output
+
+def ste_func(x):
+    return STE.apply(x)
+
+
+
+@dataclass
+class AttnConfig:
+    num_heads: List = field(default_factory=list)
+    rotary_emb_dim: List = field(default_factory=list)
+    window_size: List = field(default_factory=list)
+
+@dataclass
+class SSMConfig:
+    d_conv: int = 4
+    expand: int = 2
+    d_state: int = 128
+    chunk_size: int = 256
+
+@dataclass
+class HNetConfig:
+    arch_layout: List[Union[str, List]] = field(default_factory=list)
+    d_model: List[int] = field(default_factory=list)
+    # intermediate dimension for the FFNs (0 indicates no FFN)
+    d_intermediate: List[int] = field(default_factory=list)
+    vocab_size: int = 256
+    ssm_cfg: SSMConfig = field(default_factory=SSMConfig)
+    attn_cfg: AttnConfig = field(default_factory=AttnConfig)
+    tie_embeddings: bool = False
 
 @dataclass
 class HNetState:
