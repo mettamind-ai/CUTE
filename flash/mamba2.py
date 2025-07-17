@@ -1,29 +1,18 @@
 # Copyright (c) 2024, Tri Dao, Albert Gu.
 
-import math
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
+import math, torch, torch.nn as nn, torch.nn.functional as F
 from einops import rearrange, repeat
 
 from .causal_conv1d import causal_conv1d_fn, causal_conv1d_update
 from .causal_conv1d.causal_conv1d_varlen import causal_conv1d_varlen_states
 from .mamba.selective_state_update import selective_state_update
-
 from .ops.layernorm_gated import RMSNorm as RMSNormGated
-
-# from mamba_ssm.distributed.tensor_parallel import ColumnParallelLinear, RowParallelLinear
-# from mamba_ssm.distributed.distributed_utils import all_reduce, reduce_scatter
 
 from .mamba.ssd_combined import mamba_chunk_scan_combined
 from .mamba.ssd_combined import mamba_split_conv1d_scan_combined
 
-from huggingface_hub import PyTorchModelHubMixin
-
-
-class Mamba2(nn.Module, PyTorchModelHubMixin):
+# from huggingface_hub import PyTorchModelHubMixin  ## "trộn" thêm các phương thức (method) tiện ích vào model để có thể
+class Mamba2(nn.Module):#, PyTorchModelHubMixin):   ## lưu, tải, và đẩy model lên Hub chỉ bằng một vài dòng lệnh
     def __init__(
         self,
         d_model,
@@ -48,7 +37,6 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
         chunk_size=256,
         use_mem_eff_path=True,
         layer_idx=None,  # Absorb kwarg for general module
-        process_group=None,
         sequence_parallel=True,
         device=None,
         dtype=None,
@@ -60,10 +48,9 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
         self.d_conv = d_conv
         self.conv_init = conv_init
         self.expand = expand
-        self.process_group = process_group
         self.sequence_parallel = sequence_parallel
-        self.world_size = 1 if process_group is None else process_group.size()
-        self.local_rank = 0 if process_group is None else process_group.rank()
+        self.world_size = 1
+        self.local_rank = 0
         self.d_inner = (self.expand * self.d_model) // self.world_size
         assert self.d_inner * self.world_size == self.expand * self.d_model
         self.headdim = headdim
@@ -83,12 +70,7 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
 
         # Order: [z, x, B, C, dt]
         d_in_proj = 2 * self.d_inner + 2 * self.ngroups * self.d_state + self.nheads
-        if self.process_group is None:
-            self.in_proj = nn.Linear(self.d_model, d_in_proj, bias=bias, **factory_kwargs)
-        else:
-            self.in_proj = ColumnParallelLinear(self.d_model, d_in_proj * self.world_size, bias=bias,
-                                                process_group=self.process_group, sequence_parallel=self.sequence_parallel,
-                                                **factory_kwargs)
+        self.in_proj = nn.Linear(self.d_model, d_in_proj, bias=bias, **factory_kwargs)
 
         conv_dim = self.d_ssm + 2 * self.ngroups * self.d_state
         self.conv1d = nn.Conv1d(
@@ -133,12 +115,8 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
             self.norm = RMSNormGated(self.d_ssm, eps=1e-5, norm_before_gate=self.norm_before_gate,
                                      group_size=self.d_ssm // ngroups, **factory_kwargs)
 
-        if self.process_group is None:
-            self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
-        else:
-            self.out_proj = RowParallelLinear(self.d_inner * self.world_size, self.d_model, bias=bias,
-                                              process_group=self.process_group, sequence_parallel=self.sequence_parallel,
-                                              **factory_kwargs)
+        self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
+
 
     def forward(self, u, seqlen=None, seq_idx=None, cu_seqlens=None, inference_params=None):
         """
@@ -191,9 +169,6 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
             )
             if seqlen_og is not None:
                 out = rearrange(out, "b l d -> (b l) d")
-            if self.process_group is not None:
-                reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
-                out = reduce_fn(out, self.process_group)
         else:
             d_mlp = (zxbcdt.shape[-1] - 2 * self.d_ssm - 2 * self.ngroups * self.d_state - self.nheads) // 2
             z0, x0, z, xBC, dt = torch.split(
