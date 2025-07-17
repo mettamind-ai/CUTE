@@ -9,7 +9,7 @@ from flash.ops.layer_norm import RMSNorm
 from flash.mamba2 import Mamba2
 from flash.modules.mha import CausalMHA
 from flash.modules.mlp import SwiGLU
-from flash.modules.utils import get_seq_idx, get_stage_cfg
+from utils import get_seq_idx, get_stage_cfg, HNetConfig
 
 class Mamba2Wrapper(Mamba2):
     ''' Mamba2 wrapper class that has the same inference interface as the CausalMHA class. '''
@@ -70,8 +70,7 @@ def create_block(arch, d_model, d_intermediate=None, ssm_cfg=dict(), attn_cfg=di
 
 @dataclass
 class IsotropicInferenceParams:
-    """Inference parameters that are passed to the main model in order
-    to efficienly calculate and store the context during inference."""s
+    ''' Inference parameters that are passed to the main model to calculate and store the context during inference. '''
     max_seqlen: int
     max_batch_size: int
     seqlen_offset: int = 0
@@ -80,34 +79,28 @@ class IsotropicInferenceParams:
     lengths_per_sample: Optional[torch.Tensor] = None
 
     def reset(self, max_seqlen, max_batch_size):
-        self.max_seqlen = max_seqlen
+        self.max_seqlen     = max_seqlen
         self.max_batch_size = max_batch_size
-        self.seqlen_offset = 0
+        self.seqlen_offset  = 0
+
         if self.lengths_per_sample is not None:
            self.lengths_per_sample.zero_()
 
-        optree.tree_map(
+        optree.tree_map(  # áp dụng lambda func lên lá của cây key_value_memory_dict
             lambda x: x.zero_() if isinstance(x, torch.Tensor) else x,
             self.key_value_memory_dict,
         )
 
 
 class Isotropic(nn.Module):
-    def __init__(
-        self,
-        config, # hnet.HNetConfig
-        pos_idx: int,
-        stage_idx: int,
-        device=None,
-        dtype=None,
-    ):
+    def __init__(self, config: HNetConfig, pos_idx: int, stage_idx: int, device=None, dtype=None):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
 
         self.stage_idx = stage_idx
-        self.d_model = config.d_model[self.stage_idx]
-        self.ssm_cfg = get_stage_cfg(config.ssm_cfg, stage_idx)
-        self.attn_cfg = get_stage_cfg(config.attn_cfg, stage_idx)
+        self.d_model   = config.d_model[self.stage_idx]
+        self.ssm_cfg   = get_stage_cfg(config.ssm_cfg, stage_idx)
+        self.attn_cfg  = get_stage_cfg(config.attn_cfg, stage_idx)
 
         arch_layout = config.arch_layout
         for _ in range(stage_idx):
@@ -118,6 +111,7 @@ class Isotropic(nn.Module):
         layers = []
         layer_idx = 0
         self.arch_full = []
+
         for arch, n_layer in layout_parse:
             assert arch in ("m", "M", "t", "T")
             assert n_layer.isdigit()
