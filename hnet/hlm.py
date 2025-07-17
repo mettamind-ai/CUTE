@@ -5,10 +5,9 @@ import torch
 import torch.nn as nn
 
 from flash.utils.generation import GenerationMixin
-
-from .hnet import HNet, HNetState
-from .config import HNetConfig
-from .dc import RoutingModuleOutput
+from hnet import HNet, HNetState
+from config import HNetConfig
+from dc import RoutingModuleOutput
 
 
 @dataclass

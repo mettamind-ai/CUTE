@@ -2,8 +2,8 @@ import re, copy, optree
 import torch, torch.nn as nn
 
 from typing import Optional
-from .block import create_block
-from .config import HNetConfig
+from block import create_block
+from config import HNetConfig
 from flash.ops.layer_norm import RMSNorm
 from flash.modules.utils import get_seq_idx, get_stage_cfg
 from dataclasses import dataclass, field

@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from typing import Union, Optional
 
 import torch, torch.nn as nn
-from .dc import RoutingModule, ChunkLayer, DeChunkLayer, RoutingModuleState, DeChunkState
-from .isotropic import Isotropic, IsotropicInferenceParams
-from .config import HNetConfig
+from dc import RoutingModule, ChunkLayer, DeChunkLayer, RoutingModuleState, DeChunkState
+from isotropic import Isotropic, IsotropicInferenceParams
+from config import HNetConfig
 
 class STE(torch.autograd.Function):
     '''Straight-Through Estimator
