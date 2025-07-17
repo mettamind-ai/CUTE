@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import torch, torch.nn as nn
 
-from flash.utils.generation import GenerationMixin
 from hnet import HNet, HNetState
 from config import HNetConfig
 from dc import RoutingModuleOutput
@@ -15,7 +14,7 @@ class CausalLMOutput:
     inference_params: HNetState
 # CausalLMOutput = namedtuple("CausalLMOutput", ["logits", "bpred_output", "inference_params"])
 
-class HNetForCausalLM(nn.Module, GenerationMixin):
+class HNetForCausalLM(nn.Module):
     def __init__(self, config: HNetConfig, device=None, dtype=None,) -> None:
         self.config = config
         super().__init__()
