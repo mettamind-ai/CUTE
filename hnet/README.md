@@ -32,7 +32,7 @@ Bản chất phân cấp của H-Net được triển khai một cách thanh l�
 - `ChunkLayer`: Một lớp đơn giản nhưng hiệu quả, sử dụng `boundary_mask` từ `RoutingModule` để lọc chuỗi, chỉ chuyển các trạng thái ẩn tại các vị trí ranh giới lên tầng phân cấp tiếp theo.
 - `DeChunkLayer`: Phần phức tạp nhất, thực hiện việc "trải phẳng" chuỗi đã xử lý. Nó sử dụng một phép quét giống như EMA (Trung bình động hàm mũ) để lan truyền thông tin từ các biểu diễn của chunk trở lại chuỗi có độ dài ban đầu. **Một điểm thú vị là nó tái sử dụng một cách thông minh kernel `mamba_chunk_scan_combined` để thực hiện thao tác này một cách hiệu quả.**
 
-3. Huấn luy���n một quyết định "Cứng" (`hnet.py`)
+3. Huấn luyện một quyết định "Cứng" (`hnet.py`)
 Việc quyết định một ranh giới chunk là một lựa chọn rời rạc, không khả vi. Vấn đề này được giải quyết bằng **Bộ ước tính truyền thẳng (Straight-Through Estimator - STE)**.
 - Class `STE` được định nghĩa để hoạt động như một hàm đồng nhất (identity function) trong quá trình lan truyền ngược (`backward(ctx, grad_output): return grad_output`).
 - Điều này _"đánh lừa"_ bộ tối ưu hóa bằng cách cho phép gradient đi qua điểm quyết định cứng như thể nó là một hàm liên tục, giúp `RoutingModule` có thể được huấn luyện end-to-end. Hàm `residual_func` đã áp dụng kỹ thuật này.
@@ -76,7 +76,7 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 5.  `h_chunked` được đưa vào tầng trong cùng (`M12`) để xử lý. Kết quả là `z`, một vector chứa thông tin ngữ cảnh ở mức độ rất cao và trừu tượng.
 
 ### Hành trình đi ngược ra (De-chunking & Decoding)
-`z` không trực tiếp dự đoán byte. Nó bắt đầu một hành trình đi ngược ra để làm giàu thông tin cho các t��ng bên ngoài.
+`z` không trực tiếp dự đoán byte. Nó bắt đầu một hành trình đi ngược ra để làm giàu thông tin cho các tầng bên ngoài.
 6.  **DeChunkLayer (Dùng EMA)**: Lớp này nhận `z` và `boundary_mask`. Nó dùng cơ chế EMA để "trải" thông tin trừu tượng trong `z` ra lại thành một chuỗi có độ dài đầy đủ, gọi là `h_dechunked`.
 7.  **Kết nối phần còn lại (Residual Connection)**: Đây là bước cực kỳ quan trọng. Mô hình kết hợp `h_dechunked` (thông tin trừu tượng, mượt mà) với `h_encoded` (thông tin chi tiết, nguyên bản được giữ lại từ trước). Việc này cho phép mô hình có được cả hai:
   - cái nhìn tổng quan từ tầng sâu VÀ
@@ -86,7 +86,7 @@ Thiết kế này cho phép kết hợp sức mạnh của cả hai loại khố
 10. **Dự đoán**: Một hàm `softmax` được áp dụng lên `logits` để tạo ra phân phối xác suất, và byte có xác suất cao nhất được chọn làm dự đoán.
 
 ---
-## Phân tích sâu: Cơ ch�� Gộp chuỗi động (`hnet/dynamic_chunking.py`)
+## Phân tích sâu: Cơ chế Gộp chuỗi động (`hnet/dynamic_chunking.py`)
 File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành phần chính hoạt động như một dây chuyền:
 
 1.  **`RoutingModule`**: **Người Ra Quyết Định** - Quyết định xem vị trí nào nên là ranh giới của một "chunk".
@@ -126,7 +126,7 @@ File `dynamic_chunking.py` là trái tim của H-Net. Nó bao gồm 3 thành ph�
 ---
 ## Phân tích sâu: `DeChunkLayer` và vai trò của EMA
 
-`DeChunkLayer` là một trong những thành phần thông minh và quan trọng nhất c��a H-Net. Nó giải quyết một bài toán khó: Làm thế nào để "trải" hoặc "lan tỏa" thông tin từ một vài vector biểu diễn chunk (đã được xử lý ở tầng sâu) ra tất cả các byte con mà nó đại diện một cách mượt mà?
+`DeChunkLayer` là một trong những thành phần thông minh và quan trọng nhất của H-Net. Nó giải quyết một bài toán khó: Làm thế nào để "trải" hoặc "lan tỏa" thông tin từ một vài vector biểu diễn chunk (đã được xử lý ở tầng sâu) ra tất cả các byte con mà nó đại diện một cách mượt mà?
 
 ### Vấn đề cần giải quyết
 - **Đầu vào:** Một chuỗi ngắn gồm các vector `z` của chunk (ví dụ: 3 vector cho 3 chunk `[Học]`, `[chuỗi]`, `[phân cấp]`).
@@ -137,7 +137,7 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 ### Giải pháp thanh lịch với EMA (Trung bình động hàm mũ)
 `DeChunkLayer` sử dụng một cơ chế tương tự EMA để giải quyết vấn đề này một cách hoàn hảo. Hãy tưởng tượng EMA như một cách "làm mịn" hoặc "lan tỏa" giá trị theo thời gian.
 
-1.  **Khi gặp một ranh giới chunk (ví dụ, byte 'c' trong "chu���i"):**
+1.  **Khi gặp một ranh giới chunk (ví dụ, byte 'c' trong "chuỗi"):**
     - Xác suất ranh giới `boundary_prob` (đóng vai trò là cổng `alpha` trong EMA) sẽ cao.
     - Công thức cập nhật sẽ ưu tiên mạnh mẽ cho giá trị mới (vector `z` của chunk `[chuỗi]`). Vector của byte 'c' sẽ gần như là vector của chunk này.
 
@@ -147,7 +147,7 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 
 **Kết quả của việc dùng EMA:**
 - **Chuyển tiếp mượt mà:** Thay vì một "vách đá", thông tin từ một chunk sẽ "phai" hoặc "lan tỏa" dần qua các byte bên trong nó.
-- **Tạo nhận thức về vị trí:** Do hiệu ứng "phai" dần này, vector của byte ở đầu chunk sẽ hơi khác một chút so với vector của byte ở cuối chunk. Điều này giúp mô h��nh giữ lại được thông tin vị trí tương đối bên trong chunk.
+- **Tạo nhận thức về vị trí:** Do hiệu ứng "phai" dần này, vector của byte ở đầu chunk sẽ hơi khác một chút so với vector của byte ở cuối chunk. Điều này giúp mô hình giữ lại được thông tin vị trí tương đối bên trong chunk.
 
 ---
 # Đánh giá Tổng quan: Sức mạnh và Tiềm năng của H-Net
@@ -158,7 +158,7 @@ Một cách tiếp cận đơn giản là sao chép vector của chunk cho tất
 
 1.  **Giải quyết "Tội lỗi Nguyên thủy" của Tokenization:**
     *   Hầu hết các mô hình ngôn ngữ hiện đại (như GPT, Llama) đều bị phụ thuộc vào một bước tiền xử lý gọi là "tokenization" - chia câu thành các mảnh nhỏ dựa trên một bộ từ điển cố định. Điều này giống như việc bắt một đứa trẻ chỉ được đọc những từ có trong từ điển, nếu gặp từ mới, nó sẽ bối rối và phải bẻ từ đó ra thành các mảnh vô nghĩa.
-    *   **Sức mạnh của H-Net:** Nó vứt bỏ bộ từ điển cố định đó. Thay vào đó, nó **tự học** cách nhóm các ký tự lại thành các đơn vị có ý nghĩa (từ, cụm từ) m���t cách linh động, tùy thuộc vào ngữ cảnh. Điều này giúp nó xử lý ngôn ngữ phức tạp, từ lóng, thuật ngữ chuyên ngành, và thậm chí cả các loại dữ liệu không phải văn bản (như DNA, code) một cách tự nhiên và hiệu quả hơn nhiều.
+    *   **Sức mạnh của H-Net:** Nó vứt bỏ bộ từ điển cố định đó. Thay vào đó, nó **tự học** cách nhóm các ký tự lại thành các đơn vị có ý nghĩa (từ, cụm từ) một cách linh động, tùy thuộc vào ngữ cảnh. Điều này giúp nó xử lý ngôn ngữ phức tạp, từ lóng, thuật ngữ chuyên ngành, và thậm chí cả các loại dữ liệu không phải văn bản (như DNA, code) một cách tự nhiên và hiệu quả hơn nhiều.
 
 2.  **Hiệu quả tính toán vượt trội:**
     *   Các mô hình Transformer truyền thống có chi phí tính toán tăng theo cấp số nhân với độ dài chuỗi (`O(N^2)`), khiến chúng rất khó xử lý văn bản dài.
@@ -301,3 +301,55 @@ Có lẽ, phép ẩn dụ mạnh mẽ và phù hợp nhất đến từ chính t
 * Đây chính là 'tăng tính tổ hợp' trong thế giới sinh học. Các mô hình như H-Net đang cố gắng mô phỏng nguyên tắc này: thay vì chỉ xây một 'bộ não' lớn hơn (nhiều tham số hơn), chúng ta dạy nó cách 'tạo ra nếp nhăn' (sử dụng các tham số hiện có một cách linh hoạt, có điều kiện, và tạo ra các cấp độ trừu tượng mới).
 
 Tương lai của AI không chỉ nằm ở quy mô, mà còn nằm ở sự phức tạp, chiều sâu, và tính hiệu quả trong cách sử dụng tài nguyên. Đây chính là bước chuyển từ việc chỉ xây dựng các mô hình lớn hơn sang việc xây dựng các mô hình thông minh hơn.
+
+---
+## Phổ (spectrum) và logarit có mối liên quan rất mật thiết, đặc biệt là trong cách chúng ta **đo lường và biểu diễn** một cái phổ.
+
+Lý do chính là vì các giá trị trong một phổ thường chênh lệch nhau rất nhiều.
+
+Hãy xem một ví dụ về phổ âm thanh nhé:
+1.  **Biên độ (Amplitude) rất rộng:** Trong một bản nhạc, có thể có những âm thanh rất nhỏ (như tiếng thì thầm) và những âm thanh rất lớn (như tiếng trống). Sự chênh lệch về năng lượng giữa hai âm thanh này có thể là một triệu lần hoặc hơn.
+2.  **Vấn đề với thang đo tuyến tính (Linear Scale):** Nếu bạn vẽ biểu đồ phổ âm thanh trên một thang đo thông thường (tuyến tính), thì những âm thanh nhỏ sẽ có cột giá trị gần như bằng 0 và không thể nhìn thấy được so với các âm thanh lớn.
+
+> Đây là lúc thang đo logarit phát huy tác dụng:
+> 
+> Nó "nén" các giá trị lớn lại và "mở rộng" các giá trị nhỏ ra. Điều này cho phép chúng ta `thấy rõ ràng cả những tín hiệu rất mạnh và rất yếu trên cùng một biểu đồ`.
+
+**Ví dụ cụ thể nhất chính là đơn vị Decibel (dB), đây là một đơn vị logarit.**
+
+Khi các kỹ sư âm thanh nói về phổ âm thanh, họ thường biểu diễn trục tung (biên độ hoặc công suất) bằng đơn vị dB. Tương tự, trong phân tích sóng vô tuyến hoặc Wi-Fi, người ta cũng dùng thang đo logarit (như dBm) để xem phổ tín hiệu.
+
+Tóm lại, logarit giúp chúng ta **nhìn thấy và phân tích được toàn bộ dải động (dynamic range)** của một phổ một cách hiệu quả.
+
+Bạn có muốn xem một ví dụ minh họa bằng hình ảnh về sự khác biệt khi biểu diễn phổ bằng thang đo tuyến tính và thang đo logarit không?
+
+[ thuật ngữ 1: Decibel (dB): một đơn vị đo lường dựa trên thang đo logarit, thường được dùng để đo cường độ âm thanh hoặc công suất tín hiệu. ; thuật ngữ 2: dải động (dynamic range): tỉ lệ giữa giá trị lớn nhất và nhỏ nhất mà một hệ thống có thể xử lý hoặc đo lường. ]
+
+---
+## Thang đo Logarit và Cảm nhận của Con người
+
+Mối liên hệ giữa thang đo logarit và sự cảm nhận của con người không phải là ngẫu nhiên, mà nó phản ánh một nguyên tắc cơ bản về cách hệ thống sinh học của chúng ta xử lý thông tin từ thế giới bên ngoài. Nguyên tắc đó được gọi là **Định luật Weber-Fechner**.
+
+Nói một cách đơn giản: **Cảm nhận của chúng ta không phản ứng với sự thay đổi *tuyệt đối*, mà phản ứng với sự thay đổi *tương đối* (theo tỷ lệ).**
+
+Hãy tưởng tượng một phép ẩn dụ đơn giản:
+1.  Bạn đang ở trong một căn phòng tối đen. Một người thắp lên **1 que diêm**. Bạn sẽ ngay lập tức thấy sự thay đổi ánh sáng một cách rõ rệt.
+2.  Bây giờ, hãy tưởng tượng bạn đang ở trong một căn phòng đã được thắp sáng bởi **100 que diêm**. Một người thắp thêm **1 que diêm nữa**. Bạn gần như sẽ không nhận thấy sự khác biệt nào cả.
+
+Trong cả hai trường hợp, sự thay đổi tuyệt đối là như nhau (+1 que diêm). Nhưng sự cảm nhận của bạn thì hoàn toàn khác. Tại sao?
+*   Ở trường hợp 1, ánh sáng đã tăng lên **gấp đôi** (tỷ lệ 100%).
+*   Ở trường hợp 2, ánh sáng chỉ tăng lên **1%**.
+
+Đây chính là lý do thang đo logarit mô tả cảm nhận của con người một cách hoàn hảo. Nó đo lường sự thay đổi theo **bội số** hoặc **tỷ lệ**, chứ không phải theo giá trị cộng thêm.
+
+### Các ví dụ thực tế trong cảm nhận của con người:
+
+1.  **Thính giác (Âm thanh):** Đây là ví dụ kinh điển nhất. Để chúng ta cảm thấy một âm thanh **to gấp đôi**, năng lượng của âm thanh đó phải **tăng gấp 10 lần**. Đây chính là nền tảng của đơn vị **Decibel (dB)**. Nếu dùng thang đo tuyến tính, chúng ta sẽ không thể nào biểu diễn được sự khác biệt khổng lồ giữa tiếng lá rơi và tiếng máy bay phản lực trên cùng một biểu đồ.
+
+2.  **Thị giác (Ánh sáng):** Cảm nhận của mắt về độ sáng cũng tuân theo quy luật logarit. Thang đo cấp sao (magnitude) trong thiên văn học là một thang đo logarit. Một ngôi sao có cấp sao 1 sáng hơn khoảng 2.512 lần so với một ngôi sao có cấp sao 2.
+
+3.  **Âm nhạc (Cao độ):** Cảm nhận của chúng ta về các nốt nhạc cũng là logarit. Khi bạn nghe một nốt Đô và một nốt Đô ở quãng tám cao hơn, tai bạn cảm nhận đó là một "khoảng cách" tự nhiên. Về mặt vật lý, tần số của nốt Đô cao đã **tăng gấp đôi**. Mỗi quãng tám là một lần nhân đôi tần số.
+
+**Tóm lại:** Thang đo logarit không phải là một công cụ toán học trừu tượng, mà nó là sự phản ánh toán học của cách bộ não và các giác quan của chúng ta đã tiến hóa để xử lý một thế giới có dải kích thích cực kỳ rộng, từ những thứ rất nhỏ bé đến những thứ cực kỳ to lớn.
+
+[ thuật ngữ 1: Định luật Weber-Fechner: một định luật trong tâm vật lý học cho rằng mối quan hệ giữa cường độ vật lý của một kích thích và sự cảm nhận của con người về nó là theo hàm logarit. ]
