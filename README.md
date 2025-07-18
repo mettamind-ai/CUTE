@@ -18,8 +18,8 @@
 
 - [x] `Muon          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
 - [x] `int8          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
-- [x] `Dense Arch    1.5x` (lược bỏ k_proj, v_proj, o_proj trong attention; tối giản MLP với Relu^2; MTP)
-- [x] `OhMai         1.2x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
+- [x] `Dense Arch    1.5x` (giản lược k_proj, v_proj, và bỏ o_proj trong attention; tối giản MLP với Relu^2)
+- [x] `OhMai         1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [ ] `MoA           1.5x` (Mixture of Anything (Depth/Expert), quy chiếu MoA về Sparse)
 - [ ] `Flexible Attn 1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
@@ -33,7 +33,7 @@
 - int8 hữu dụng trong cả speedup và giảm vram
 - int8 cần kết hợp stochastic rounding (rd) để đường loss bám sát bf16
 - `muon + torch.optim.AdamW(fused=True) + int8rd` chạy rất tốt
-- `value embeddings` + `future prediction` are all good!
+- `per-layer value embeddings` + `future prediction` are all good!
 
 ## DATA
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
