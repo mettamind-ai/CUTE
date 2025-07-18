@@ -276,3 +276,6 @@ Huấn luyện model lớn:
   - Mamba2 comparable performance at `2K` sequence length and becomes up to 6 times faster at 16K sequence length
   - [ ] Hymba https://huggingface.co/nvidia/Hymba-1.5B-Instruct | https://youtu.be/a31C8ahIDhk
     - https://github.com/NVlabs/hymba/tree/main/barebones_hymba
+
+- ~~`LVOT          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)~~
+- ~~`N-gram Embedding  ` Tăng perf, giảm sự bất thường trong không gian embeddings~~

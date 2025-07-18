@@ -1,8 +1,9 @@
 ## `LiWin` `Li`near Attention + `Win`dow Attention
 - https://github.com/m-a-n-i-f-e-s-t/power-attention
+- Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
 
 __Kết hợp best SWA (local) với Linear Attention (global)__
-![](/.save/liwin-00-crunch.png)
+![](liwin-00-crunch.png)
 - Hymba: 
     - https://www.youtube.com/watch?v=a31C8ahIDhk
     - https://asap-seminar.github.io/assets/slides/ASAP%20Talk_%20Hymba-Small%20Hybrid%20Language%20Model.pdf

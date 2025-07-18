@@ -23,10 +23,8 @@
 - [ ] `MoA           1.5x` (Mixture of Anything (Depth/Expert), quy chiếu MoA về Sparse)
 - [ ] `Flexible Attn 1.5x` (vọc flash-attn để hỗ trợ flexible mask và sparse attn)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
-- ~~`LVOT          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)~~
-- ~~`N-gram Embedding  ` Tăng perf, giảm sự bất thường trong không gian embeddings~~
 
-🌸__!!! TARGET x10 SPEEPUP !!!__🌸
+🌸 !!! TARGET x10 SPEEPUP !!! 🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
 - Muon is good! vram = 1/4 + loss giảm sâu hơn adam
@@ -77,6 +75,8 @@
 
 - [ ] MoA: Mixture Of Anthing (Expert, Depth ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
+  - [ ] Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
+
 - [ ] Quy chiếu MoA / Sparse Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
   - Sparsing law https://www.alphaxiv.org/abs/2411.02335 => ReLU tuân theo quy luật logspace power-law giảm dần
