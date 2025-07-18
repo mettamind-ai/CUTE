@@ -76,6 +76,7 @@
 - [ ] MoA: Mixture Of Anthing (Expert, Depth ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
   - [ ] Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
+    - https://ar5iv.labs.arxiv.org/html/2412.06464v3
 
 - [ ] Quy chiếu MoA / Sparse Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
   - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
