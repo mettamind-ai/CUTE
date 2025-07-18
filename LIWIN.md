@@ -1,4 +1,6 @@
 ## `LiWin` `Li`near Attention + `Win`dow Attention
+- https://github.com/m-a-n-i-f-e-s-t/power-attention
+
 __Kết hợp best SWA (local) với Linear Attention (global)__
 ![](/.save/liwin-00-crunch.png)
 - Hymba: 
