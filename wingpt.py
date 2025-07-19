@@ -159,10 +159,9 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
     target[0] = ignore
     w = model.unembeds.active_weight
 
-    ## Tính loss cho NTP (x) và MTP (y) và cộng lại ưu tiên nhiệm vụ chính NTP
-    xloss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.8 / cu_steps)  # NTP: Next token prediction
-    yloss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.2 / cu_steps)  # MTP: Next of next token prediction
-    return xloss + yloss
+    mtp_loss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.2 / cu_steps)  # MTP: Next of next token prediction
+    ntp_loss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.8 / cu_steps)  # NTP: Next token prediction
+    return mtp_loss + ntp_loss
 
 
 def get_cu_max_seqlens_from(input_seq, eot):
