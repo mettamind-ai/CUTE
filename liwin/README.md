@@ -1,6 +1,7 @@
 ## `LiWin` `Li`near Attention + `Win`dow Attention
 - https://github.com/m-a-n-i-f-e-s-t/power-attention
 - Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
+- deltaformer https://ar5iv.labs.arxiv.org/html/2505.19488v1
 
 __Kết hợp best SWA (local) với Linear Attention (global)__
 ![](liwin-00-crunch.png)
