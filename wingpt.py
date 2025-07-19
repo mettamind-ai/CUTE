@@ -155,12 +155,10 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
 
     xn, y = checkpoint(prepare, use_reentrant=False)
     yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, input_seq, model.rotary))
-
     target[0] = ignore
-    w = model.unembeds.active_weight
 
-    mtp_loss = FusedCE.apply(yn, w, target, n_ignore, ignore, 0.2 / cu_steps)  # MTP: Next of next token prediction
-    ntp_loss = FusedCE.apply(xn, w, target, n_ignore, ignore, 0.8 / cu_steps)  # NTP: Next token prediction
+    mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2 / cu_steps)
+    ntp_loss = FusedCE.apply(xn, model.unembeds.active_weight, target, n_ignore, ignore, 0.8 / cu_steps)
     return mtp_loss + ntp_loss
 
 
