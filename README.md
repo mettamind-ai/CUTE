@@ -73,13 +73,11 @@
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
-- [ ] MoA: Mixture Of Anthing (Expert, Depth ...)
+- [ ] MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
   - [ ] Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
-    - https://ar5iv.labs.arxiv.org/html/2412.06464v3
 
-- [ ] Quy chiếu MoA / Sparse Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
-  - Attn https://github.com/mit-han-lab/Block-Sparse-Attention
+- [ ] Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Block Sparse Matrix & Matmul pattern)
   - Sparsing law https://www.alphaxiv.org/abs/2411.02335 => ReLU tuân theo quy luật logspace power-law giảm dần
     => càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
     => Mô hình 2.4B với ReLU đạt sparsity ratio 93.52% và tăng tốc 4.1× so với phiên bản dense.
