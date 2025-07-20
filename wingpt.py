@@ -105,6 +105,7 @@ class Block(nn.Module):
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
+            q, k, v = norm(q), norm(k), norm(v)
             if not self.long: q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
