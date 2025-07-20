@@ -111,10 +111,11 @@ class Block(nn.Module):
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
             act = F.relu(y).square() # F.sigmoid(y)*y
-            return x + att, act
+            ffn = self.down_proj(act)
+            out = x + att + ffn
+            return norm(out)
 
-        x_plus_attn, act = checkpoint(prepare, use_reentrant=False)
-        return x_plus_attn + self.down_proj(act)
+        return checkpoint(prepare, use_reentrant=False)
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
@@ -134,9 +135,7 @@ class WinGPT(nn.Module):
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         xn = x0 = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        for blk in self.blocks: 
-            x  = blk(xn, cu_seqlens, max_seqlen, input_seq, self.rotary)
-            xn = norm(x)
+        for blk in self.blocks: xn = blk(xn, cu_seqlens, max_seqlen, input_seq, self.rotary)
         return xn, x0
 
 
@@ -153,9 +152,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
 
     y0 = checkpoint(prepare, use_reentrant=False)
     y1 = model.mtp_proj(y0)
-    y2 = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
-
-    yn = norm(y2)
+    yn = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
     target[0] = ignore
 
     mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2 / cu_steps)

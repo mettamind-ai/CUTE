@@ -63,6 +63,7 @@
   - [ ] DeltaFormer, áp dụng delta rule vào value của softmax attn
 
 - Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Block Sparse Matrix / Sparse Matmul / MegaBlocks)
+  - https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training
   - Sparsing law https://www.alphaxiv.org/abs/2411.02335
     => ReLU tuân theo quy luật logspace power-law giảm dần
     => Càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
