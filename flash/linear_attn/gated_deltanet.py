@@ -1,3 +1,4 @@
+# https://github.com/microsoft/ArchScale/blob/main/lit_gpt/gated_deltanet.py
 # -*- coding: utf-8 -*-
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
