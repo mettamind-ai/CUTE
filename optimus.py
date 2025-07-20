@@ -399,6 +399,7 @@ class Int8MixedLWeight(Tensor):
 
 
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+from torchao.sparsity.sparse_api import sparsify_, SemiSparseWeightConfig
 from torchao.dtypes import SemiSparseLayout
 ###
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
@@ -410,7 +411,8 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembe
             if "down_proj" in n:
                 sparse_names.append(n)
                 sparse_params += m.weight.numel()
-                quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+                sparsify_(m, SemiSparseWeightConfig())
+                # quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
             else:
                 int8_names.append(n)
                 int8_params += m.weight.numel()
