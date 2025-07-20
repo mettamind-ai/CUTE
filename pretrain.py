@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=26, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1024, n_layers=24, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):

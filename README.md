@@ -68,6 +68,6 @@
     => ReLU tuân theo quy luật logspace power-law giảm dần
     => Càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
     => Mô hình 2.4B với ReLU đạt sparsity ratio 93.52% và tăng tốc 4.1× so với phiên bản dense.
+  - [x] 1.3x ReLU https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
   - [ ] Spark Transformers (sparse both mlp & attn) https://www.alphaxiv.org/abs/2506.06644
-  - [ ] 1.3x ReLU https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
   - [ ] PolyReLU https://arxiv.org/abs/2411.03884v3

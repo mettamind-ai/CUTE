@@ -109,13 +109,11 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
-            act = F.relu(y).square()
-            ffn = self.down_proj(act)
-            out = x + att + ffn
-            return norm(out)
+            return x + att, y
 
-        return checkpoint(prepare, use_reentrant=False)
-
+        x_att, y = checkpoint(prepare, use_reentrant=False)
+        out = x_att + self.down_proj(F.relu(y).square())
+        return norm(out)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
