@@ -398,15 +398,18 @@ class Int8MixedLWeight(Tensor):
         else: return out                                    # new unwrapped object
 
 
-def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):
+from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+from torchao.dtypes import SemiSparseLayout
+###
+def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
     names, params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
-            names.append(n)
-            params  += m.weight.numel()
-            m.weight = nn.Parameter(                    # Tạo đối tượng param mới và làm 2 việc: 
-                Int8MixedLWeight(m.weight.detach()),    # 1) đón Tensor gốc sau khi tháo rời khỏi graph
-                requires_grad=m.weight.requires_grad,   # 2) gắn lại wrapper vào graph với yêu cầu grad như cũ 
-            )
+            if "down_proj" in n:
+                quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+            else:
+                names.append(n)
+                params  += m.weight.numel()
+                m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
     return names, params
