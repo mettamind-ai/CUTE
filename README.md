@@ -37,6 +37,7 @@
 - Chỉ nên làm bilingual LM (Anh-Việt, Trung-Việt), và cạnh tranh theo chiều sâu ở từng domain hẹp
 - `Best data` = `LLM mạnh nhất` + `sức người` **để đạt độ đậm đặc value**
 - [Dùng GPU xử lý data](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
+- [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
 ## Tiny Monster Models
 - `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) để tiền xử lý
@@ -69,9 +70,6 @@
 
 - [ ] dùng hnet + tknz nhẹ (giống pre-processing) để cải thiện token embedding / representation
   - [ ] hnet có giúp loại bỏ sparse attn?
-
-- [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
-- [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
 - [ ] MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524

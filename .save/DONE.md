@@ -279,3 +279,14 @@ Huấn luyện model lớn:
 
 - ~~`LVOT          1.5x` (LLM-based Vocab Optim for Tokenization: better & denser hidden representation)~~
 - ~~`N-gram Embedding  ` Tăng perf, giảm sự bất thường trong không gian embeddings~~
+
+20250720
+--------
+
+- [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
+- [ ] enforce Lipschitz bounds in training https://www.alphaxiv.org/abs/2507.13338?conversation_id=687c63997c6168cf0c07c8f4
+  Khi sử dụng với Muon https://github.com/Arongil/lipschitz-transformers/blob/main/nanogpt/train_spectral_cap.py
+  Điểm hay của pp này (giống muonclip) là nó control weight thay vì activation => nhẹ hơn và Prevent explosion at source
+  - Spectral Soft Cap hoặc Spectral Normalization
+  - Bỏ ~~layernorm, qk_norm~~
+  - Có thể thêm light weight decay
