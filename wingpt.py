@@ -27,9 +27,6 @@ def init_linear(w: Tensor):
     bound = (3 ** 0.5) * std
     return w.uniform_(-bound, bound)
 
-def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
-    return F.rms_norm(x, (x.size(-1),))
-
 class Rotary(nn.Module):
     def __init__(self, dim: int, ctxlen: int):
         super().__init__()
@@ -93,7 +90,7 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        up    = self.up_proj(norm(x))
+        up    = self.up_proj(x)
 
         def prepare():
             k_v_q = [HD//2, VD, D]
@@ -105,7 +102,6 @@ class Block(nn.Module):
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
-            q, k, v = norm(q), norm(k), norm(v)
             if not self.long: q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
@@ -121,6 +117,9 @@ class Block(nn.Module):
         return x_plus_attn + self.down_proj(act)
 
 
+def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
+    return F.rms_norm(x, (x.size(-1),))
+
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim):
         super().__init__()
@@ -134,28 +133,29 @@ class WinGPT(nn.Module):
             self.mtp_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        x = self.embeds(input_seq)
-        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, input_seq, self.rotary)
-        return x
+        xn = x0 = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        for blk in self.blocks: 
+            x  = blk(xn, cu_seqlens, max_seqlen, input_seq, self.rotary)
+            xn = norm(x)
+        return xn, x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, ignore=-100, cu_steps=1):
     target = model.unembeds.activate(target)
-    x = model(input_seq, cu_seqlens, max_seqlen)
+    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)
     model.unembeds.update_new_tokens_weight()
 
     def prepare():
-        xn    = norm(x)
-        x0    = norm(model.embeds(input_seq))
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
-        xx_x0 = torch.cat([xx, x0], dim=-1)
-        y     = model.mtp_proj(xx_x0)
-        return xn, y
+        y0    = torch.cat([xx, x0], dim=-1)
+        return y0
 
-    xn, y = checkpoint(prepare, use_reentrant=False)
-    yn = norm(model.mtp_head(y, cu_seqlens, max_seqlen, input_seq, model.rotary))
+    y0 = checkpoint(prepare, use_reentrant=False)
+    y1 = model.mtp_proj(y0)
+    y2 = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
+
+    yn = norm(y2)
     target[0] = ignore
 
     mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2 / cu_steps)

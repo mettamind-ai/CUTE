@@ -22,6 +22,7 @@
 - [x] `OhMaiHead     1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [x] `Small batch   1.2x` (chỉ activation checkpoint với light ops)
 - [ ] `MoA           1.5x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
+- [ ] `Enhance Attn  1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
