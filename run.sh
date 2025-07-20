@@ -2,6 +2,7 @@
 ## CUDA Toolkit 12.9, CuTE DSL
 ## https://developer.nvidia.com/cuda-downloads
 ##############################################
+
 # wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
 # bash miniconda.sh -b -u -p ~/miniconda3
 # wget https://developer.download.nvidia.com/compute/cuda/12.9.1/local_installers/cuda_12.9.1_575.57.08_linux.run
@@ -25,3 +26,8 @@ python3 data/cached_fineweb10B.py 1
 # git clone https://github.com/NVIDIA/cutlass.git flash/infllmv2/cutlass
 # cd flash/infllmv2/cutlass; git checkout 4c42f73fdab5787e3bb57717f35a8cb1b3c0dc6d;  cd ../../.. # infllmv2
 # cd flash; ./bench.py; cd ..
+
+# Lỗi torchao/dtypes/uintx/semi_sparse_layout.py", line 127, in from_plain
+#     int_data_compressed = torch._cslt_compress(int_data)
+#                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+# NotImplementedError: Could not run 'aten::_cslt_compress'

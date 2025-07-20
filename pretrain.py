@@ -100,7 +100,7 @@ for opt in [muon_optim, adam_optim]:
 ################
 ##  TRAINING  ##
 ################
-# torch._dynamo.config.patch(error_on_recompile=True)
+torch._dynamo.config.patch(error_on_recompile=True)
 lossf = torch.compile(lossf)#, fullgraph=True)
 model = model.cuda()
 model.train()
