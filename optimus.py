@@ -408,8 +408,8 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembe
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             if "down_proj" in n:
-                sparsify_(m, SemiSparseWeightConfig())
-                # quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+                # sparsify_(m, SemiSparseWeightConfig())
+                quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
             else:
                 names.append(n)
                 params  += m.weight.numel()
