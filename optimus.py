@@ -403,13 +403,16 @@ from torchao.dtypes import SemiSparseLayout
 ###
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
-    names, params = [], 0
+    int8_names, int8_params = [], 0
+    sparse_names, sparse_params = [], 0
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             if "down_proj" in n:
+                sparse_names.append(n)
+                sparse_params += m.weight.numel()
                 quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
             else:
-                names.append(n)
-                params  += m.weight.numel()
+                int8_names.append(n)
+                int8_params += m.weight.numel()
                 m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
-    return names, params
+    return int8_names, int8_params, sparse_names, sparse_params

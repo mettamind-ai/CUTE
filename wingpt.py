@@ -90,12 +90,11 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        up    = self.up_proj(x)
+        k_v_q = [HD//2, VD, D]
 
+        up = self.up_proj(x)  # phép tính đắt nhất, bỏ ra ngoài checkpoint
         def prepare():
-            k_v_q = [HD//2, VD, D]
-            k,v,q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
-
+            k, v, q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
@@ -110,7 +109,7 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
-            act = F.relu(y).square() # F.sigmoid(y)*y
+            act = F.relu(y).square()
             ffn = self.down_proj(act)
             out = x + att + ffn
             return norm(out)

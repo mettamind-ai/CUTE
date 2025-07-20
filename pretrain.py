@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=24, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1024, n_layers=26, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -55,17 +55,25 @@ train_loader = data_generator("data/fineweb10B/fineweb_train_*.bin", tokens_per_
 tokens, targets = next(train_loader)
 
 ## INT8 hoá
-names, params = convert_int8_mixed_precision(model)
 def find_key(s):
     m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
+
+int8_names, int8_params, sparse_names, sparse_params = convert_int8_mixed_precision(model)
 total_params = sum(p.numel() for p in model.parameters())
-short_names = sorted(set(find_key(x) for x in names))
-percent = (params/total_params)*100
+
+int8_short_names = sorted(set(find_key(x) for x in int8_names))
+int8_percent = (int8_params/total_params)*100
+
+sparse_short_names = sorted(set(find_key(x) for x in sparse_names))
+sparse_percent = (sparse_params/total_params)*100
+
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
-* {len(names)} Linear {percent:.1f}% {params:,}
-* {len(list(model.parameters())) - len(names)} Embeds {100-percent:.1f}% {total_params - params:,}
-INT8: {short_names}""")
+* {len(int8_names)} Linear {int8_percent:.1f}% {int8_params:,}
+* {len(sparse_names)} Sparse {sparse_percent:.1f}% {sparse_params:,}
+* {len(list(model.parameters())) - len(int8_names) - len(sparse_names)} Embeds {100 - int8_percent - sparse_percent:.1f}% {total_params - int8_params - sparse_params:,}
+INT8: {int8_short_names}
+SPARSE: {sparse_short_names}""")
 
 #########################
 ##  Init Optimizer(s)  ##
