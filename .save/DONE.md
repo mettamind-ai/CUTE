@@ -282,7 +282,6 @@ Huấn luyện model lớn:
 
 20250720
 --------
-
 - [ ] grokking với spectral clipping https://leloykun.github.io/ponder/spectral-clipping
 - [ ] enforce Lipschitz bounds in training https://www.alphaxiv.org/abs/2507.13338?conversation_id=687c63997c6168cf0c07c8f4
   Khi sử dụng với Muon https://github.com/Arongil/lipschitz-transformers/blob/main/nanogpt/train_spectral_cap.py
@@ -290,3 +289,24 @@ Huấn luyện model lớn:
   - Spectral Soft Cap hoặc Spectral Normalization
   - Bỏ ~~layernorm, qk_norm~~
   - Có thể thêm light weight decay
+
+- https://github.com/Niccolo-Ajroldi/plainLM minimal LLM training (recent) code
+
+- [x] Hyper param tuning & training stablization
+  - [x] ~~Mutliple step learning rates giống DeepSeek và MiMo7B~~ (không hiệu quả)
+  - [x] bỏ weight decay ở embedding và lm_head
+  - [x] optim hyperparam tuning for small batch size https://arxiv.org/abs/2506.12543
+  - [ ] Muon qk clipping (chờ PyTorch impl https://github.com/pytorch/pytorch/issues/148819#issuecomment-3070108227)
+    - __NOTE__ Có thể chỉ cần áp dụng `qk_norm` là đủ nếu không dùng MLA
+  - Reading:
+    - https://x.com/giffmana/status/1943384733418950815
+    - https://x.com/YouJiacheng/status/1944696254623264926
+    - https://x.com/YouJiacheng/status/1943930850724524245
+    - https://x.com/konstmish/status/1945113604534985012
+    - https://x.com/konstmish/status/1945105731352469875
+    - https://x.com/krizna_b/status/1944854671728005588
+    - https://x.com/BetaTomorrow/status/1943614107258601829
+    - https://x.com/krizna_b/status/1944854671728005588
+    - https://x.com/egor_shulg/status/1946329743311442185
+
+  - BlockFFN https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
