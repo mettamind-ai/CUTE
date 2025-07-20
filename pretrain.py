@@ -92,11 +92,7 @@ adam_params = [
     dict(params=model.unembeds.parameters(), lr=0.002),
 ]
 adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
-muon_optim = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.008)
-
-## beta1 and momentum follow https://www.alphaxiv.org/abs/2506.12543
-# adam_optim = torch.optim.AdamW(adam_params, betas=(0.98, 0.95), weight_decay=0, fused=True)
-# muon_optim = Muon(muon_params, lr=0.015, momentum=0.98, weight_decay=0.008)
+muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
