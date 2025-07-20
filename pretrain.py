@@ -111,21 +111,14 @@ save_dir.mkdir(parents=True, exist_ok=True)
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 logger = wandb.init(dir="/tmp", config=args,)
 
-maxlen = muon_lr = lossv = 0
 lr_schedule = LRSchedule(args.steps, warmup=0.02, decay=0.13)
-
 for step in range(args.steps):  # training loop
     started_at = time.time()
-    n_samples = lossv = 0
 
     cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=1)
     tokens, targets = next(train_loader)
     loss.backward()
-    lossv += loss.item()
-    n_samples += len(cu_seqlens)
-
-    if max_seqlen > maxlen: maxlen = max_seqlen
     grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
 
     # set optimization hyperparameters
@@ -152,21 +145,24 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
     
-    muon_lr = muon_optim.param_groups[0]["lr"]
-    tokens_seen = tokens_per_batch * step
-    tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
-    logger.log(dict(
-        loss                 = lossv, 
-        lr                   = muon_lr, 
-        grad_norm            = grad_norm,
-        max_memory_allocated = torch.cuda.max_memory_allocated(), 
-        tokens_seen_M        = tokens_seen / 1e6,
-        tokens_per_second_K  = tokens_per_second_K,
-        n_samples            = n_samples,
-        kmax                 = max_seqlen//1000,
-    ), step=step)
-    pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
-    pbar.update()
+    if step % 4 == 0:
+        muon_lr = muon_optim.param_groups[0]["lr"]
+        tokens_seen = tokens_per_batch * step
+        tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
+        lossv = loss.item()
+        logger.log(dict(
+            loss                 = lossv, 
+            lr                   = muon_lr, 
+            grad_norm            = grad_norm,
+            max_memory_allocated = torch.cuda.max_memory_allocated(), 
+            tokens_seen_M        = tokens_seen / 1e6,
+            tokens_per_second_K  = tokens_per_second_K,
+            n_samples            = len(cu_seqlens),
+            kmax                 = max_seqlen//1000,
+        ), step=step)
+        pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
+    else:
+        pbar.update()
 
     '''
     if (step + 1) % 300 == 0 or step == args.steps - 1:
