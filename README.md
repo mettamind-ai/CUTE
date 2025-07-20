@@ -53,11 +53,12 @@
 ---
 # TODO
 
-- [ ] Hyper param tuning
+- [ ] Hyper param tuning & training stablization
   - [x] ~~Mutliple step learning rates giống DeepSeek và MiMo7B~~ (không hiệu quả)
   - [x] bỏ weight decay ở embedding và lm_head
   - [x] optim hyperparam tuning for small batch size https://arxiv.org/abs/2506.12543
-  - [ ] áp dụng Muon qk clipping như kimi K2 (chờ PyTorch impl https://x.com/soumithchintala/status/1945297225988354315)
+  - [ ] Muon qk clipping (chờ PyTorch impl https://github.com/pytorch/pytorch/issues/148819#issuecomment-3070108227)
+    - __NOTE__ Có thể chỉ cần áp dụng `qk_norm` là đủ nếu không dùng MLA
   - Reading:
     - https://x.com/giffmana/status/1943384733418950815
     - https://x.com/YouJiacheng/status/1944696254623264926
@@ -67,8 +68,11 @@
     - https://x.com/krizna_b/status/1944854671728005588
     - https://x.com/BetaTomorrow/status/1943614107258601829
     - https://x.com/krizna_b/status/1944854671728005588
+    - https://x.com/egor_shulg/status/1946329743311442185
+  
 
 - [ ] dùng hnet + tknz nhẹ (giống pre-processing) để cải thiện token embedding / representation
+  - [ ] 
   - [ ] hnet có giúp loại bỏ sparse attn?
 
 - [ ] MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
