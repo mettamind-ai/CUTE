@@ -313,4 +313,4 @@ Huấn luyện model lớn:
 
 - [ ] Sửa flash attn online softmax để trả về max logits sau đó áp dụng muon qk clipping
   - https://mp.weixin.qq.com/s?__biz=MjM5ODExNDA2MA==&mid=2449991079&idx=1&sn=b313f59a3da0fcf61138da723adb5da0
-    Vấn đề chỉ xuất hiện ở model lớn, 
+    Vấn đề chỉ xuất hiện ở model lớn, moonlight 16b vẫn tự hạ được
