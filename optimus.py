@@ -406,6 +406,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembe
             if "down_proj" in n:
                 sparse_names.append(n)
                 sparse_params.append(m)
+                m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
             else:
                 int8_names.append(n)
                 int8_params += m.weight.numel()

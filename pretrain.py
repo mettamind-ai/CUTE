@@ -162,7 +162,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    elif step == args.steps // 20: # 5% training progress
+    elif step == 10: # args.steps // 20: # 5% training progress
         for x in sparse_params:
             quantize_(x, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
