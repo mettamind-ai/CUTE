@@ -310,3 +310,7 @@ Huấn luyện model lớn:
     - https://x.com/egor_shulg/status/1946329743311442185
 
   - BlockFFN https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
+
+- [ ] Sửa flash attn online softmax để trả về max logits sau đó áp dụng muon qk clipping
+  - https://mp.weixin.qq.com/s?__biz=MjM5ODExNDA2MA==&mid=2449991079&idx=1&sn=b313f59a3da0fcf61138da723adb5da0
+    Vấn đề chỉ xuất hiện ở model lớn, 

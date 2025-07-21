@@ -71,5 +71,3 @@
   - [x] 1.3x ReLU https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
   - [ ] Spark Transformers (sparse both mlp & attn) https://www.alphaxiv.org/abs/2506.06644
   - [ ] PolyReLU https://arxiv.org/abs/2411.03884v3
-
-- [ ] Sửa flash attn online softmax để trả về max logits sau đó áp dụng muon qk clipping
