@@ -92,7 +92,7 @@ class Block(nn.Module):
         G, VD = self.group, self.vdim
         k_v_q = [HD//2, VD, D]
 
-        up = self.up_proj(x)  # phép tính đắt nhất, bỏ ra ngoài checkpoint
+        up = self.up_proj(norm(x))  # phép tính đắt nhất, bỏ ra ngoài checkpoint
         def prepare():
             k, v, q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
@@ -109,11 +109,11 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             y = up[..., -self.down_proj.weight.shape[-1] : ]
-            return x + att, y
+            act = F.relu(y).square()
+            return att, act
 
-        x_att, y = checkpoint(prepare, use_reentrant=False)
-        out = x_att + self.down_proj(F.relu(y).square())
-        return norm(out)
+        att, act = checkpoint(prepare, use_reentrant=False)
+        return x + att + self.down_proj(act)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
@@ -131,9 +131,9 @@ class WinGPT(nn.Module):
             self.mtp_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        xn = x0 = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        for blk in self.blocks: xn = blk(xn, cu_seqlens, max_seqlen, input_seq, self.rotary)
-        return xn, x0
+        x = x0 = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, input_seq, self.rotary)
+        return norm(x), x0
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, ignore=-100, cu_steps=1):

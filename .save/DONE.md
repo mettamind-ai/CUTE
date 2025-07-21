@@ -309,8 +309,10 @@ Huấn luyện model lớn:
     - https://x.com/krizna_b/status/1944854671728005588
     - https://x.com/egor_shulg/status/1946329743311442185
 
-  - BlockFFN https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
+- BlockFFN https://huggingface.co/SparseLLM/BlockFFN-3B-SFT based on ReMoE https://arxiv.org/abs/2412.14711
 
 - [ ] Sửa flash attn online softmax để trả về max logits sau đó áp dụng muon qk clipping
   - https://mp.weixin.qq.com/s?__biz=MjM5ODExNDA2MA==&mid=2449991079&idx=1&sn=b313f59a3da0fcf61138da723adb5da0
     Vấn đề chỉ xuất hiện ở model lớn, moonlight 16b vẫn tự hạ được
+
+- Synergy có dùng concept với Hnet https://www.alphaxiv.org/abs/2507.12769
