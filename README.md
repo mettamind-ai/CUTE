@@ -62,6 +62,7 @@
   - Mamba2 + GDN + SWA https://www.alphaxiv.org/abs/2412.06464
   - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
   - `DeltaFormer` áp dụng delta rule vào value của softmax attn
+  - [ ] PLE linh hoạt bằng cách concat `embedding` với `x (hidden)` rồi mới `up_proj` giúp tăng khả năng học?
 
 - Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
   - 2:4 sprarse 1.3x nếu độ thưa > 90% https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
