@@ -145,11 +145,12 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
         y0    = torch.cat([xx, x0], dim=-1)
-        return y0
+        y1    = model.mtp_proj(y0)
+        return y1
 
-    y0 = checkpoint(prepare, use_reentrant=False)
-    y1 = model.mtp_proj(y0)
-    yn = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
+    y1 = checkpoint(prepare, use_reentrant=False)
+    y2 = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
+    yn = norm(y2)
     target[0] = ignore
 
     mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2 / cu_steps)
