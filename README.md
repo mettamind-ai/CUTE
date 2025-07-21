@@ -16,13 +16,13 @@
 |`096G`_4x4090    |$1.28/hr | 324    | *253.12* | 310    |  242.18  |
 |`128G`_4x5090    |$1.96/hr | 432    |  220.41  | 524    |  267.34  |
 
-- [x] `Muon          1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
-- [x] `int8          1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
-- [x] `Dense Arch    1.5x` (giản lược kv_proj, bỏ o_proj; sparse Relu^2; SWA 2k-8k; 1 norm / layer)
-- [x] `OhMaiHead     1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
-- [x] `Small batch   1.2x` (chỉ activation checkpoint với light ops)
-- [ ] `MoA           1.5x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
-- [ ] `Enhance Attn  1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn)
+- [x] `Muon         ~1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
+- [x] `int8         ~1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
+- [x] `Dense Arch   ~2.0x` (giản lược kv_proj, bỏ o_proj; sparse Relu^2; SWA 2k-8k; 1 norm per layer)
+- [x] `OhMaiHead    ~1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
+- [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
+- [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
+- [ ] `Enhance Attn ~1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn; 8,4-bit Mixed)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
@@ -63,7 +63,7 @@
   - [ ] DeltaFormer, áp dụng delta rule vào value của softmax attn
   - [ ] Kết hợp năng lực nén của Mamba, sửa lỗi của Delta và Retrieve của Attn một cách khéo léo
 
-- Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Block Sparse Matrix / Sparse Matmul / MegaBlocks)
+- Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
   - https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training
   - Sparsing Law https://www.alphaxiv.org/abs/2411.02335
     => Càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
@@ -71,6 +71,5 @@
   - [x] 1.3x nếu độ thưa > 90% https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
   - Spark: 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
   - Polynomial Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
-  - [ ] Dùng Spark tạo độ thưa > 90%, kết hợp Poly để tăng tinh biểu diễn rồi dùng 2:4 Sparse để biểu diễn Act giúp speedup
+  - [ ] Dùng Spark tạo độ thưa > 90%, kết hợp Poly để tăng khả năng nhớ rồi dùng 2:4 Sparse cho Act giúp speedup
   - [ ] Sửa Flash Attn để tận dụng độ thưa từ Spark
-

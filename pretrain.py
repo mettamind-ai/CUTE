@@ -14,7 +14,6 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
 from torchao.dtypes import SemiSparseLayout
 
-
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
@@ -162,9 +161,9 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    elif step == int(args.steps * 0.05): # 8% training progress
-        for x in sparse_params:
-            quantize_(x, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+    # elif step == int(args.steps * 0.05): # 5% training progress
+    #     for m in sparse_params:
+    #         quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
@@ -182,8 +181,7 @@ for step in range(args.steps):  # training loop
             kmax                 = max_seqlen//1000,
         ), step=step)
         pbar.set_postfix(loss=lossv, kmax=max_seqlen//1000, kts=tokens_per_second_K)
-    else:
-        pbar.update()
+    pbar.update()
 
     '''
     if (step + 1) % 300 == 0 or step == args.steps - 1:
