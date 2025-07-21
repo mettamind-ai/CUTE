@@ -30,7 +30,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=24, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1024, n_layers=26, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -162,8 +162,7 @@ for step in range(args.steps):  # training loop
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
     # elif step == int(args.steps * 0.05): # 5% training progress
-    #     for m in sparse_params:
-    #         quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+    #     for m in sparse_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
