@@ -61,13 +61,16 @@
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
   - [ ] Gated DeltaNet + SWA + Mamba2 https://www.alphaxiv.org/abs/2412.06464
   - [ ] DeltaFormer, áp dụng delta rule vào value của softmax attn
+  - [ ] Kết hợp năng lực nén của Mamba, sửa lỗi của Delta và Retrieve của Attn một cách khéo léo
 
 - Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Block Sparse Matrix / Sparse Matmul / MegaBlocks)
   - https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training
-  - Sparsing law https://www.alphaxiv.org/abs/2411.02335
-    => ReLU tuân theo quy luật logspace power-law giảm dần
+  - Sparsing Law https://www.alphaxiv.org/abs/2411.02335
     => Càng nhiều dữ liệu huấn luyện thì activation ratio càng giảm (sparsity càng tăng).
     => Mô hình 2.4B với ReLU đạt sparsity ratio 93.52% và tăng tốc 4.1× so với phiên bản dense.
-  - [x] 1.3x ReLU https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
-  - [ ] Spark Transformers (sparse both mlp & attn) https://www.alphaxiv.org/abs/2506.06644
-  - [ ] PolyReLU https://arxiv.org/abs/2411.03884v3
+  - [x] 1.3x nếu độ thưa > 90% https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
+  - Spark: 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
+  - Polynomial Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
+  - [ ] Dùng Spark tạo độ thưa > 90%, kết hợp Poly để tăng tinh biểu diễn rồi dùng 2:4 Sparse để biểu diễn Act giúp speedup
+  - [ ] Sửa Flash Attn để tận dụng độ thưa từ Spark
+
