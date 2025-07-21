@@ -397,22 +397,15 @@ class Int8MixedLWeight(Tensor):
         elif func in others: return pytree.tree_map_only(Tensor, lambda x: cls(x), out) # new wrapped object
         else: return out                                    # new unwrapped object
 
-
-from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-from torchao.sparsity.sparse_api import sparsify_, SemiSparseWeightConfig
-from torchao.dtypes import SemiSparseLayout
-###
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
     int8_names, int8_params = [], 0
-    sparse_names, sparse_params = [], 0
+    sparse_names, sparse_params = [], []
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
             if "down_proj" in n:
                 sparse_names.append(n)
-                sparse_params += m.weight.numel()
-                # sparsify_(m, SemiSparseWeightConfig())
-                quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+                sparse_params.append(m)
             else:
                 int8_names.append(n)
                 int8_params += m.weight.numel()

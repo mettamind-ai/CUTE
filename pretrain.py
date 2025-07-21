@@ -6,6 +6,15 @@ import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, 
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+## https://github.com/pytorch/ao/tree/main/torchao/prototype/sparsity
+# Activation quant dạng int8 đối xứng động theo từng token và 
+# định lượng trọng số (weight) int8 theo từng kênh (per-channel) cho các lớp tuyến tính (linear).
+# Usage: `quantize_(module, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))`
+# Note: chỉ apply khi đã pretrain được 1 lúc để sparse pattern của activation được ổn định
+from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+from torchao.dtypes import SemiSparseLayout
+
+
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
@@ -65,13 +74,14 @@ total_params = sum(p.numel() for p in model.parameters())
 int8_short_names = sorted(set(find_key(x) for x in int8_names))
 int8_percent = (int8_params/total_params)*100
 
+sparse_params_ = sum(x.weight.numel() for x in sparse_params)
 sparse_short_names = sorted(set(find_key(x) for x in sparse_names))
-sparse_percent = (sparse_params/total_params)*100
+sparse_percent = (sparse_params_/total_params)*100
 
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(int8_names)} Linear {int8_percent:.1f}% {int8_params:,}
-* {len(sparse_names)} Sparse {sparse_percent:.1f}% {sparse_params:,}
-* {len(list(model.parameters())) - len(int8_names) - len(sparse_names)} Embeds {100 - int8_percent - sparse_percent:.1f}% {total_params - int8_params - sparse_params:,}
+* {len(sparse_names)} Sparse {sparse_percent:.1f}% {sparse_params_:,}
+* {len(list(model.parameters())) - len(int8_names) - len(sparse_names)} Embeds {100 - int8_percent - sparse_percent:.1f}% {total_params - int8_params - sparse_params_:,}
 INT8: {int8_short_names}
 SPARSE: {sparse_short_names}""")
 
@@ -108,7 +118,7 @@ for opt in [muon_optim, adam_optim]:
 ################
 ##  TRAINING  ##
 ################
-torch._dynamo.config.patch(error_on_recompile=True)
+# torch._dynamo.config.patch(error_on_recompile=True)
 lossf = torch.compile(lossf)#, fullgraph=True)
 model.train()
 
@@ -151,7 +161,11 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-    
+
+    elif step == args.steps // 20: # 5% training progress
+        for x in sparse_params
+            quantize_(x, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
