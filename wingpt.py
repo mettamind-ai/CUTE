@@ -78,11 +78,11 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.  up_proj = nn.Linear(dim, 3*dim, bias=False)
-        self.down_proj = nn.Linear(3*dim, dim, bias=False)
+        self.  up_proj = nn.Linear(dim, int(3.5*dim), bias=False)
+        self.down_proj = nn.Linear(int(2.5*dim), dim, bias=False)
 
         with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(3*dim, dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(int(3.5*dim), dim)))
             self.down_proj.weight.zero_()
 
 
