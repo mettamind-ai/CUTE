@@ -78,11 +78,12 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.  up_proj = nn.Linear(dim, int(3.5*dim), bias=False)
-        self.down_proj = nn.Linear(int(2.5*dim), dim, bias=False)
+        inter_dim = int(3.5*dim)
+        self.  up_proj = nn.Linear(dim, inter_dim, bias=False)
+        self.down_proj = nn.Linear(inter_dim, dim, bias=False)
 
         with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(int(3.5*dim), dim)))
+            self.  up_proj.weight.copy_(init_linear(torch.empty(inter_dim, dim)))
             self.down_proj.weight.zero_()
 
 
@@ -108,12 +109,13 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-            y = up[..., -self.down_proj.weight.shape[-1] : ]
-            act = F.relu(y).square()
+            act = F.relu(up).square()
             return att, act
 
         att, act = checkpoint(prepare, use_reentrant=False)
-        return x + att + self.down_proj(act)
+        ffn = self.down_proj(act)  # phép tính đắt nhì, bỏ ra ngoài checkpoint
+        return x + att + ffn
+
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
