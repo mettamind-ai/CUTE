@@ -64,7 +64,6 @@
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
-  - Mamba2 + GDN + SWA https://www.alphaxiv.org/abs/2412.06464
   - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
   - `DeltaFormer` áp dụng delta rule vào value của softmax attn
 
@@ -79,3 +78,4 @@
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - [ ] Tận dụng độ thưa từ `Spark`
   - [ ] Hỗ trợ `FlashMask`
+  - => Kết hợp FoX (biến đổi `KQ`) và DeltaFormer (biến đổi `V`) có thể đem lại lợi ích kép cho flash attn
