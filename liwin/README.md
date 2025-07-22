@@ -36,3 +36,10 @@ __Kết hợp best SWA (local) với Linear Attention (global)__
 - Titans: Learning to Memorize at Test Time https://arxiv.org/abs/2501.00663
 - RNNs with Expressive Hidden States https://arxiv.org/abs/2407.04620
 - Gated Delta Networks: Improving Mamba2 with Delta Rule https://arxiv.org/abs/2412.06464
+
+---
+
+# FoX Forgetting Transformer
+![](https://pbs.twimg.com/media/Gwci8y9bEAAjENO?format=jpg&name=large)
+Forget gate có norm term của RNN => biến đổi sang dạng song song của Linear Attn => đổi kernel function sang exp thì được dạng forget gate của softmax attn
+
