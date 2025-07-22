@@ -66,11 +66,13 @@
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
   - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
   - `DeltaFormer` áp dụng delta rule vào value của softmax attn
+  - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
 
 - Quy chiếu MoA / FFN / Attention về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
   - 2:4 sprarse 1.3x nếu độ thưa > 90% https://github.com/pytorch/ao/tree/main/torchao/sparsity#int8-dynamic-quant--24-sparasity
   - Spark: 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
   - Polynomial Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
+  - Selective Attn sử dụng lại 1 attn head làm selective mask https://www.alphaxiv.org/abs/2410.02703
   - [ ] Dùng Spark tạo độ thưa > 90%, kết hợp Poly để tăng khả năng nhớ rồi dùng 2:4 Sparse cho Act giúp speedup
 
 - Sửa Flash Attn
