@@ -22,7 +22,7 @@
 - [x] `OhMaiHead    ~1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
 - [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
-- [ ] `Enhance Attn ~1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn; 8,4-bit Mixed)
+- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn; 8,4-bit Mixed; FoX ...)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
@@ -76,6 +76,6 @@
 
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
-  - [ ] Lấy max softmax value để làm `Muon QK Clipping`
+  - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - [ ] Tận dụng độ thưa từ `Spark`
   - [ ] Hỗ trợ `FlashMask`
