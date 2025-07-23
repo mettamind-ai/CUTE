@@ -401,16 +401,18 @@ class Int8MixedLWeight(Tensor):
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb|up_att'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
     int8_names, int8_params = [], 0
-    sparse_names, sparse_params = [], []
+    sparsable_names, sparsable_params = [], []
+
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
+
             if "down_proj" in n:
-                sparse_names.append(n)
-                sparse_params.append(m)
-                # quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-                # m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
+                sparsable_names.append(n)
+                sparsable_params.append(m)
             else:
                 int8_names.append(n)
                 int8_params += m.weight.numel()
-                m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
-    return int8_names, int8_params, sparse_names, sparse_params
+
+            ## Lúc đầu sử dụng int8 mixed cho sparsable, sau khi pretrain ổn định có thể chuyển sang 2:4 sparse
+            m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
+    return int8_names, int8_params, sparsable_names, sparsable_params

@@ -10,7 +10,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # Activation quant dạng int8 đối xứng động theo từng token và 
 # định lượng trọng số (weight) int8 theo từng kênh (per-channel) cho các lớp tuyến tính (linear).
 # Usage: `quantize_(module, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))`
-# Note: chỉ apply khi đã pretrain được 1 lúc để sparse pattern của activation được ổn định
+# Note: chỉ apply khi đã pretrain được vài ngàn steps để sparse pattern của activation được ổn định
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
 from torchao.dtypes import SemiSparseLayout
 
@@ -117,7 +117,7 @@ for opt in [muon_optim, adam_optim]:
 ################
 ##  TRAINING  ##
 ################
-# torch._dynamo.config.patch(error_on_recompile=True)
+torch._dynamo.config.patch(error_on_recompile=True)
 lossf = torch.compile(lossf)#, fullgraph=True)
 model.train()
 
@@ -161,8 +161,10 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    elif step == int(args.steps * 0.05): # 5% training progress
-        for m in sparse_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+    ## 5% training progress thì 2:4 sparse hoá sparsable_params
+    # TODO: điều tra lỗi trong 2:4 sparse engine khiến loss đi lên !!!
+    # elif step == int(args.steps * 0.05):
+    #     for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
