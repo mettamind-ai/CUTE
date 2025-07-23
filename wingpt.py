@@ -79,7 +79,7 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim_ffn = int(4*dim)
+        inter_dim_ffn = int(6 * dim)
         self.up_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
         self.down_proj = nn.Linear(inter_dim_ffn // 2, dim, bias=False)
 
@@ -96,8 +96,9 @@ class Block(nn.Module):
 
         up = self.up_proj(norm(x))
         def prepare():
+
             k, v, q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
-            # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
+            # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
@@ -116,7 +117,6 @@ class Block(nn.Module):
             ffn = self.down_proj(z)
 
             return x + att + ffn
-
         return checkpoint(prepare, use_reentrant=False)
 
 
