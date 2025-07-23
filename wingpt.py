@@ -104,7 +104,7 @@ class Block(nn.Module):
         y = self.up_att_proj(xn)
         z = self.up_ffn_proj(xn)
 
-        def prepare():
+        def prepare(x, y, z):
             k, v, q = torch.split(y[..., : sum(k_v_q)], k_v_q, dim=-1)
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
@@ -124,7 +124,7 @@ class Block(nn.Module):
             ffn = yy * 0.3 + zz * 0.7
             return x + att + ffn
 
-        return checkpoint(prepare, use_reentrant=False)
+        return checkpoint(prepare, x, y, z, use_reentrant=False)
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
