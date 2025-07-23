@@ -107,267 +107,278 @@ Tuy nhiên, "giải pháp tổng quát" không phải là tối ưu cho GPU. Ph�
 
 Quá trình phát triển của Linear Attention từ bắt chước Softmax Attention ban đầu, đến việc tích hợp hệ số suy giảm tĩnh và cả "data-dependent decay", đã hình thành nên những đặc trưng riêng và chứng minh được giá trị trong nhiều tác vụ. Tuy nhiên, hầu hết tiến bộ này đều dựa trên thiết kế thủ công theo kinh nghiệm. Câu hỏi đặt ra là: **Liệu có nguyên tắc tổng quát nào để định hướng thiết kế Linear Attention nói riêng và các mô hình chuỗi (Token-Mixer) nói chung?**
 
-TTT (Test Time Training) đưa ra giải pháp bằng cách xem việc xây dựng mô hình chuỗi như một bài toán "Học Trực tuyến" (Online Learning), đề xuất sử dụng bộ tối ưu để xây dựng RNN (không nhất thiết tuyến tính). Cụ thể, nó xem cặp (K,V) như tập dữ liệu (k₁,v₁),(k₂,v₂),...,(kₜ,vₜ), từ đó huấn luyện mô hình v = f(Sₜ;k) và đầu ra oₜ = f(Sₜ;qₜ), với Sₜ là tham số mô hình - có cấu trúc tuỳ ý.
+TTT (Test Time Training) đưa ra giải pháp bằng cách xem việc xây dựng mô hình chuỗi như một bài toán "Học Trực tuyến" (Online Learning), đề xuất sử dụng bộ tối ưu để xây dựng RNN (không nhất thiết tuyến tính). Cụ thể, nó xem cặp (K,V) như tập dữ liệu (k₁,v₁),(k₂,v₂),...,(kₜ,vₜ), từ đó huấn luyện mô hình `v = f(Sₜ;k)` và đầu ra `oₜ = f(Sₜ;qₜ)`, với `Sₜ` là tham số mô hình - có cấu trúc tuỳ ý.
 
-Mối liên hệ với RNN nằm ở chỗ: các bộ tối ưu như SGD, Adam về bản chất chính là RNN cho tham số mô hình! Quan điểm này không mới, đã xuất hiện từ thời Meta Learning năm 2017 khi nghiên cứu dùng RNN (LSTM) để mô phỏng bộ tối ưu tốt hơn (xem "Optimization as a Model for Few-Shot Learning").
+Mối liên hệ với RNN nằm ở chỗ: **các bộ tối ưu như SGD, Adam về bản chất chính là RNN cho tham số mô hình!** Quan điểm này không mới, đã xuất hiện từ thời Meta Learning năm 2017 khi nghiên cứu dùng RNN (LSTM) để mô phỏng bộ tối ưu tốt hơn (xem "Optimization as a Model for Few-Shot Learning").
 
 Đến lượt mình, TTT đảo ngược cách tiếp cận - dùng bộ tối ưu để xây dựng RNN. Quy trình như sau: 
-1. Tham số hiện tại Sₜ₋₁ 
-2. Bộ tối ưu (SGD) nhận dữ liệu mới (kₜ,vₜ) 
-3. Cập nhật tham số thành Sₜ 
-4. Trả về kết quả dự đoán f(Sₜ₋₁;qₜ)
+1. Tham số hiện tại `Sₜ₋₁` 
+2. Bộ tối ưu (SGD) nhận dữ liệu mới `(kₜ,vₜ)` 
+3. Cập nhật tham số thành `Sₜ` 
+4. Trả về kết quả dự đoán `f(Sₜ₋₁;qₜ)`
 
 Công thức tổng quát của RNN trong TTT:
-
-oₜ = f(Sₜ;qₜ),  
+```js
+oₜ = f(Sₜ;qₜ),
 Sₜ = Sₜ₋₁ - ηₜ∇Sₜ₋₁L(f(Sₜ₋₁;kₜ),vₜ)  (11)
+```
 
 Với:
-- L(f(Sₜ₋₁;kₜ),vₜ): hàm mất mát 
-- ηₜ: hệ số học, có thể phụ thuộc dữ liệu như "data-dependent decay"
+- `L(f(Sₜ₋₁;kₜ),vₜ)`: hàm mất mát 
+- `ηₜ`: hệ số học, có thể phụ thuộc dữ liệu như "data-dependent decay"
 
 Công thức này bao quát nhiều dạng RNN, trong đó (8) và (10) là trường hợp đặc biệt:
 
-(8) Linear Attention:  
+(8) Linear Attention:
+```js
 Sₜ = Sₜ₋₁ + vₜkₜᵀ  
 oₜ = Sₜqₜ  
 f(S;k) = Sk  
 L(f,v) = -vᵀ(Sk)  
 ηₜ = 1
-
+```
+```js
 (10) RetNet:  
 Sₜ = γSₜ₋₁ + vₜkₜᵀ  
 oₜ = Sₜqₜ  
 f(S;k) = Sk  
 L(f,v) = -vᵀ(Sk) + (1-γ²)/2‖S‖²_F  
 ηₜ = 1
-
+```
   
-TTT原文则致力于探索mini-batch下的非线性RNN，后来的Titans则给TTT的SGD加上了动量，再后面《Test-Time Training Done Right》则探索了large-batch的TTT用法，还探索了“TTT + Muon”的组合。注意，TTT只是利用优化器来构建RNN，RNN以外的参数如Q,K,VQ,K,V的可训练参数，还是将整个模型构建起来后用整体的优化器训练的。
+Bài báo TTT ban đầu tập trung khám phá RNN phi tuyến trong mini-batch, sau đó Titans thêm động lượng vào SGD của TTT, và gần đây "Test-Time Training Done Right" nghiên cứu ứng dụng TTT với large-batch cùng sự kết hợp "TTT + Muon". Lưu ý, **TTT chỉ sử dụng bộ tối ưu để xây dựng RNN**, các tham số có thể huấn luyện bên ngoài RNN như Q,K,V vẫn được huấn luyện bằng bộ tối ưu tổng thể sau khi xây dựng toàn bộ mô hình.
 
-一个更值得思考的问题是：为什么TTT可以成为构建RNN的“指导原则”呢？RNN的核心目标，是将历史数据有效地压缩到一个固定大小的State中，而模型参数正好是固定大小的，训练模型某种程度上就相当于把训练数据压缩到模型权重中，TTT正是利用了它跟RNN目标的高度契合性。说直白一点，如果将RNN视为一个压缩任务，TTT将模型ff视为“解压器”，它的权重则是“压缩包”，而压缩算法则是SGD，压缩率则是损失LL。
+Câu hỏi đáng suy ngẫm hơn: `Tại sao TTT (Test Time Training) có thể trở thành "nguyên tắc chỉ đạo" để xây dựng RNN?` Mục tiêu cốt lõi của RNN là nén hiệu quả dữ liệu lịch sử vào một State có kích thước cố định, trong khi tham số mô hình cũng có kích thước cố định. Huấn luyện mô hình về bản chất tương đương với việc nén dữ liệu huấn luyện vào trọng số mô hình. TTT tận dụng sự tương đồng cao này với mục tiêu RNN. Nói cách khác, nếu xem RNN như bài toán nén dữ liệu, TTT coi mô hình `f` là "bộ giải nén", trọng số của nó là "gói nén", thuật toán nén là SGD và tỉ lệ nén chính là hàm mất mát `L`.
 
-这样一来，我们就不用花心思构建递归格式了，转而构建模型ff和损失LL，一个RNN强不强、靠不靠谱，我们也只需看对应的ff和LL就可以心中有数。
+Nhờ vậy, chúng ta không cần tập trung xây dựng công thức đệ quy nữa, mà chuyển sang thiết kế mô hình `f` và hàm mất mát `L`. Chất lượng RNN có thể đánh giá trực tiếp thông qua `f` và `L` tương ứng.
 
-除此之外，TTT用Online Learning构建RNN，意味着所得RNN必然非常契合ICL（In Context Learning）任务，这也是TTT作为“指导原则”的优势。此前《Why Can GPT Learn In-Context? Language Models Implicitly Perform Gradient Descent as Meta-Optimizers》甚至反过来，将Softmax Attention去掉Softmax成线性Attention来解释它的ICL能力，用现在的视角看它就是构造了对应的TTT出来。
+Hơn nữa, việc TTT sử dụng Online Learning để xây dựng RNN đồng nghĩa với việc RNN thu được sẽ rất phù hợp với các tác vụ ICL (In Context Learning). Đây là ưu điểm của TTT với tư cách "nguyên tắc chỉ đạo". Trước đây, bài báo "Why Can GPT Learn In-Context?" thậm chí đã loại bỏ Softmax từ Softmax Attention để biến nó thành Linear Attention nhằm giải thích khả năng ICL - theo góc nhìn hiện tại, đó chính là xây dựng TTT tương ứng.
 
-## 除旧而迎新 #
+## Bỏ cũ đón mới (delta rule)
 
-例如，最早的线性Attention对应的损失函数是−v⊤(Sk)−v⊤(Sk)，这一看就是个不大靠谱的目标，因为它是无下界的，这可能会导致SS趋于无穷。相比之下，RetNet往损失函数加入了L2正则项，避免了这种风险，从优化角度看也缓解了过拟合的风险，从而得到一个更好的RNN。
+Ví dụ, hàm mất mát ban đầu của Linear Attention là -vᵀ(Sk), một mục tiêu không ổn định vì không có cận dưới, có thể khiến S tiến tới vô cùng. RetNet khắc phục điều này bằng cách thêm thành phần L2 regularization vào hàm mất mát, vừa tránh rủi ro trên vừa giảm overfitting từ góc nhìn tối ưu, cho ra RNN tốt hơn.
 
-然而，用内积作为损失函数虽然简洁且有一定道理，但它不是直接鼓励Sk=vSk=v，所以并非一个理想的回归损失。更好的目标函数应该是平方损失，即12∥Sk−v∥212‖Sk−v‖2，将它代入到TTT的公式(11)(11)得到  
+Tuy nhiên, dù ngắn gọn và có lý, hàm mất mát dạng tích vô hướng không trực tiếp khuyến khích Sk = v nên không phải lựa chọn lý tưởng cho bài toán hồi quy. Hàm mục tiêu tốt hơn nên là bình phương sai số: ½‖Sk - v‖². Thay vào công thức (11) của TTT, ta được:
+```js
+oₜ = f(Sₜ;qₜ)
+Sₜ = Sₜ₋₁ - ηₜ(Sₜ₋₁kₜ - vₜ)kₜᵀ  (gradient của ½‖Sₜ₋₁kₜ - vₜ‖²)
+```
 
-ot=f(St;qt),St=St−1−ηt(St−1kt−vt)k⊤t∇St−112∥St−1kt−vt∥2(12)(12)ot=f(St;qt),St=St−1−ηt(St−1kt−vt)kt⊤⏟∇St−112‖St−1kt−vt‖2
+Đây chính là DeltaNet, được đặt tên theo "Parallelizing Linear Transformers with the Delta Rule over Sequence Length", và có nguồn gốc sớm hơn từ "Linear Transformers Are Secretly Fast Weight Programmers". 
 
+Ta có thể thấy ηₜ(Sₜ₋₁kₜ - vₜ)kₜᵀ = (Sₜ₋₁(√ηₜkₜ) - (√ηₜvₜ))(√ηₜkₜ)ᵀ, nghĩa là ηₜ luôn có thể được tích hợp vào định nghĩa của kₜ,vₜ. Do đó, các phân tích sau đây chỉ xét trường hợp ηₜ=1:
+```js
+Sₜ = Sₜ₋₁ - (Sₜ₋₁kₜ - vₜ)kₜᵀ
+  = Sₜ₋₁ - (Sₜ₋₁kₜ)kₜᵀ + vₜkₜᵀ
+  = Sₜ₋₁(I - kₜkₜᵀ) + vₜkₜᵀ
+```
+
+Khi cần, ta có thể khôi phục ηₜ bằng cách thay thế kₜ,vₜ bằng √ηₜkₜ, √ηₜvₜ. So với dạng Linear Attention ban đầu (8), điểm khác biệt của DeltaNet là thêm phép trừ (Sₜ₋₁kₜ)kₜᵀ trước khi cộng vₜkₜᵀ, trong đó Sₜ₋₁kₜ có thể hiểu là dự đoán của mô hình cũ Sₜ₋₁ với đầu vào mới kₜ.
+
+Về mặt trực quan, "trừ trước cộng sau" có nghĩa là trước tiên loại bỏ nhận thức cũ của mô hình về kₜ, sau đó bổ sung nhận thức mới dựa trên cặp (kₜ,vₜ), đạt được hiệu quả "bỏ cũ đón mới". Quy tắc này được gọi là "Delta Rule", chính là nguồn gốc của từ "Delta" trong DeltaNet. Delta Rule không phải là mới, nó còn được gọi là Least Mean Square, Widrow-Hoff Algorithm,... đã xuất hiện từ những năm 60 của thế kỷ trước. Thực tế, trong lĩnh vực này rất ít có cái gì hoàn toàn mới, nhiều cải tiến đều có thể truy nguyên về các công trình "thời cổ đại", nỗ lực hiện tại chủ yếu tập trung vào việc khai thác các phần có thể mở rộng.
+
+Cần lưu ý rằng theo trình tự thời gian, DeltaNet có trước TTT. Việc hiểu RNN từ góc độ Online Learning đã xuất hiện rải rác trước TTT, nhưng TTT mới là công trình hệ thống hóa "nguyên tắc chỉ đạo" này và ứng dụng nó để xây dựng mô hình RNN mới. Do đó chúng tôi trình bày TTT trước để bài viết mạch lạc hơn.
+
+Một số độc giả có thể thắc mắc: DeltaNet có còn là RNN tuyến tính không? Câu trả lời là có. RNN tuyến tính mà chúng tôi đề cập là công thức đệ quy có quan hệ tuyến tính với biến trạng thái, trong khi quan hệ với đầu vào hoặc q,k,v có thể phi tuyến (dĩ nhiên hiệu suất song song sẽ khác nhau tùy dạng phụ thuộc). Từ công thức (13) có thể thấy vế phải chỉ xuất hiện Sₜ₋₁ bậc nhất, nên thỏa mãn định nghĩa tuyến tính.
+
+## Nghịch đảo và mở rộng
+
+Như đã nói, thuật toán song song lý tưởng nhất cho RNN tuyến tính (hiệu quả trên GPU) là tận dụng tối đa phép nhân ma trận. Để đạt mục tiêu này, trước hết ta viết lại DeltaNet:
+```js
+Sₜ = Sₜ₋₁ + (vₜ - Sₜ₋₁kₜ)kₜᵀ  (14)
+```
+
+Đặt uₜ = vₜ - Sₜ₋₁kₜ, thì Sₜ = Sₜ₋₁ + uₜkₜᵀ, tức là chỉ thay V bằng `U = [u₁,u₂,...,uₙ]ᵀ` so với Linear Attention ban đầu. Lặp lại t-1 lần, ta có:
+```js
+Sₜ₋₁ = ∑ⱼuⱼkⱼᵀ ⇒ uₜ = vₜ - (∑ⱼuⱼkⱼᵀ)kₜ = vₜ - ∑ⱼuⱼ(kⱼᵀkₜ)  (15)
+```
+
+Dạng ma trận cuối cùng là U = V - (KKᵀ⊙M⁻)U, với M⁻ = M - I. Đây là hệ phương trình tuyến tính có nghiệm:
+```js
+U = (I + KKᵀ⊙M⁻)⁻¹V  (16)  
+(đặt B = KKᵀ⊙M⁻)
+```
+
+Ma trận nghịch đảo (I+B)⁻¹ cỡ n×n có độ phức tạp chuẩn O(n³), cao hơn cả Softmax Attention! May mắn là ta chỉ cần giải hệ (I+B)U=V với độ phức tạp O(n²). Hơn nữa, nhờ I+B là ma trận tam giác dưới và cấu trúc hạng thấp của B, có thể giảm độ phức tạp xuống tuyến tính bằng cách chia khối để tận dụng GPU. Chi tiết xin tham khảo bài báo gốc.
+
+Sau DeltaNet, Gated DeltaNet (GDN) đưa thêm cổng quên vào DeltaNet. Cách giới thiệu ban đầu là:
+```js
+Sₜ = αₜSₜ₋₁(I - βₜkₜkₜᵀ) + βₜvₜkₜᵀ  (17)
+```
+
+Nhưng theo chúng tôi, **cách này phá vỡ Delta Rule**. Cách tốt hơn là chỉ nhân vào Sₜ₋₁ đầu tiên:
+```js
+Sₜ = γₜSₜ₋₁ + ηₜ(vₜ - Sₜ₋₁kₜ)kₜᵀ  (18)
+```
+
+Tương ứng với hàm mất mát ½‖Sk-v‖² + (1-γ)/η ‖S‖²_F. Về mặt toán học, hai cách là tương đương:
+```js
+(17) ⇔ αₜSₜ₋₁ + αₜβₜ(vₜ/αₜ - Sₜ₋₁kₜ)kₜᵀ  (19)  
+với γₜ=αₜ, ηₜ=αₜβₜ và hấp thụ 1/αₜ vào vₜ
+```
+
+Về lý thuyết, GDN có thể viết lại thành DeltaNet bằng cách đặt ᾱₜ=∏αₜ và chia cả hai vế cho ᾱₜ:
+```js
+ᾱₜ⁻¹Sₜ = ᾱₜ₋₁⁻¹Sₜ₋₁(I - βₜkₜkₜᵀ) + βₜ(ᾱₜ⁻¹vₜ)kₜᵀ  (20)
+```
+
+Kết hợp với oₜ = (ᾱₜ⁻¹Sₜ)(ᾱₜqₜ), chỉ cần đặt lại qₜ,vₜ mới là ᾱₜqₜ, ᾱₜ⁻¹vₜ. Tuy nhiên kết quả này chủ yếu có giá trị lý thuyết vì với t đủ lớn, ᾱₜ hoặc ᾱₜ⁻¹ sẽ bị tràn số.
+
+Một mở rộng khác của DeltaNet là DeltaProduct, nhân rộng k,v lên vài lần trước khi áp dụng DeltaNet/GDN để tăng khả năng theo dõi trạng thái. Nhưng theo quan điểm của tác giả, thay vì nhân hằng số như DeltaProduct, nên thử RNN với độ phức tạp bình phương như trong "Chương không-thời gian: Coi Attention là RNN bậc hai" để vượt Softmax Attention.
+
+## Quá Trình Phản Hồi #
+
+Khi nói về việc vượt qua Softmax Attention, như đã đề cập từ đầu, hiện tại Linear Attention không chỉ có thể cạnh tranh với Softmax Attention mà còn bắt đầu "phản hồi" ngược lại. Điều này thoạt nghe có vẻ khó tin nhưng suy nghĩ kỹ thì không khó hiểu. Theo một nghĩa nào đó, những năm gần đây Softmax Attention đang thụt lùi, từ MHA, GQA đến MQA đều là các giải pháp giảm thiểu để nén KV Cache. Trong khi đó, Linear Attention không có vấn đề KV Cache nên luôn tiến về phía trước.
+
+Để thấy rõ hơn, hãy biểu diễn các cơ chế Attention đã đề cập dưới dạng ma trận:
+
+| Loại Attention          | Công thức Ma Trận                          | Ghi chú                     |
+|-------------------------|--------------------------------------------|-----------------------------|
+| Softmax Attention       | (exp(QKᵀ)⊙M)V                              | Dạng gốc                   |
+| Linear Attention sớm    | (QKᵀ⊙M)V                                   | Phiên bản đầu của Linear   |
+| Thêm cổng quên          | (QKᵀ⊙Γ)V                                   | Γ là ma trận cổng quên     |
+| DeltaNet                | (QKᵀ⊙M)(I+KKᵀ⊙M⁻)⁻¹V                       | Dạng Delta Rule            |
+| Gated DeltaNet          | ((QKᵀ⊙M)(I+KKᵀ⊙M⁻)⁻¹⊙Γ)V = (QKᵀ⊙Γ)(I+KKᵀ⊙Γ⁻)⁻¹V | Kết hợp cổng quên  |
+
+Trong đó:
+```js
+Γᵢⱼ = {
+  ∏ᵣ₌ⱼ₊₁ⁱ γᵣ  nếu i > j
+  1           nếu i = j
+  0           nếu i < j
+}
+```
+
+Và Γ⁻ = Γ - I. Có thể thấy Softmax Attention vẫn chỉ dừng lại ở dạng Linear Attention sớm (điều này cũng chứng tỏ sức mạnh của nó). Vậy "phản hồi" được thực hiện thế nào? Trước hết cần phương pháp chuyển đổi Softmax Attention thành Linear Attention, điều này không khó, trong "Hành Trình Nâng Cấp Transformer: 5" đã tổng hợp 3 phương án chuyển Softmax Attention thành Linear Attention vô hạn chiều.
+
+Tóm lại, tồn tại ánh xạ φ biến Q,K từ n×d thành n×∞ sao cho exp(QKᵀ) = φ(Q)φ(K)ᵀ, gọi là "kỹ thuật nhân". Việc tiếp theo đơn giản là thay Q,K trong bảng trên bằng φ(Q),φ(K) rồi khôi phục exp và chuẩn hóa, ta sẽ có biến thể mới của Softmax Attention. Ví dụ áp dụng vào công thức cổng quên:
+```js
+(ϕ(Q)ϕ(K)⊤⊙Γ)V=exp(QK⊤+logΓ)V(22)
+```
   
-这便是DeltaNet，这个名字出自《Parallelizing Linear Transformers with the Delta Rule over Sequence Length》，更早则是由《Linear Transformers Are Secretly Fast Weight Programmers》提出。留意到ηt(St−1kt−vt)k⊤t=(St−1(ηt−−√kt)−(ηt−−√vt))(ηt−−√kt)⊤ηt(St−1kt−vt)kt⊤=(St−1(ηtkt)−(ηtvt))(ηtkt)⊤，这意味着ηtηt总可以吸收到kt,vtkt,vt的定义中去，所以我们接下来的分析都只考虑ηt=1ηt=1的情况：  
+Khi γₜ là hằng số, nó chính là Alibi được đề xuất trong bài báo "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation". Còn nếu γₜ phụ thuộc vào đầu vào, thì đó là FoX từ bài báo "Forgetting Transformer: Softmax Attention with a Forget Gate".
 
-St===St−1−(St−1kt−vt)k⊤tSt−1−(St−1kt)k⊤t+vtk⊤tSt−1(I−ktk⊤t)+vtk⊤t(13)(13)St=St−1−(St−1kt−vt)kt⊤=St−1−(St−1kt)kt⊤+vtkt⊤=St−1(I−ktkt⊤)+vtkt⊤
+Một kết quả thú vị hơn là **DeltaFormer** từ bài báo "Understanding Transformer from the Perspective of Associative Memory", như tên gọi, nó là phiên bản Softmax Attention của DeltaNet. Bằng cách thay Q,K trong DeltaNet bằng φ(Q),φ(K), ta có:
+```js
+(φ(Q)φ(K)ᵀ⊙M)(I + φ(K)φ(K)ᵀ⊙M⁻)⁻¹V = exp(QKᵀ + logM)⏟A (I + exp(KKᵀ + logM⁻)⏟B)⁻¹V (23)
+```
 
-  
-如果有需要，我们再把kt,vtkt,vt换成ηt−−√kt,ηt−−√vtηtkt,ηtvt，就可以将ηtηt恢复出来。对比线性Attention最早的形式(8)(8)，DeltaNet的区别是在加vtk⊤tvtkt⊤前多减了个(St−1kt)k⊤t(St−1kt)kt⊤，其中St−1ktSt−1kt可以理解为新输入ktkt在旧模型St−1St−1下的预测结果。
+Để chuẩn hóa, chỉ cần thay exp bằng softmax. So với Softmax Attention thông thường (AV), DeltaFormer thay bằng A(I+B)⁻¹V. Chú ý rằng:
+```js
+A(I+B)⁻¹V = A(I - B + B² - B³ + ⋯)V = A(V - BV + B²V - B³V + ⋯) (24)
+```
 
-直观来想，“先减后加”就是先移除模型对ktkt的旧认知，然后根据(kt,vt)(kt,vt)补充新认知，达到“除旧迎新”的效果。这个规则称为“Delta Rule”，正是DeltaNet一词中“Delta”的来源。Delta Rule并不新鲜，它又称为Least Mean Square、Widrow-Hoff Algorithm等，已经是上个世纪60年代的产物了。事实上，这个领域完全新的东西很少，很多改动都可以追溯到某个“上古时期”的工作，目前的努力主要集中在挖掘其中能Scalable的部分。
+Như vậy, DeltaFormer đầu tiên tính Attention nhiều lần với K,K,V, tổng hợp kết quả thành V mới, rồi mới tính Attention với Q,K. Đặc điểm này giúp nó hiệu quả với các tác vụ Multi-Hop (như Code). Ngoài ra, vì phần (I+B)⁻¹V chỉ liên quan K,V nên DeltaFormer phù hợp với MQA (Multi-Query Attention) do MQA chỉ dùng Single-Head cho K,V, giảm đáng kể tính toán so với MHA.
 
-另外需要指出的是，按照时间的顺序，是DeltaNet在前，TTT在后，从Online Learning角度理解RNN，其实在TTT之前已经零星地体现在一些工作中，但TTT系统地提出了这个“指导原则”，并且将它用于构建新RNN模型，所以我们把TTT放在前面，使得整个介绍更加流畅自然一些。
+Tuy nhiên, theo quan điểm của tác giả, việc cố định hệ số tổng hợp có thể là "không có bữa trưa miễn phí" - thí nghiệm cho thấy tổn thất mô hình ngôn ngữ của DeltaFormer không thay đổi nhiều, nghĩa là nếu tổn thất giảm ở một số tác vụ thì chắc chắn sẽ tăng ở tác vụ khác.
 
-有些读者可能疑问：DeltaNet还算线性RNN吗？答案是肯定的。我们所说的线性RNN，是指递归公式对State变量的依赖关系是线性的，但对输入或q,k,vq,k,v的依赖可以是非线性的（当然不同依赖形式的并行效率会有所不同），从式(13)(13)可以看出，等号右端始终只是出现了St−1St−1的一次方，所以它满足线性的定义。
+## Kỹ Thuật Mã Hóa Nâng Cao #
 
-## 求逆与推广 #
+Một công trình đáng chú ý khác là PaTH Attention từ bài báo "PaTH Attention: Position Encoding via Accumulating Householder Transformations", tiếp cận từ góc độ mã hóa vị trí để đưa DeltaNet vào Softmax Attention.
 
-前面我们说了，线性RNN最理想的（即GPU高效的）并行算法是充分使用矩阵乘法的形式。为了完成这一目标，我们先将DeltaNet写成  
+Trong "Hành Trình Nâng Cấp Transformer: 6", chúng tôi đã chỉ ra rằng với mọi ma trận trực giao Ω, Rₘ=Ωᵐ đều là RoPE tổng quát. Ngoài ma trận quay, còn có những ma trận trực giao nào dễ xây dựng? PaTH sử dụng ma trận Householder: cho vector cột w có độ dài √2, thì I-wwᵀ là ma trận trực giao, mang ý nghĩa hình học là phép phản chiếu.
 
-St=St−1+(vt−St−1kt)k⊤t(14)(14)St=St−1+(vt−St−1kt)kt⊤
+Có thể thấy điều này giống với I-kₜkₜᵀ trong DeltaNet, nên PaTH áp dụng trực tiếp bằng cách dùng chuỗi tích I-wwᵀ để biểu diễn thông tin vị trí:
+```js
+qᵢᵀkⱼ → qᵢᵀ(I-wᵢwᵢᵀ)(I-wᵢ₋₁wᵢ₋₁ᵀ)...(I-wⱼ₊₁wⱼ₊₁ᵀ)⏟Rᵢ,ⱼkⱼ (25)
+```
 
-  
-记ut=vt−St−1ktut=vt−St−1kt，那么St=St−1+utk⊤tSt=St−1+utkt⊤，也就是说它只是在最早的线性Attention基础上把VV换成了U=[u1,u2,⋯,un]⊤U=[u1,u2,⋯,un]⊤，将它迭代t−1t−1次，我们有  
+Dạng đệ quy của Rᵢ,ⱼ là Rᵢ,ⱼ=(I-wᵢwᵢᵀ)Rᵢ₋₁,ⱼ với Rⱼ,ⱼ=I. So với DeltaNet, công thức này tương đương vₜ=0 nhưng giá trị ban đầu S₀≠0. Áp dụng phương pháp tương tự phần "Nghịch Đảo Hỗ Trợ", ta có:
+```js
+Rᵢ,ⱼ = I - W[j:i]ᵀ(I + W[j:i]W[j:i]ᵀ⊙M⁻)⁻¹W[j:i] (26)
+```
 
-St−1=∑j=1t−1ujk⊤j⇒ut=vt−(∑j=1t−1ujk⊤j)kt=vt−∑j=1t−1uj(k⊤jkt)(15)(15)St−1=∑j=1t−1ujkj⊤⇒ut=vt−(∑j=1t−1ujkj⊤)kt=vt−∑j=1t−1uj(kj⊤kt)
+Với W=[w₁,w₂,...,wₙ]ᵀ, cắt lát theo kiểu Numpy. Ma trận nghịch đảo là tam giác dưới, có tính chất quan trọng: phần tử đường chéo của ma trận nghịch đảo bằng nghịch đảo phần tử đường chéo gốc. Từ đó:
+```js
+(I+W[j:i]W[j:i]ᵀ⊙M⁻)⁻¹ = (J)[j:i,j:i] (27)
+với J = (I+WWᵀ⊙M⁻)⁻¹
+```
 
-  
-最后的等式写成矩阵形式是U=V−(KK⊤⊙M−)UU=V−(KK⊤⊙M−)U，其中M−=M−IM−=M−I，这是一个线性方程组，它的解可以直接表示为  
+Biểu diễn dạng thành phần:
+```js
+Aᵢ,ⱼ = qᵢᵀkⱼ - qᵢᵀW[j:i]ᵀJ[j:i,j:i]W[j:i]kⱼ
+     = qᵢᵀkⱼ - ∑∑∑∑ QᵢₚWₗₚJₗᵣWᵣₛKⱼₛ (28)
+```
 
-U=(I+KK⊤⊙M−记为B)−1V(16)(16)U=(I+KK⊤⊙M−⏟记为B)−1V
+Các điểm chính:
+- Khéo léo sử dụng tính chất ma trận tam giác của J
+- χ là hàm chỉ thị (bằng 1 nếu thỏa điều kiện chỉ số)
+- Xử lý riêng phần tổng theo p và s cho QWᵀ và WKᵀ
 
-  
-这里出现了(I+B)−1(I+B)−1，一个n×nn×n矩阵的逆，标准复杂度是O(n3)O(n3)，比Softmax Attention还高！不过好在我们不需要显式的逆而是只要UU，这可以转化为解方程组(I+B)U=V(I+B)U=V，复杂度降到O(n2)O(n2)。进一步地，利用I+BI+B是下三角阵以及BB的低秩结构，可以将复杂度降到线性，写成分块矩阵乘法后就可以充分利用GPU。这些细节只能请大家阅读原论文了，本文先把主要数学原理介绍清楚。
+Ma trận Attention trước Softmax:
+```js
+A = QKᵀ⊙M - (QWᵀ⊙M)(I+WWᵀ⊙M⁻)⁻¹(WKᵀ⊙M⁻) (29)
+```
 
-DeltaNet之后，Gated DeltaNet（GDN）进一步地将遗忘门引入到DeltaNet之中，这倒是可以预料的变化。Gated DeltaNet的原始引入方式是  
+Độ phức tạp O(n³) khi tính nghịch đảo là không chấp nhận được, cần giảm xuống O(n²) bằng cách tận dụng đặc điểm hạng thấp của WWᵀ, sau đó triển khai hiệu quả như Flash Attention.
 
-St=αtSt−1(I−βtktk⊤t)+βtvtk⊤t(17)(17)St=αtSt−1(I−βtktkt⊤)+βtvtkt⊤
+Về mã hóa vị trí, **PaTH là một dạng CoPE (Contextual Position Encoding)**, vị trí không đánh số cố định mà được sinh tự động từ ngữ cảnh. Tương tự, FoX có thể coi là phiên bản ngữ cảnh của Alibi. **Thông tin vị trí phụ thuộc ngữ cảnh là đặc trưng chính của Linear Attention hiện tại và có thể là hướng phát triển chính cho Softmax Attention.**
 
-  
-但个人认为，这个提法其实显式打破了Delta Rule，更好的提法应该是像Comba一样，只乘到第一个St−1St−1上：  
+## Đơn Giản Hóa Vô Cùng Thú Vị #
 
-St=γtSt−1+ηt(vt−St−1kt)k⊤t(18)(18)St=γtSt−1+ηt(vt−St−1kt)kt⊤
+Chúng ta hãy đi sâu hơn vào PaTH, điều này không chỉ giúp hiểu rõ PaTH mà còn làm quen với DeltaNet vì chúng có mối quan hệ mật thiết. Phần này sẽ xét hai trường hợp đặc biệt của PaTH để hiểu rõ hơn mối liên hệ giữa chúng.
 
-  
-它相当于将损失函数取12∥Sk−v∥2+1−γη∥S∥2F12‖Sk−v‖2+1−γη‖S‖F2。当然，从数学上来说，这两个提法都是等价的：  
+Trường hợp đầu tiên là W=K, thay vào công thức (29) ta được:
+```js
+A = (QKᵀ⊙M)(I - (I + KKᵀ⊙M⁻)⁻¹(KKᵀ⊙M⁻)) 
+   = (QKᵀ⊙M)(I + KKᵀ⊙M⁻)⁻¹ 
+   (Chú thích: I - (I+A)⁻¹A = (I+A)⁻¹) (30)
+```
 
-αtSt−1(I−βtktk⊤t)+βtvtk⊤t=αtSt−1+αtβt(vt/αt−St−1kt)k⊤t(19)(19)αtSt−1(I−βtktkt⊤)+βtvtkt⊤=αtSt−1+αtβt(vt/αt−St−1kt)kt⊤
+Có thấy quen không? Đây chính là ma trận Attention của DeltaNet! Từ trường hợp này, sự khác biệt giữa PaTH và DeltaFormer là: DeltaFormer dùng thủ thuật kernel để thêm exp vào QKᵀ và KKᵀ của DeltaNet, còn PaTH trực tiếp thêm exp vào ma trận Attention của DeltaNet.
 
-  
-即γt=αt,ηt=αtβtγt=αt,ηt=αtβt然后把1/αt1/αt吸收到vtvt就可以转化为后者了。所以说，这两个形式在数学上并没有区别，由于多数αtαt会接近于1，所以能力上估计也没啥区别（Comba说(18)(18)会好一点），只不过后者更直观地保留了Delta Rule的样子。
+Trường hợp thứ hai là thêm ràng buộc ∥w∥=√2, khi đó I-wwᵀ là ma trận trực giao. Ta định nghĩa:
+```js
+Rᵢ ≜ (I - wᵢwᵢᵀ)(I - wᵢ₋₁wᵢ₋₁ᵀ)...(I - w₁w₁ᵀ)
+   = I - W[:i]ᵀ(I + W[:i]W[:i]ᵀ⊙M⁻)⁻¹W[:i] 
+   = Rᵢ,₀ (31)
+```
 
-从理论上来说，Gated DeltaNet也可以写成DeltaNet的形式，因为只需要定义α¯t=∏tj=1αtα¯t=∏j=1tαt，那么式(17)(17)两边同时除以α¯tα¯t，就得到  
+Khi đó Rᵢ,ⱼ = RᵢRⱼᵀ. Điều này có nghĩa ta có thể triển khai PaTH tương đối vị trí giống như RoPE - chỉ cần nhân mỗi qᵢᵀ, kᵢᵀ với Rᵢ rồi áp dụng Softmax Attention thông thường. Phép nhân Rᵢ được triển khai như sau:
+```js
+(qᵢᵀRᵢ)ₛ = Qᵢ,ₛ - ∑∑∑ Qᵢ,ₚWₗ,ₚJₗ,ᵣWᵣ,ₛ (32)
+```
 
-α¯−1tSt=α¯−1t−1St−1(I−βtktk⊤t)+βt(α¯−1tvt)k⊤t(20)(20)α¯t−1St=α¯t−1−1St−1(I−βtktkt⊤)+βt(α¯t−1vt)kt⊤
+Dạng ma trận:
+```js
+Q - (QWᵀ⊙M)(I + WWᵀ⊙M⁻)⁻¹W (33)
+```
 
-  
-然后结合ot=Stqt=(α¯−1tSt)(α¯tqt)ot=Stqt=(α¯t−1St)(α¯tqt)，可以发现只需要分别将α¯tqt,α¯−1tvtα¯tqt,α¯t−1vt设置为新的qt,vtqt,vt，那么就能简化成DeltaNet的形式。不过，这个结果只有在某些情况下具有理论推导的价值（比如推导下一节的Attention矩阵），因为实际计算中，不管怎么参数化，对于足够大的tt，α¯tα¯t和α¯−1tα¯t−1之一必有溢出的风险。
+Có thấy quen không? Phần thứ hai chính là DeltaNet(Q,W,W)! Vậy trong trường hợp này, PaTH tương đương với:
+```js
+SoftmaxAttention(Q - DeltaNet(Q,W,W), K - DeltaNet(K,W,W), V) (34)
+```
 
-DeltaNet之后还有另一个推广DeltaProduct，它是将k,vk,v扩展若干倍后再做DeltaNet或者Gated DeltaNet，试图增强模型的状态追踪能力。不过，就笔者的审美而言，与其像DeltaProduct那样扩展常数倍，还不如像《时空之章：将Attention视为平方复杂度的RNN》一样尝试平方复杂度的RNN，看有没有机会超越Softmax Attention。
+Tức là dùng DeltaNet để thêm mã hóa vị trí vào Q,K. Như vậy, PaTH (với ∥w∥=√2) là sự kết hợp giữa Softmax Attention và DeltaNet trong cùng một lớp. Ta cũng có thể bỏ qua ràng buộc ∥w∥=√2 và vẫn triển khai như trên, tương tự như cách `Canon Layers dùng tích chập để thêm thông tin vị trí`, nhưng ở đây là tích chập dài kiểu DeltaNet thay vì tích chập ngắn.
 
-## 反哺进行时 #
+## Phương Pháp Đi Lối Riêng #
 
-说到超越Softmax Attention，开头提到，如今的线性Attention不仅能与Softmax Attention一较高低，甚至开始“反哺”它。这看似不可思议，但细思之下并不难理解。某种意义上，这些年Softmax Attention一直在退步，从MHA、GQA到MQA都是为了压缩KV Cache而做减法。而线性Attention没有KV Cache问题，所以一直往更好的方向前进。
+Cuối cùng, chúng ta xem xét một mô hình Attention tuyến tính đáng chú ý gần đây - MesaNet (cùng với công trình tương tự Atlas). Góc nhìn Online Learning từ TTT cho thấy DeltaNet thực chất đang dùng SGD để tối ưu hàm mục tiêu 1/2∥Sk−v∥², và khi quan sát kỹ, Sk chỉ là hàm tuyến tính của k, nên đây thực chất là bài toán hồi quy tuyến tính có nghiệm giải tích!
+```js
+St = GtHt⁻¹, với:
+Gt = ∑(vjkjᵀ) từ j=1→t
+Ht = ∑(kjkjᵀ) từ j=1→t (35)
+```
 
-为了更好看出这一点，我们不妨将前面提到的Attention机制都以矩阵形式写出来：  
+MesaNet sử dụng nghiệm giải tích này để xây dựng mô hình chuỗi, ý tưởng bắt nguồn từ "Uncovering mesa-optimization algorithms in Transformers", còn huấn luyện hiệu quả được thực hiện trong "MesaNet: Sequence Modeling by Locally Optimal Test-Time Training". MesaNet thêm cổng quên vào Gt,Ht và ma trận đường chéo Λt để tránh ma trận không khả nghịch:
+```js
+ot = Gt(Ht + Λt)⁻¹qt
+Gt = γtGt₋₁ + vtkₜᵀ
+Ht = γtHt₋₁ + ktkₜᵀ (36)
+```
 
-Softmax Attention最早的线性Attention加入遗忘门后DeltaNetGated DeltaNet公式(exp(QK⊤)⊙M)V(QK⊤⊙M)V(QK⊤⊙Γ)V(QK⊤⊙M)(I+KK⊤⊙M−)−1V((QK⊤⊙M)(I+KK⊤⊙M−)−1⊙Γ)V=(QK⊤⊙Γ)(I+KK⊤⊙Γ−)−1V公式Softmax Attention(exp⁡(QK⊤)⊙M)V最早的线性Attention(QK⊤⊙M)V加入遗忘门后(QK⊤⊙Γ)VDeltaNet(QK⊤⊙M)(I+KK⊤⊙M−)−1VGated DeltaNet((QK⊤⊙M)(I+KK⊤⊙M−)−1⊙Γ)V=(QK⊤⊙Γ)(I+KK⊤⊙Γ−)−1V
+Rõ ràng độ phức tạp của Gt,Ht theo độ dài chuỗi là tuyến tính, nên ot cũng có độ phức tạp tuyến tính. MesaNet vẫn thuộc phạm vi Attention tuyến tính và nhờ nghiệm giải tích, nó thường tốt hơn DeltaNet thậm chí Gated DeltaNet. Từ góc độ xử lý tín hiệu, MesaNet và DeltaNet khác nhau như Recursive Least Square so với Least Mean Square.
 
-  
-其中  
+Tại sao lại gọi là "đi lối riêng"? MesaNet "thành công nhờ nghiệm giải tích, nhưng cũng thất bại vì nó". Nghiệm giải tích giúp nó vượt trội nhưng cũng tạo cảm giác "điểm dừng", vì chỉ cần thay đổi nhỏ là mất nghiệm giải tích. Trong lịch sử toán học, các nhánh phụ thuộc vào nghiệm giải tích hầu như đã lỗi thời vì nghiệm giải tích quá hiếm và không đại diện.
 
-Γi,j=⎧⎩⎨⎪⎪⎪⎪⎪⎪⎪⎪⎪⎪⎪⎪∏τ=j+1iγτ,1,0,i>ji=ji<j(21)(21)Γi,j={∏τ=j+1iγτ,i>j1,i=j0,i<j
+Về mặt triển khai, ma trận nghịch đảo Ht+Λt không phải ma trận tam giác, dù (Ht+Λt)⁻¹qt có thể chuyển thành giải phương trình thay vì nghịch đảo trực tiếp, nhưng vẫn làm tăng độ phức tạp. Tính toán song song hiệu quả (Ht+Λt)⁻¹qt vẫn là thách thức lâu dài, hiện tại bài báo dùng "phương pháp gradient liên hợp" để xấp xỉ.
 
-  
-以及Γ−=Γ−IΓ−=Γ−I。这样看来，Softmax Attention的形式还仅停留在最早的线性Attention那会（当然这也证明了它的强大）。那“反哺”怎么实现呢？首先我们需要一种方法把Softmax Attention转化为线性Attention，这个并不难，早在《Transformer升级之路：5、作为无限维的线性Attention》我们就总结了三种将Softmax Attention转化为 _无限维_ 线性Attention的方案。
+Về năng lực lý thuyết, **MesaNet không hẳn vượt trội DeltaNet**. Quy tắc cập nhật Gt,Ht của MesaNet chỉ là trung bình trượt đơn giản, và phép nghịch đảo không liên quan tương tác giữa các Token. DeltaNet với Delta Rule có thể có năng lực tốt hơn. Có thể hiểu là MesaNet cố ghi nhớ mọi k,v (dẫn đến trí nhớ mờ), trong khi DeltaNet "loại bỏ cũ, đón nhận mới" giúp ghi nhớ dài hạn chính xác hơn.
 
-总之，就是存在一个映射ϕϕ，将Q,KQ,K从n×dn×d映射到n×∞n×∞，满足exp(QK⊤)=ϕ(Q)ϕ(K)⊤exp⁡(QK⊤)=ϕ(Q)ϕ(K)⊤，这称为“核技巧”。那接下来的事情就简单了，我们只需将上述表格中的线性Attention的Q,KQ,K换成ϕ(Q),ϕ(K)ϕ(Q),ϕ(K)，最后再设法恢复expexp并归一化，就得到新的Softmax Attention变体了。例如，代入到遗忘门的公式，我们有  
+Một ví dụ đặc biệt: mọi Attention trừ MesaNet đều cho phép K,V dùng chung (không tối ưu nhưng vẫn hoạt động), còn MesaNet thì không vì nếu K=V thì St luôn là ma trận đơn vị.
 
-(ϕ(Q)ϕ(K)⊤⊙Γ)V=exp(QK⊤+logΓ)V(22)(22)(ϕ(Q)ϕ(K)⊤⊙Γ)V=exp⁡(QK⊤+log⁡Γ)V
+Tóm lại, MesaNet là mô hình ấn tượng nhưng nghiệm giải tích cũng làm tăng độ phức tạp và hạn chế linh hoạt, để lại nhiều vấn đề cần khám phá. Độc giả quan tâm có thể đọc thêm TTR về các mô hình chuỗi dựa trên hồi quy tuyến tính.
 
-  
-如果γtγt取常数，那么其实就是《Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation》所提的ALIBI，而如果γtγt是依赖于输入的，那么就是《Forgetting Transformer: Softmax Attention with a Forget Gate》所提的FoX。
+## Con Đường Phát Triển Mạnh Mẽ #
 
-一个更有意思的结果是《Understanding Transformer from the Perspective of Associative Memory》所提的DeltaFormer，顾名思义它是Softmax Attention的DeltaNet版本。将DeltaNet的Q,KQ,K换成ϕ(Q),ϕ(K)ϕ(Q),ϕ(K)，我们有  
-
-=(ϕ(Q)ϕ(K)⊤⊙M)(I+ϕ(K)ϕ(K)⊤⊙M−)−1Vexp(QK⊤+logM)记为A(I+exp(KK⊤+logM−)记为B)−1V(23)(23)(ϕ(Q)ϕ(K)⊤⊙M)(I+ϕ(K)ϕ(K)⊤⊙M−)−1V=exp⁡(QK⊤+log⁡M)⏟记为A(I+exp⁡(KK⊤+log⁡M−)⏟记为B)−1V
-
-  
-如果要归一化，我们将expexp换成softmaxsoftmax即可。相比Softmax Attention，DeltaFormer将原本的AVAV改成了A(I+B)−1VA(I+B)−1V，注意到  
-
-A(I+B)−1V==A(I−B+B2−B3+⋯)VA(V−BV+B2V−B3V+⋯)(24)(24)A(I+B)−1V=A(I−B+B2−B3+⋯)V=A(V−BV+B2V−B3V+⋯)
-
-  
-所以DeltaFormer相当于先用K,K,VK,K,V算多次Attention，将结果叠加起来后作为新的VV，再跟Q,KQ,K算一次Attention，这个特性让它对Multi-Hop的任务有奇效（比如Code）。此外，DeltaFormer的这个特点还意味着它跟MQA特别搭配，因为(I+B)−1V(I+B)−1V这部分只有K,VK,V参与，而对于MQA来说K,VK,V只有Single-Head，计算量相比MHA会明显降低。
-
-不过，在笔者看来，这种固定系数的叠加可能是“没有免费午餐”，比如笔者的实验结果显示，DeltaFormer的语言模型损失并无太大变化，这意味着如果某些任务的损失明显降低，必然有另一些任务的损失上升了。
-
-## 硬核编码术 #
-
-还有一个值得关注的反哺工作是PaTH Attention，出自《PaTH Attention: Position Encoding via Accumulating Householder Transformations》，它从位置编码的角度将DeltaNet反哺到Softmax Attention。
-
-我们在《Transformer升级之路：6、旋转位置编码的完备性分析》指出，对于任何正交矩阵ΩΩ，Rm=ΩmRm=Ωm都是广义的RoPE。除了旋转矩阵，还有哪些容易构建的正交矩阵呢？PaTH用的是Householder矩阵：设ww是任意模长为2−−√2的列向量，那么I−ww⊤I−ww⊤是一个正交矩阵，这我们在《从一个单位向量变换到另一个单位向量的正交矩阵》也推导过，几何意义是镜面反射。
-
-容易看出，这跟DeltaNet中St−1St−1所乘的I−ktk⊤tI−ktkt⊤是一样的，所以PaTH干脆把这部分照搬过来，即放弃ΩmΩm这个形式，也放弃ww模长为2−−√2的约束，直接用一系列I−ww⊤I−ww⊤连乘来表达位置信息：  
-
-q⊤ikj→q⊤i(I−wiw⊤i)(I−wi−1w⊤i−1)⋯(I−wj+1w⊤j+1)记为Ri,jkj(25)(25)qi⊤kj→qi⊤(I−wiwi⊤)(I−wi−1wi−1⊤)⋯(I−wj+1wj+1⊤)⏟记为Ri,jkj
-
-  
-将Ri,jRi,j写成递归形式是Ri,j=(I−wiw⊤i)Ri−1,j,Rj,j=IRi,j=(I−wiwi⊤)Ri−1,j,Rj,j=I。对比DeltaNet的式(13)(13)，上式相当于vtvt恒等于零，但初值S0S0不再是零。使用“求逆来相助”一节同样的过程，我们可以得到  
-
-Ri,j=I−W⊤[j:i](I+W[j:i]W⊤[j:i]⊙M−)−1W[j:i](26)(26)Ri,j=I−W[j:i]⊤(I+W[j:i]W[j:i]⊤⊙M−)−1W[j:i]
-
-  
-其中W=[w1,w2,⋯,wn]⊤W=[w1,w2,⋯,wn]⊤，切片按Numpy来理解，如W[j:i]=[wj+1,wj+2,⋯,wi]⊤W[j:i]=[wj+1,wj+2,⋯,wi]⊤，切片优先级高于转置。注意求逆的是下三角阵，三角阵有一个重要特性，逆矩阵的对角线元素等于原矩阵对角线元素的倒数，如果是分块三角阵则对角块也满足这个特性，于是我们可以写出  
-
-(I+W[j:i]W⊤[j:i]⊙M−)−1=((I+WW⊤⊙M−)−1记为J)[j:i,j:i](27)(27)(I+W[j:i]W[j:i]⊤⊙M−)−1=((I+WW⊤⊙M−)−1⏟记为J)[j:i,j:i]
-
-  
-接下来的变换，写成分量形式可能好理解一些  
-
-Ai,j======q⊤iRi,jkjq⊤ikj−q⊤iW⊤[j:i]J[j:i,j:i]W[j:i]kjq⊤ikj−∑p=1d∑l=j+1i∑r=j+1i∑s=1dQi,pWl,pJl,rWr,sKj,sq⊤ikj−∑p=1d∑l=1i∑r=j+1n∑s=1dQi,pWl,pJl,rWr,sKj,sq⊤ikj−∑p=1d∑l=1n∑r=1n∑s=1dQi,pWl,pχl≤iJl,rχr≥j+1Wr,sKj,sq⊤ikj−∑l=1n∑r=1n(χl≤i∑p=1dQi,pWl,p)QW⊤⊙MJl,r(χr≥j+1∑s=1dWr,sKj,s)WK⊤⊙M−(28)(28)Ai,j=qi⊤Ri,jkj=qi⊤kj−qi⊤W[j:i]⊤J[j:i,j:i]W[j:i]kj=qi⊤kj−∑p=1d∑l=j+1i∑r=j+1i∑s=1dQi,pWl,pJl,rWr,sKj,s=qi⊤kj−∑p=1d∑l=1i∑r=j+1n∑s=1dQi,pWl,pJl,rWr,sKj,s=qi⊤kj−∑p=1d∑l=1n∑r=1n∑s=1dQi,pWl,pχl≤iJl,rχr≥j+1Wr,sKj,s=qi⊤kj−∑l=1n∑r=1n(χl≤i∑p=1dQi,pWl,p)⏟QW⊤⊙MJl,r(χr≥j+1∑s=1dWr,sKj,s)⏟WK⊤⊙M−
-
-  
-这里有几个关键点：比较巧妙的是第4个等号，它利用了JJ是下三角矩阵这一点，所以l<rl<r时Jl,rJl,r自动为零；第5个等号，χχ为示性函数，满足下标的条件时为1，否则为0；第6个等号，当我们分别处理p,sp,s两部分求和时，结果是QW⊤QW⊤和WK⊤WK⊤，而乘χl≤iχl≤i刚好表示保留QW⊤QW⊤的下三角部分（连同对角线），而乘χr≥j+1χr≥j+1则表示保留WK⊤WK⊤的下三角部分（不包括对角线）。
-
-至此，我们可以把整个（Softmax之前的）注意力矩阵写出来：  
-
-A=QK⊤⊙M−(QW⊤⊙M)(I+WW⊤⊙M−)−1(WK⊤⊙M−)(29)(29)A=QK⊤⊙M−(QW⊤⊙M)(I+WW⊤⊙M−)−1(WK⊤⊙M−)
-
-  
-有没有被震惊到？这还没完。直接求逆复杂度是O(n3)O(n3)，这肯定无法接受，还要想办法利用WW⊤WW⊤的低秩特点将复杂度降低到O(n2)O(n2)，然后还要推反向传播，最后写成类似Flash Attention的高效实现，这些细节大家只能看原论文挖掘了，总之全程都非常硬核。
-
-从位置编码的角度看，PaTH是CoPE（Contextual Position Encoding）的一种，它的位置并不是编号1,2,3,⋯1,2,3,⋯，而是根据上下文内容自动生成的位置信号。类似地，FoX也可以看成是Contextual版的ALIBI。上下文相关的位置信息是当前线性Attention的主要特征，也可能是反哺Softmax Attention的主要方向。
-
-## 化简乐无穷 #
-
-我们不妨再深入点探讨一下PaTH，这不仅有助于我们了解PaTH，也能帮助我们更熟悉DeltaNet，两者本身就是高度相关的。这一节我们从PaTH的两个特例入手，它可以帮助我们更好地理解PaTH与DeltaNet的关联。
-
-第一个特例是W=KW=K，代入到(29)(29)得到  
-
-A==(QK⊤⊙M)(I−(I+KK⊤⊙M−)−1(KK⊤⊙M−))(QK⊤⊙M)(I+KK⊤⊙M−)−1(注:I−(I+A)−1A=(I+A)−1)(30)(30)A=(QK⊤⊙M)(I−(I+KK⊤⊙M−)−1(KK⊤⊙M−))=(QK⊤⊙M)(I+KK⊤⊙M−)−1(注:I−(I+A)−1A=(I+A)−1)
-
-  
-有没有觉得有点熟悉？这刚好就是DeltaNet的Attention矩阵！从这个特例看来，PaTH和DeltaFormer的区别就在于，DeltaFormer基于核技巧，给DeltaNet的QK⊤QK⊤和KK⊤KK⊤分别加上expexp，而PaTH直接给DeltaNet的Attention矩阵加上expexp。
-
-第二个特例是重新引入∥w∥=2−−√‖w‖=2这个约束，此时I−ww⊤I−ww⊤是正交矩阵，我们引入  
-
-Ri≜==(I−wiw⊤i)(I−wi−1w⊤i−1)⋯(I−w1w⊤1)I−W⊤[:i](I+W[:i]W⊤[:i]⊙M−)−1W[:i]Ri,0(31)(31)Ri≜(I−wiwi⊤)(I−wi−1wi−1⊤)⋯(I−w1w1⊤)=I−W[:i]⊤(I+W[:i]W[:i]⊤⊙M−)−1W[:i]=Ri,0
-
-  
-那么Ri,j=RiR⊤jRi,j=RiRj⊤。这个等式意味着我们可以像RoPE一样，用绝对位置的方式实现相对位置的PaTH，即只需要给每个q⊤i,k⊤iqi⊤,ki⊤都乘上RiRi，然后套用Softmax Attention的实现就行。那么乘RiRi是什么运算呢？重复上一节的展开过程，我们有  
-
-(q⊤iRi)s=====(q⊤i−q⊤iW⊤[:i]J[:i,:i]W[:i])sQi,s−∑p=1d∑l=1i∑r=1iQi,pWl,pJl,rWr,sQi,s−∑p=1d∑l=1i∑r=1nQi,pWl,pJl,rWr,sQi,s−∑p=1d∑l=1n∑r=1nχl≤iQi,pWl,pJl,rWr,sQi,s−∑l=1nχl≤i∑p=1dQi,pWl,pQW⊤⊙M∑r=1nJl,rWr,sJW(32)(32)(qi⊤Ri)s=(qi⊤−qi⊤W[:i]⊤J[:i,:i]W[:i])s=Qi,s−∑p=1d∑l=1i∑r=1iQi,pWl,pJl,rWr,s=Qi,s−∑p=1d∑l=1i∑r=1nQi,pWl,pJl,rWr,s=Qi,s−∑p=1d∑l=1n∑r=1nχl≤iQi,pWl,pJl,rWr,s=Qi,s−∑l=1nχl≤i∑p=1dQi,pWl,p⏟QW⊤⊙M∑r=1nJl,rWr,s⏟JW
-
-  
-写成矩阵形式就是  
-
-Q−(QW⊤⊙M)(I+WW⊤⊙M−)−1W(33)(33)Q−(QW⊤⊙M)(I+WW⊤⊙M−)−1W
-
-  
-是不是又觉得有点熟悉？其实第二部分就是DeltaNet(Q,W,W)DeltaNet(Q,W,W)！所以这种情况下PaTH实现的效果等价于是  
-
-SoftmaxAttention(Q−DeltaNet(Q,W,W)Q~,K−DeltaNet(K,W,W)K~,V)(34)(34)SoftmaxAttention⁡(Q−DeltaNet⁡(Q,W,W)⏟Q~,K−DeltaNet⁡(K,W,W)⏟K~,V)
-
-  
-也就是用DeltaNet给Q,KQ,K加位置编码。这样看PaTH（在∥w∥=2−−√‖w‖=2这个约束下）就相当于Softmax Attention与DeltaNet的某种层内混合。当然我们也可以考虑放弃前面的推导，即便∥w∥≠2−−√‖w‖≠2时也按照上式来实现，这就类似于通过Canon Layers的方案，用卷积给Q,KQ,K加位置信息了，只不过这里的卷积不再是短卷积，而是DeltaNet这种长卷积。
-
-## 剑走偏锋法 #
-
-最后，我们再看最近的一个同样值得关注的线性Attention模型——MesaNet（还有一个大同小异的同期工作Atlas）。TTT的Online Learning视角告诉我们，DeltaNet其实就是在用SGD优化目标函数12∥Sk−v∥212‖Sk−v‖2，而我们仔细观察就会发现，SkSk只是kk的线性函数，所以这实际上只是一个线性回归问题，线性回归是有解析解的！  
-
-St=GtH−1t,Gt=∑j=1tvjk⊤j,Ht=∑j=1tkjk⊤j(35)(35)St=GtHt−1,Gt=∑j=1tvjkj⊤,Ht=∑j=1tkjkj⊤
-
-  
-MesaNet就是利用这个解析解来构建序列模型的，其想法起源于《Uncovering mesa-optimization algorithms in Transformers》，高效训练则是由《MesaNet: Sequence Modeling by Locally Optimal Test-Time Training》实现。MesaNet在上述公式基础上给Gt,HtGt,Ht加入遗忘门，然后求时加上对角阵ΛtΛt避免不可逆，总的模型是  
-
-ot=Gt(Ht+Λt)−1qt,Gt=γtGt−1+vtk⊤t,Ht=γtHt−1+ktk⊤t(36)(36)ot=Gt(Ht+Λt)−1qt,Gt=γtGt−1+vtkt⊤,Ht=γtHt−1+ktkt⊤
-
-  
-很明显，Gt,HtGt,Ht关于序列长度的复杂度是线性的，所以otot的计算复杂度也是线性的，因此MesaNet仍然属于线性Attention的范畴，并且由于解析解的缘故，基本上可以保证大多数情况下它优于DeltaNet甚至Gated DeltaNet。从信号处理的角度看，MesaNet与DeltaNet是Recursive Least Square和Least Mean Square的区别。
-
-看上去都是优点，为啥笔者会将它归入“剑走偏锋”呢？在笔者看来，MesaNet“成也解析解，败也解析解”，解析解使得它通常优于DeltaNet，但也给人一种“到此为止”的感觉，因为只要稍变一下就几乎没有机会求得解析解了。纵观整个数学史，所有依赖于解析解的分支在今天几乎已经都没落了，因为解析解实在太稀罕、太没有代表性了。
-
-从实现上来看，MesaNet需要求逆的矩阵Ht+ΛtHt+Λt并不是三角阵，尽管(Ht+Λt)−1qt(Ht+Λt)−1qt仍然可以转化为解方程而不需要显式逆，但非三角阵仍使得它求解复杂度会增加不少。如何尽可能低成本地并行计算全体(Ht+Λt)−1qt(Ht+Λt)−1qt将会是MesaNet长期的难点，目前论文用到的是“共轭梯度法”求近似解，能用但并不完美。
-
-再就是从理论能力上看，MesaNet也并非严格优于DeltaNet。这是因为MesaNet的Gt,HtGt,Ht更新规则还是简单的滑动平均，它的求逆也不涉及到Token之间的交互，所以它的能力极限大概不如拥有Delta Rule的DeltaNet。直观理解就是，MesaNet会尽力记住全体k,vk,v，“全都要”可能会导致比较模糊的记忆，而DeltaNet的原则是“除旧迎新”，因为“除旧”的缘故，它可以实现长期、精准地记忆某些内容。
-
-我们还可以从一个特殊例子来理解这个非最优性，那就是目前为止除MesaNet的所有Attention，都允许K、V共享的选择，“允许”的意思是不一定最优，但至少能训出非平凡的结果，然而MesaNet并不行，因为K、V相同的话，MesaNet的StSt就恒为单位阵了。
-
-总的来说，MesaNet是一个让人赏心悦目的模型，但解析解也增加了它的复杂性和限制了它的灵活性，留下了不少亟待探索的空间。如果读者想要了解更多基于线性回归来构建序列模型的内容，还可以阅读TTR，它对各种线性回归目标下的序列模型做了详细讨论。
-
-## 方兴未艾路 #
-
-本文简要梳理了线性Attention的发展脉络，并介绍了部分模型的数学原理。线性Attention从模仿Softmax Attention起步，逐渐发展出自身特色，如今已成为极具竞争力的序列建模方案，甚至反过来为Softmax Attention的发展提供了新思路，这一过程本身充满了趣味性和启发性。
-
-_**转载到请包括本文地址：**https://www.kexue.fm/archives/11033_
-
-_**更详细的转载事宜请参考：**_《科学空间FAQ》
-
-**如果您还有什么疑惑或建议，欢迎在下方评论区继续讨论。**
-
-**如果您觉得本文还不错，欢迎分享/打赏本文。打赏并非要从中获得收益，而是希望知道科学空间获得了多少读者的真心关注。当然，如果你无视它，也不会影响你的阅读。再次表示欢迎和感谢！**
-
-打赏
-
-微信打赏
-
-支付宝打赏
-
-因为网站后台对打赏并无记录，因此欢迎在打赏时候备注留言。  
-你还可以**点击这里**或在下方评论区留言来告知你的建议或需求。
-
-**如果您需要引用本文，请参考：**
+Bài viết này đã tóm lược quá trình phát triển của Linear Attention và giới thiệu các nguyên lý toán học của một số mô hình. Linear Attention bắt đầu từ việc mô phỏng Softmax Attention, dần phát triển những đặc điểm riêng, và giờ đây đã trở thành giải pháp mô hình hóa chuỗi cực kỳ cạnh tranh, thậm chí còn cung cấp những ý tưởng mới cho sự phát triển của Softmax Attention. Toàn bộ quá trình này chứa đầy sự thú vị và tính gợi mở.
