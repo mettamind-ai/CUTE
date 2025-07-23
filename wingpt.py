@@ -79,7 +79,7 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim_ffn = int(6 * dim)
+        inter_dim_ffn = int(8 * dim)
         self.up_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
         self.down_proj = nn.Linear(inter_dim_ffn // 2, dim, bias=False)
 
@@ -112,8 +112,8 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             y = F.relu(up)
-            h = self.down_proj.weight.shape[1]
-            z = y[..., : h ] * y[..., -h : ] # double relu
+            h = torch.chunk(y, 2, dim=-1)
+            z = h[0] * h[1] # double relu
             ffn = self.down_proj(z)
 
             return x + att + ffn
