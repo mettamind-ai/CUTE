@@ -161,8 +161,8 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    # elif step == int(args.steps * 0.05): # 5% training progress
-    #     for m in sparse_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+    elif step == int(args.steps * 0.05): # 5% training progress
+        for m in sparse_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
