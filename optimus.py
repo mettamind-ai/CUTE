@@ -404,7 +404,7 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='emb|up_att'):  # bỏ
     sparse_names, sparse_params = [], []
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
-            if False: # "down_proj" in n:
+            if "down_proj" in n:
                 sparse_names.append(n)
                 sparse_params.append(m)
                 # quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
