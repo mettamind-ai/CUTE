@@ -77,6 +77,4 @@
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
-  - [ ] Tận dụng độ thưa từ `Spark` / `Selective Attn`
-  - [ ] Hỗ trợ `FlashMask`
-  - => Kết hợp FoX (biến đổi `KQ`) và DeltaFormer (biến đổi `V`) có thể đem lại lợi ích kép cho flash attn
+  - Tận dụng độ thưa từ `Spark` / `Selective Attn` và hỗ trợ `FlashMask`
