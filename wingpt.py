@@ -79,7 +79,7 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim_ffn = int(8 * dim)
+        inter_dim_ffn = int(4 * dim)
         self.up_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
         self.down_proj = nn.Linear(inter_dim_ffn // 2, dim, bias=False)
 
