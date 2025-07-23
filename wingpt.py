@@ -14,6 +14,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
+from flash.ops.swiglu import swiglu
 from einops import repeat
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -78,13 +79,19 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim = int(3.5*dim)
-        self.  up_proj = nn.Linear(dim, inter_dim, bias=False)
-        self.down_proj = nn.Linear(inter_dim, dim, bias=False)
+        inter_dim_att = int(2*dim)
+        self.up_att_proj = nn.Linear(dim, inter_dim_att, bias=False)
+        self.down_att_proj = nn.Linear(inter_dim_att, dim, bias=False)
+
+        inter_dim_ffn = int(4*dim)
+        self.up_ffn_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
+        self.down_ffn_proj = nn.Linear(inter_dim_ffn // 2, dim, bias=False)
 
         with torch.no_grad():
-            self.  up_proj.weight.copy_(init_linear(torch.empty(inter_dim, dim)))
-            self.down_proj.weight.zero_()
+            self.up_att_proj.weight.copy_(init_linear(torch.empty(inter_dim_att, dim)))
+            self.up_ffn_proj.weight.copy_(init_linear(torch.empty(inter_dim_ffn, dim)))
+            self.down_att_proj.weight.zero_()
+            self.down_ffn_proj.weight.zero_()
 
 
     def forward(self, x, cu_seqlens, max_seqlen, input_seq, rotary):
@@ -93,9 +100,12 @@ class Block(nn.Module):
         G, VD = self.group, self.vdim
         k_v_q = [HD//2, VD, D]
 
-        up = self.up_proj(norm(x))  # phép tính đắt nhất, bỏ ra ngoài checkpoint
+        xn = norm(x)
+        y = self.up_att_proj(xn)
+        z = self.up_ffn_proj(xn)
+
         def prepare():
-            k, v, q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
+            k, v, q = torch.split(y[..., : sum(k_v_q)], k_v_q, dim=-1)
             # Group Tied Attention https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
@@ -109,12 +119,12 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-            act = F.relu(up).square()
-            return att, act
+            yy  = self.down_att_proj(F.relu(y).square())
+            zz  = self.down_ffn_proj(swiglu(z))
+            ffn = yy * 0.3 + zz * 0.7
+            return x + att + ffn
 
-        att, act = checkpoint(prepare, use_reentrant=False)
-        ffn = self.down_proj(act)  # phép tính đắt nhì, bỏ ra ngoài checkpoint
-        return x + att + ffn
+        return checkpoint(prepare, use_reentrant=False)
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối

@@ -400,7 +400,7 @@ class Int8MixedLWeight(Tensor):
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
 from torchao.dtypes import SemiSparseLayout
 ###
-def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
+def convert_int8_mixed_precision(module:nn.Module, ignore='emb|up_att'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
     int8_names, int8_params = [], 0
     sparse_names, sparse_params = [], []
