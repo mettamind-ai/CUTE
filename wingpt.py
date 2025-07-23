@@ -113,6 +113,7 @@ class Block(nn.Module):
 
             act = F.relu(up).square()
             return x + att, act
+
         x_att, act = checkpoint(prepare, use_reentrant=False)
         return x_att + self.down_proj(act)
 

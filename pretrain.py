@@ -88,7 +88,7 @@ SPARSE: {sparse_short_names}""")
 ##  Init Optimizer(s)  ##
 #########################
 class LRSchedule:
-    def __init__(self, n_steps, decay_type="linear", warmup: float = 0.05, decay:  float = 0.15,):
+    def __init__(self, n_steps, decay_type="cosine", warmup: float = 0.05, decay:  float = 0.15,):
         self.t1 = int(n_steps * warmup)
         self.t2 = int(n_steps * (1 - decay))
         self.t3 = n_steps
@@ -117,7 +117,7 @@ for opt in [muon_optim, adam_optim]:
 ################
 ##  TRAINING  ##
 ################
-# torch._dynamo.config.patch(error_on_recompile=True)
+torch._dynamo.config.patch(error_on_recompile=True)
 lossf = torch.compile(lossf)#, fullgraph=True)
 model.train()
 
