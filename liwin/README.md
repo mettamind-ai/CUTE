@@ -6,7 +6,7 @@
   - https://asap-seminar.github.io/assets/slides/deltaformer_slide.pdf
 
 __Kết hợp best SWA (local) với Linear Attention (global)__
-![](liwin-00-crunch.png)
+![](/.save/liwin-00-crunch.png)
 - Hymba: 
     - https://www.youtube.com/watch?v=a31C8ahIDhk
     - https://asap-seminar.github.io/assets/slides/ASAP%20Talk_%20Hymba-Small%20Hybrid%20Language%20Model.pdf
