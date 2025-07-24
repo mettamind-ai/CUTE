@@ -112,8 +112,9 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
+            act = F.relu(up).square()
             with torch.no_grad():
-                act = F.relu(up).square().to_sparse_csr()
+                act = act.to_sparse_csr()
 
             return x + att, act
         x_att, act = checkpoint(prepare, use_reentrant=False)
