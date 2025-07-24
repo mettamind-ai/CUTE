@@ -60,22 +60,22 @@ def find_key(s):
     m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
 
-int8_names, int8_params, sparse_names, sparse_params = convert_int8_mixed_precision(model)
+int8_names, int8_params, sparsable_names, sparsable_params = convert_int8_mixed_precision(model)
 total_params = sum(p.numel() for p in model.parameters())
 
 int8_short_names = sorted(set(find_key(x) for x in int8_names))
 int8_percent = (int8_params/total_params)*100
 
-sparse_params_ = sum(x.weight.numel() for x in sparse_params)
-sparse_short_names = sorted(set(find_key(x) for x in sparse_names))
-sparse_percent = (sparse_params_/total_params)*100
+sparsable_params_ = sum(x.weight.numel() for x in sparsable_params)
+sparsable_short_names = sorted(set(find_key(x) for x in sparsable_names))
+sparsable_percent = (sparsable_params_/total_params)*100
 
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(int8_names)} Linear {int8_percent:.1f}% {int8_params:,}
-* {len(sparse_names)} Sparse {sparse_percent:.1f}% {sparse_params_:,}
-* {len(list(model.parameters())) - len(int8_names) - len(sparse_names)} Embeds {100 - int8_percent - sparse_percent:.1f}% {total_params - int8_params - sparse_params_:,}
+* {len(sparsable_names)} Sparse {sparsable_percent:.1f}% {sparsable_params_:,}
+* {len(list(model.parameters())) - len(int8_names) - len(sparsable_names)} Embeds {100 - int8_percent - sparsable_percent:.1f}% {total_params - int8_params - sparsable_params_:,}
 INT8: {int8_short_names}
-SPARSE: {sparse_short_names}""")
+SPARSE: {sparsable_short_names}""")
 
 #########################
 ##  Init Optimizer(s)  ##
@@ -157,7 +157,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if step == lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
+    if step == 1: # lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params:
