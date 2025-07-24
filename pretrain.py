@@ -22,7 +22,7 @@ torch.manual_seed(1981)
 ## Config
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=25, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 # model = WinGPT(dim=1536, n_layers=15, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
@@ -157,7 +157,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if step == 1: # lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
+    if step == lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params:

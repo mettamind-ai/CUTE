@@ -112,13 +112,15 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-            act = F.relu(up).square()
-            # ffn = self.down_proj(act)
-            act_csr = act.to_sparse_csr()
-            ffn = act_csr @ self.down_proj.weight.T
+            with torch.no_grad():
+                act = F.relu(up).square().to_sparse_csr()
 
-            return x + att + ffn
-        return checkpoint(prepare, use_reentrant=False)
+            return x + att, act
+        x_att, act = checkpoint(prepare, use_reentrant=False)
+
+        ffn = self.down_proj(act)
+        return x_att + ffn
+
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối

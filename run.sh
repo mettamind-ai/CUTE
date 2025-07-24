@@ -9,7 +9,7 @@
 # sudo sh cuda_12.9.1_575.57.08_linux.run
 # conda create -n cute python=3.12; conda activate cute
 # pip install nvidia-cutlass-dsl==4.1.0.dev0
-# python -m pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128 -U
+# python -m pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu129 -U
 
 #############################
 ## Others, data, test run ...
