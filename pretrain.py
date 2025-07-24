@@ -138,6 +138,14 @@ for step in range(args.steps):  # training loop
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
+    if args.sparse and step == lr_schedule.t1:
+        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+        from torchao.dtypes import SemiSparseLayout
+        for m in sparsable_params:
+            assert m.weight.shape == sparsable_params[0].weight.shape
+            quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+        muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
+
     muon_optim.step()
     adam_optim.step()
     model.zero_grad(set_to_none=True)
@@ -153,14 +161,6 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-
-    if args.sparse and step == lr_schedule.t1:
-        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-        from torchao.dtypes import SemiSparseLayout
-        for m in sparsable_params:
-            assert m.weight.shape == sparsable_params[0].weight.shape
-            quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
     if step % 2 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
