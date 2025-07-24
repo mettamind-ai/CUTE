@@ -163,7 +163,7 @@ for step in range(args.steps):  # training loop
         muon_optim.reset_momentum()
 
     if step % 2 == 0:
-        grad_norm = sum(p.grad.square().sum() for p in linear_params if p.grad is not None).item() ** 0.5
+        grad_norm = sum(p.grad.square().sum() for p in linear_params if p.weight.grad is not None).item() ** 0.5
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
         tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
