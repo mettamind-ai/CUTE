@@ -20,6 +20,7 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
+args.apply_24sparse = False
 if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
 model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
@@ -157,7 +158,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if step == lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
+    if args.apply_24sparse and step == lr_schedule.t1:
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params:
