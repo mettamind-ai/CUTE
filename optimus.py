@@ -272,6 +272,7 @@ class Muon1GPU(torch.optim.Optimizer):
                 x = max(1, rows / cols)**0.5 
                 p.add_(g, alpha=-group['lr']*x)
 
+
     def reset_momentum(self, shape=None):
         for group in self.param_groups:
             for p in group['params']:
@@ -279,9 +280,9 @@ class Muon1GPU(torch.optim.Optimizer):
                    self.state[p]['mm'] = torch.zeros_like(p.grad)
 
 
-################################
-##  OhMaiHead speedup LCE     ##
-################################
+#############################
+##  OhMaiHead speedup LCE  ##
+#############################
 MAX_ACTIVE_VOCAB = 1024 * 32  # 32k tối ưu cho speed, và vừa đủ 1:3 -> 1:4 pos/ng
 class OhMaiHead(nn.Module):
     def __init__(self, dim, vocab, bias=None):
@@ -405,15 +406,17 @@ class Int8MixedLWeight(Tensor):
         else: return out                                    # new unwrapped object
 
 
-def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
+def convert_int8_mixed_precision(module:nn.Module, ignore='emb', sparsable='down_proj'):
     ignore = re.compile(rf'{ignore}')
+    sparsable = re.compile(rf'{sparsable}')
+
     linear_names, linear_params = [], []
     sparsable_names, sparsable_params = [], []
 
     for n, m in module.named_modules():
         if isinstance(m, nn.Linear) and not ignore.search(n): 
 
-            if "down_proj" in n:
+            if sparsable.search(n):
                 sparsable_names.append(n)
                 sparsable_params.append(m)
             else:

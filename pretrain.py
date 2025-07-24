@@ -79,6 +79,7 @@ SPARSE: {sparsable_short_names}""")
 ##  Init Optimizer(s)  ##
 #########################
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+embedding_params = [p for n, p in model.named_parameters() if "proj" not in n]
 adam_params = [
     dict(params=model.embeds.parameters(),   lr=0.003),
     dict(params=model.unembeds.parameters(), lr=0.002),
@@ -155,15 +156,18 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if args.sparse and step == lr_schedule.t1:
+    if args.sparse and step == 2 * lr_schedule.t1:
         # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        muon_optim.reset_momentum()
+        # muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
     if step % 2 == 0:
-        grad_norm = sum(p.weight.grad.square().sum() for p in linear_params).item() ** 0.5
+        linear_grad_norm = sum(p.weight.grad.square().sum() for p in linear_params).item() ** 0.5
+        sparsable_grad_norm = sum(p.weight.grad.square().sum() for p in sparsable_params).item() ** 0.5
+        embedding_grad_norm = sum(p.weight.grad.square().sum() for p in embedding_params).item() ** 0.5
+
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
         tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
@@ -171,7 +175,9 @@ for step in range(args.steps):  # training loop
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
-            grad_norm            = grad_norm,
+            linear_grad_norm     = linear_grad_norm,
+            sparsable_grad_norm  = sparsable_grad_norm,
+            embedding_grad_norm  = embedding_grad_norm,
             max_memory_allocated = torch.cuda.max_memory_allocated(), 
             tokens_seen_M        = tokens_seen / 1e6,
             tokens_per_second_K  = tokens_per_second_K,
