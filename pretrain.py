@@ -154,7 +154,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if step % 4 == 0:
+    if step % 2 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
         tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
