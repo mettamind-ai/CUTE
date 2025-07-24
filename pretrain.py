@@ -20,10 +20,10 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-if args.bs is None: args.bs = 48
+if args.bs is None: args.bs = 56
 tokens_per_batch =  args.bs*1024
 # model = WinGPT(dim=1024, n_layers=25, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
-model = WinGPT(dim=2048, n_layers=13, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=2048, n_layers=11, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
