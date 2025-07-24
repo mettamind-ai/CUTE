@@ -63,7 +63,7 @@ class Rotary(nn.Module):
         else:    return x_rot
 
 
-SLIDING_WINDOW = 1024
+SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id):
         super().__init__()
@@ -73,7 +73,7 @@ class Block(nn.Module):
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
         self.vdim = dim//self.group
 
-        self.window = SLIDING_WINDOW * 8 if self.long else SLIDING_WINDOW
+        self.window = SLIDING_WINDOW * 4 if self.long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
 
         self.head_dim  = head_dim
@@ -122,12 +122,12 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
     return F.rms_norm(x, (x.size(-1),))
 
 class WinGPT(nn.Module):
-    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim):
+    def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
         self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, vocab_size, -2)
+        self.mtp_head = Block(dim, head_dim, vocab_size, -2 if n_layers % 4 == 0 else -1)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
         with torch.no_grad():

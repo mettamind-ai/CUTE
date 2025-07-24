@@ -326,3 +326,21 @@ Huấn luyện model lớn:
   - Spark: 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
   - Polynomial Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
   - [ ] Dùng Spark tạo độ thưa > 90%, kết hợp Poly để tăng khả năng nhớ rồi dùng 2:4 Sparse cho Act giúp speedup
+
+
+20250724
+--------
+```py pretrain.py
+## https://github.com/pytorch/ao/tree/main/torchao/prototype/sparsity
+# Activation quant dạng int8 đối xứng động theo từng token và 
+# định lượng trọng số (weight) int8 theo từng kênh (per-channel) cho các lớp tuyến tính (linear).
+# Usage: `quantize_(module, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))`
+# Note: chỉ apply khi đã pretrain được vài ngàn steps để sparse pattern của activation được ổn định
+from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+from torchao.dtypes import SemiSparseLayout
+
+# 5% training progress thì 2:4 sparse hoá sparsable_params
+TODO: điều tra lỗi trong 2:4 sparse engine khiến loss đi lên !!!
+elif step == int(args.steps * 0.05):
+    for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+```

@@ -6,14 +6,6 @@ import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, 
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-## https://github.com/pytorch/ao/tree/main/torchao/prototype/sparsity
-# Activation quant dạng int8 đối xứng động theo từng token và 
-# định lượng trọng số (weight) int8 theo từng kênh (per-channel) cho các lớp tuyến tính (linear).
-# Usage: `quantize_(module, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))`
-# Note: chỉ apply khi đã pretrain được vài ngàn steps để sparse pattern của activation được ổn định
-from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-from torchao.dtypes import SemiSparseLayout
-
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
@@ -28,10 +20,10 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-if args.bs is None: args.bs = 64
+if args.bs is None: args.bs = 56
 tokens_per_batch =  args.bs*1024
-# model = WinGPT(dim=1024, n_layers=25, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
-model = WinGPT(dim=2048, n_layers=12, head_dim=128, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+# model = WinGPT(dim=1024, n_layers=25, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=2048, n_layers=11, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -161,11 +153,6 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-
-    ## 5% training progress thì 2:4 sparse hoá sparsable_params
-    # TODO: điều tra lỗi trong 2:4 sparse engine khiến loss đi lên !!!
-    # elif step == int(args.steps * 0.05):
-    #     for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
 
     if step % 4 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
