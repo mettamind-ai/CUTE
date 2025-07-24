@@ -138,12 +138,12 @@ for step in range(args.steps):  # training loop
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    if args.sparse and step == lr_schedule.t1:
-        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-        from torchao.dtypes import SemiSparseLayout
+    # sparsity
+    if args.sparse: # and step == lr_schedule.t1:
+        from torchao.sparsity.sparse_api import sparsify_, SemiSparseWeightConfig
         for m in sparsable_params:
-            quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        muon_optim.reset_momentum()
+            sparsify_(m, SemiSparseWeightConfig())
+        # muon_optim.reset_momentum()
 
     muon_optim.step()
     adam_optim.step()
