@@ -116,8 +116,8 @@ class Block(nn.Module):
             return x + att, act
 
         x_att, act = checkpoint(prepare, use_reentrant=False)
-        # ffn = self.down_proj(act)
-        ffn = sparse_mm(act, self.down_proj)
+        ffn = self.down_proj(act)
+        # ffn = sparse_mm(act, self.down_proj)  # rất chậm
         return x_att + ffn
 
 

@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",    type=int, default=64)
 parser.add_argument("--steps", type=int, default=80_000)
 parser.add_argument("--vocab", type=int, default=1024*50)
-parser.add_argument("--sparse", type=bool, default=False)
+parser.add_argument("--sparse", type=bool, default=True)
 
 args = parser.parse_args()
 tokens_per_batch =  args.bs*1024

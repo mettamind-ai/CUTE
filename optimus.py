@@ -90,7 +90,7 @@ def _(A: Tensor, B: Tensor, row_scale_A: Tensor, col_scale_B: Tensor, dtype=None
 
 @torch.no_grad()
 def quantize_int8(tensor, dim=1, eps=1e-12, sr=False):
-    tensor = tensor.to_dense()
+    # tensor = tensor.to_dense()
     tensor = tensor.float()                             # float32
     scale  = tensor.abs().amax(dim, keepdim=True) / 127 # float32
     tensor = tensor / scale.clip(eps)                   # float32: clip(cận_dưới_eps) tránh chia cho 0
