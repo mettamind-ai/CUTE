@@ -154,7 +154,7 @@ for step in range(args.steps):  # training loop
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
 
-    if step == int(args.steps * 0.02):
+    if step == lr_schedule.t1:    # hết warmup, ReLU sparse pattern ổn định thì chuyển qua 2:4 sparse
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params:
