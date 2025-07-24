@@ -80,9 +80,22 @@ SPARSE: {sparse_short_names}""")
 #########################
 ##  Init Optimizer(s)  ##
 #########################
+muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+adam_params = [
+    dict(params=model.embeds.parameters(),   lr=0.003),
+    dict(params=model.unembeds.parameters(), lr=0.002),
+]
+adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
+muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
+
+for opt in [muon_optim, adam_optim]:
+    for group in opt.param_groups: group["init_lr"] = group["lr"]
+
 class LRSchedule:
     def __init__(self, n_steps, decay_type="cosine", warmup: float = 0.05, decay:  float = 0.15,):
         self.t1 = int(n_steps * warmup)
+        if self.t1 <  200: self.t1 =  200  # min warmup steps
+        if self.t1 > 1000: self.t1 = 1000  # max warmup steps
         self.t2 = int(n_steps * (1 - decay))
         self.t3 = n_steps
         self.decay_type = decay_type
@@ -96,16 +109,7 @@ class LRSchedule:
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
-muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-adam_params = [
-    dict(params=model.embeds.parameters(),   lr=0.003),
-    dict(params=model.unembeds.parameters(), lr=0.002),
-]
-adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
-muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
-
-for opt in [muon_optim, adam_optim]:
-    for group in opt.param_groups: group["init_lr"] = group["lr"]
+lr_schedule = LRSchedule(args.steps, decay=0.15)
 
 ################
 ##  TRAINING  ##
@@ -120,7 +124,6 @@ save_dir.mkdir(parents=True, exist_ok=True)
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
 logger = wandb.init(dir="/tmp", config=args,)
 
-lr_schedule = LRSchedule(args.steps, warmup=0.02, decay=0.13)
 for step in range(args.steps):  # training loop
     started_at = time.time()
 
