@@ -271,6 +271,13 @@ class Muon1GPU(torch.optim.Optimizer):
                 x = max(1, rows / cols)**0.5 
                 p.add_(g, alpha=-group['lr']*x)
 
+    def reset_momentum(self, shape=None):
+        for group in self.param_groups:
+            for p in group['params']:
+                # print(self.state[p]['mm'].shape, p.grad.shape)  # DEBUG
+                if self.state[p]['mm'].shape == shape:
+                   self.state[p]['mm'] = torch.zeros_like(p.grad)
+
 
 ################################
 ##  OhMaiHead speedup LCE     ##
@@ -398,7 +405,7 @@ class Int8MixedLWeight(Tensor):
         else: return out                                    # new unwrapped object
 
 
-def convert_int8_mixed_precision(module:nn.Module, ignore='emb|up_att'):  # bỏ unembedding khỏi int8 mixed
+def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
     int8_names, int8_params = [], 0
     sparsable_names, sparsable_params = [], []

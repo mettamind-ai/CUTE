@@ -196,7 +196,7 @@ if __name__ == "__main__":
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
     model.train()
 
-    for step in range(10):
+    for step in range(5):
         ## Generate sequences with batch dimension
         input_seq = torch.randint(5, vocab_size//4, (ctxlen,), dtype=torch.long).cuda()
         target    = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
@@ -210,5 +210,6 @@ if __name__ == "__main__":
 
         loss_model.backward()
         optim.step(); aptim.step()
+    optim.reset_momentum()
 
     model.unembeds.update_async_weight()

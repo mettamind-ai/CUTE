@@ -80,3 +80,4 @@
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - Tận dụng độ thưa từ `Spark` / `Selective Attn` và hỗ trợ `FlashMask`
+  - DistrAttention xấp xỉ ở hidden dim, 1.35x speedup https://www.alphaxiv.org/abs/2507.17245

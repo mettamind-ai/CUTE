@@ -20,10 +20,10 @@ args = parser.parse_args()
 torch.manual_seed(1981)
 
 ## Config
-if args.bs is None: args.bs = 56
+if args.bs is None: args.bs = 64
 tokens_per_batch =  args.bs*1024
 # model = WinGPT(dim=1024, n_layers=25, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
-model = WinGPT(dim=2048, n_layers=11, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1536, n_layers=16, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 ## Load data, sooner better
 def _load_data_shard(file: Path):
@@ -153,6 +153,14 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
+
+    if step == int(args.steps * 0.02):
+        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+        from torchao.dtypes import SemiSparseLayout
+        for m in sparsable_params:
+            assert m.shape == sparsable_params[0].shape
+            quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+        muon_optim.reset_momentum(shape=sparsable_params[0].shape)
 
     if step % 2 == 0:
         muon_lr = muon_optim.param_groups[0]["lr"]
