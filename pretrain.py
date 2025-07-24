@@ -166,7 +166,7 @@ for step in range(args.steps):  # training loop
     if step % 2 == 0:
         linear_grad_norm = sum(p.weight.grad.square().sum() for p in linear_params).item() ** 0.5
         sparsable_grad_norm = sum(p.weight.grad.square().sum() for p in sparsable_params).item() ** 0.5
-        embedding_grad_norm = sum(p.weight.grad.square().sum() for p in embedding_params).item() ** 0.5
+        embedding_grad_norm = sum(p.grad.square().sum() for p in embedding_params).item() ** 0.5
 
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
