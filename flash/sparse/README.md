@@ -1,17 +1,9 @@
 # Efficient 2:4 Sparse Pre-training
 This repository provides the official implementations of efficient 2:4 pre-training toolkit from the following papers.
 
-**Accelerating Transformer Pre-training with 2:4 Sparsity** [[arXiv]](https://arxiv.org/abs/2404.01847) [[OpenReview]](https://openreview.net/forum?id=kTaX87Zn6M) [[PDF]](https://proceedings.mlr.press/v235/hu24r.html)
+**Accelerating Transformer Pre-training with 2:4 Sparsity** [[arXiv]](https://ar5iv.labs.arxiv.org/html/2404.01847v3)
 
-Yuezhou Hu, Kang Zhao, Weiyu Huang, Jianfei Chen, Jun Zhu
-
-International Conference on Machine Learning (ICML), 2024
-
-**S-STE: Continuous Pruning Function for Efficient 2:4 Sparse Pre-training** [[arXiv]](https://arxiv.org/abs/2409.09099) [[OpenReview]](https://openreview.net/forum?id=8abNCVJs2j)
-
-Yuezhou Hu, Jun Zhu, Jianfei Chen
-
-Neural Information Processing Systems (NeurIPS), 2024
+**S-STE: Continuous Pruning Function for Efficient 2:4 Sparse Pre-training** [[arXiv]](https://arxiv.org/html/2409.09099) 
 
 Meanwhile, we also provide our implementation for some relevant papers/algorithms: [STEP](https://openreview.net/forum?id=0O7b2Y198V).
 
@@ -20,7 +12,6 @@ For scripts to replicate the experimental results, please visit [https://github.
 ## Installation
 
 From source:
-
 ```
 git clone --recursive https://github.com/huyz2023/2by4-pretrain
 cd 2by4-pretrain
@@ -29,13 +20,12 @@ pip install -e .
 
 ## Overview
 
-To get started with 2:4-spMM, official [torch.sparse](https://pytorch.org/docs/2.1/sparse.html#sparse-semi-structured-tensors) works well enough. However, we've added more features on top of that.
+To get started with 2:4-spMM, official [torch.sparse](https://pytorch.org/docs/2.6/sparse.html#sparse-semi-structured-tensors) works well enough. However, we've added more features on top of that.
 
 **Constructing 2:4 tensor**
 
 To construct a sparse semi-structured tensor, simply calling `sparse.to_sparse_semi_structured` would work:
-
-```
+```python
 import sparse
 
 A = torch.randn(128, 128, device='cuda:0', dtype=torch.half)
@@ -45,22 +35,19 @@ A_sparse = sparse.to_sparse_semi_structured(A)
 Different from PyTorch, this would automatically prune the smallest two elements out of four.
 
 You can also specify a certain 2:4 mask for this step. Typically, the mask is a 0/1 tensor (dtype does not matter) which indicates how to prune the tensor:
-
-```
+```python
 A_sparse = sparse.to_sparse_semi_structured(A, mask=your_mask)
 ```
 
 Additionally, our toolkit supports minimum-variance unbiased estimator (MVUE) as its pruning strategy:
-
-```
+```python
 A_sparse = sparse.to_sparse_semi_structured(A, MVUE24=True)
 ```
 
 **Support for different dtype**
 
 We now support float16, bfloat16, int8, float8_e5m2 and float8_e4m3fn in dense-sparse conversion. Let's try this out:
-
-```
+```python
 A = torch.randn(128, 128, device='cuda:0')
 A_sparse = sparse.to_sparse_semi_structured(A, dtype=torch.float16)
 A_sparse = sparse.to_sparse_semi_structured(A, dtype=torch.int8)
@@ -81,8 +68,7 @@ Same as PyTorch, those operations are supported:
 - aten.t.detach(sparse)
 
 There are two 2:4-spMM kernels in total. CUTLASS and cuSPARSElt. The cuSPARSElt backend is used only when you set
-
-```
+```python
 sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 ```
 
@@ -91,8 +77,7 @@ By default, CUTLASS backend is used. Different from PyTorch, we support float8 2
 **Transposable mask select**
 
 Efficient mask select kernel based on convolution:
-
-```
+```python
 mask_select = sparse.TransposableSparse()
 A_sparse, A_mask = sparse.mask_select(A)
 ```
@@ -100,16 +85,14 @@ A_sparse, A_mask = sparse.mask_select(A)
 **Masked decay**
 
 Fused kernel for masked decay:
-
-```
+```python
 sparse.masked_add_(grad, p, mask, alpha=2e-4)
 ```
 
 This is equivalent to `grad.add_(p.data * (1 - mask), alpha=decay)`.
 
 **Soft-thresholding (pseudo)**
-
-```
+```python
 A_sparse, A_mask = sparse.soft_threshold24_triton(A)
 ```
 
@@ -120,8 +103,7 @@ Take nanoGPT as an example.
 **Step 1**
 
 Replace `nn.Linear` with self-defined `SparseLinearTranspose`:
-
-```
+```python
 class SparseLinearTranspose(nn.Linear):
     def __init__(self, in_features: int, out_features: int, bias: bool = True, func=lambda step: 'dense',
                  **kwargs):
@@ -203,8 +185,7 @@ class sparse_linear_transpose(autograd.Function):
 **Step 2**
 
 Apply masked decay:
-
-```
+```python
 with torch.no_grad():
     for p in model.parameters():
         if hasattr(p, 'mask') and p.mode == 'sparse':
@@ -216,9 +197,8 @@ with torch.no_grad():
 **Step 3**
 
 Dense fine-tuning:
-
-```
-# Step 4: manually convert to dense fine-tune stage
+```python
+# manually convert to dense fine-tune stage
 if iter_num == 250000:
     for p in model.parameters():
         if hasattr(p, 'mask') and p.mode == 'sparse':
@@ -228,8 +208,7 @@ if iter_num == 250000:
 ### S-STE: Continuous Pruning Function for Efficient 2:4 Sparse Pre-training
 
 Replace `nn.Linear` with self-defined `SparseLinear`:
-
-```
+```python
 class SoftThreshold(autograd.Function):
     @staticmethod
     def forward(ctx, weight, scale):
@@ -277,8 +256,7 @@ To replicate **STEP** in two steps:
 **Step 1**
 
 Replace `nn.Linear` with a STE-based 2:4 linear module:
-
-```
+```python
 import torch
 from torch import autograd, nn
 import torch.nn.functional as F
@@ -315,8 +293,7 @@ class STEPLinear(nn.Linear):
 **Step 2**
 
 Replace AdamW optimizer with STEP specific `sparse.AdamW_STEP `optimizer:
-
-```
+```python
 import sparse
 
 - adam = torch.optim.Adam(...)
@@ -327,27 +304,3 @@ Some notes on extra arguments for `AdamW_STEP`:
 
 - `clipping`: a tuple for $T_{min}$ and $T_{max}$ in Algorithm 2, recommended to be 10% and 50% of total optimization steps.
 - `option`: different options to compute $Z_t$ in Algorithm 2, need to be `1` or `2`.
-
-## Citation
-
-If you like our study, please cite:
-
-```
-@inproceedings{
-  hu2024accelerating,
-  title={Accelerating Transformer Pre-training with 2:4 Sparsity},
-  author={Yuezhou Hu and Kang Zhao and Weiyu Huang and Jianfei Chen and Jun Zhu},
-  booktitle={Forty-first International Conference on Machine Learning},
-  year={2024},
-  url={https://openreview.net/forum?id=kTaX87Zn6M}
-}
-@inproceedings{
-  hu2024sste,
-  title={S-{STE}: Continuous Pruning Function for Efficient 2:4 Sparse Pre-training},
-  author={Yuezhou Hu and Jun Zhu and Jianfei Chen},
-  booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
-  year={2024},
-  url={https://openreview.net/forum?id=8abNCVJs2j}
-}
-```
-

@@ -69,9 +69,8 @@
   - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
 
 - Quy chiếu MoA / FFN / Attn về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
-  - [ ] `2:4 sparse` 1.3x nếu độ thưa > 90%
-    - https://ar5iv.labs.arxiv.org/html/2404.01847v3
-    - https://docs.pytorch.org/docs/2.6/sparse.html#sparse-semi-structured-tensors
+  - `2:4 sparse` 1.3x nếu độ thưa > 90%
+    - [ ] tích hợp https://github.com/pytorch/ao/tree/main/torchao/prototype/sparsity vào int8 mixed
   - `Spark` 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
   - `Polynomial` Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
   - `Selective Attn` sử dụng lại 1 attn head làm selective mask https://www.alphaxiv.org/abs/2410.02703
