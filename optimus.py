@@ -407,7 +407,7 @@ class Int8MixedLWeight(Tensor):
 
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembedding khỏi int8 mixed
     ignore = re.compile(rf'{ignore}')
-    int8_names, int8_params = [], 0
+    linear_names, linear_params = [], []
     sparsable_names, sparsable_params = [], []
 
     for n, m in module.named_modules():
@@ -417,9 +417,9 @@ def convert_int8_mixed_precision(module:nn.Module, ignore='emb'):  # bỏ unembe
                 sparsable_names.append(n)
                 sparsable_params.append(m)
             else:
-                int8_names.append(n)
-                int8_params += m.weight.numel()
+                linear_names.append(n)
+                linear_params.append(m)
 
             ## Lúc đầu sử dụng int8 mixed cho sparsable, sau khi pretrain ổn định có thể chuyển sang 2:4 sparse
             m.weight = nn.Parameter(Int8MixedLWeight(m.weight.detach()), requires_grad=m.weight.requires_grad)
-    return int8_names, int8_params, sparsable_names, sparsable_params
+    return linear_names, linear_params, sparsable_names, sparsable_params

@@ -57,21 +57,22 @@ def find_key(s):
     m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
     return "*" + m.group(2) if m.group(1) else m.group(2)
 
-int8_names, int8_params, sparsable_names, sparsable_params = convert_int8_mixed_precision(model)
+linear_names, linear_params, sparsable_names, sparsable_params = convert_int8_mixed_precision(model)
 total_params = sum(p.numel() for p in model.parameters())
 
-int8_short_names = sorted(set(find_key(x) for x in int8_names))
-int8_percent = (int8_params/total_params)*100
+linear_params_ = sum(x.weight.numel() for x in linear_params)
+linear_short_names = sorted(set(find_key(x) for x in linear_names))
+linear_percent = (linear_params_/total_params)*100
 
 sparsable_params_ = sum(x.weight.numel() for x in sparsable_params)
 sparsable_short_names = sorted(set(find_key(x) for x in sparsable_names))
 sparsable_percent = (sparsable_params_/total_params)*100
 
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
-* {len(int8_names)} Linear {int8_percent:.1f}% {int8_params:,}
+* {len(linear_names)} Linear {linear_percent:.1f}% {linear_params_:,}
 * {len(sparsable_names)} Sparse {sparsable_percent:.1f}% {sparsable_params_:,}
-* {len(list(model.parameters())) - len(int8_names) - len(sparsable_names)} Embeds {100 - int8_percent - sparsable_percent:.1f}% {total_params - int8_params - sparsable_params_:,}
-INT8: {int8_short_names}
+* {len(list(model.parameters())) - len(linear_names) - len(sparsable_names)} Embeds {100 - linear_percent - sparsable_percent:.1f}% {total_params - linear_params_ - sparsable_params_:,}
+INT8: {linear_short_names}
 SPARSE: {sparsable_short_names}""")
 
 #########################
@@ -128,7 +129,8 @@ for step in range(args.steps):  # training loop
     loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=1)
     tokens, targets = next(train_loader)
     loss.backward()
-    grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
+    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0) # ko grad norm head và embeddings
+    grad_norm = sum(p.grad.square().sum() for p in linear_params if p.grad is not None).item() ** 0.5
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
@@ -138,7 +140,7 @@ for step in range(args.steps):  # training loop
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    if args.sparse and step == 100: # lr_schedule.t1
+    if args.sparse and step == lr_schedule.t1:
         # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
