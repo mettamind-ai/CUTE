@@ -275,8 +275,7 @@ class Muon1GPU(torch.optim.Optimizer):
     def reset_momentum(self, shape=None):
         for group in self.param_groups:
             for p in group['params']:
-                # print(self.state[p]['mm'].shape, p.grad.shape)  # DEBUG
-                if self.state[p]['mm'].shape == shape:
+                if shape is None or self.state[p]['mm'].shape == shape:
                    self.state[p]['mm'] = torch.zeros_like(p.grad)
 
 
