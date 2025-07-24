@@ -113,7 +113,9 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             act = F.relu(up).square()
-            ffn = self.down_proj(act)
+            # ffn = self.down_proj(act)
+            act_csr = act.to_sparse_csr()
+            ffn = act_csr @ self.down_proj.weight.T
 
             return x + att + ffn
         return checkpoint(prepare, use_reentrant=False)

@@ -161,7 +161,7 @@ for step in range(args.steps):  # training loop
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params:
-            assert m.shape == sparsable_params[0].weight.shape
+            assert m.weight.shape == sparsable_params[0].weight.shape
             quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
         muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
