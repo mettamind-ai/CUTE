@@ -113,16 +113,14 @@ class Block(nn.Module):
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
             act = F.relu(up).square()
-            with torch.no_grad():
-                act = act.to_sparse_csr()
+            # ffn = self.down_proj(act)
+            ffn = sparse_mm(act, self.down_proj)
 
-            return x + att, act
-        x_att, act = checkpoint(prepare, use_reentrant=False)
+            return x + att + ffn
+        return checkpoint(prepare, use_reentrant=False)
 
-        ffn = self.down_proj(act)
-        return x_att + ffn
-
-
+@torch.compiler.disable
+def sparse_mm(act, linear): return act.to_sparse_csr() @ linear.weight.T
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
