@@ -79,12 +79,9 @@ SPARSE: {sparsable_short_names}""")
 ##  Init Optimizer(s)  ##
 #########################
 muon_params = [p for n, p in model.named_parameters() if "proj" in n]
-embedding_params = [p for n, p in model.named_parameters() if "proj" not in n]
-adam_params = [
-    dict(params=model.embeds.parameters(),   lr=0.003),
-    dict(params=model.unembeds.parameters(), lr=0.002),
-]
-adam_optim = torch.optim.AdamW(adam_params, betas=(0.8, 0.95), weight_decay=0, fused=True)
+adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
+
+adam_optim = torch.optim.AdamW(adam_params, lr=0.002,  weight_decay=0, fused=True)
 muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
@@ -132,15 +129,11 @@ for step in range(args.steps):  # training loop
     tokens, targets = next(train_loader)
     loss.backward()
 
-    # set optimization hyperparameters
-    frac = min(step / lr_schedule.t1, 1)
     for opt in [muon_optim, adam_optim]:
         for group in opt.param_groups:
             group["lr"] = lr_schedule.get_lr(group["init_lr"], step)
-            if opt == muon_optim:  # muon momentum warmup
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0)
+    # grad_norm = torch.nn.utils.clip_grad_norm_(3, max_norm=1.0)
     muon_optim.step()
     adam_optim.step()
     
@@ -164,9 +157,8 @@ for step in range(args.steps):  # training loop
         # muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
     if step % 2 == 0:
-        linear_grad_norm = sum(p.weight.grad.square().sum() for p in linear_params).item() ** 0.5
-        sparsable_grad_norm = sum(p.weight.grad.square().sum() for p in sparsable_params).item() ** 0.5
-        embedding_grad_norm = sum(p.grad.square().sum() for p in embedding_params).item() ** 0.5
+        muon_grad_norm = sum(p.grad.square().sum() for p in muon_params).item() ** 0.5
+        adam_grad_norm = sum(p.grad.square().sum() for p in adam_params).item() ** 0.5
 
         muon_lr = muon_optim.param_groups[0]["lr"]
         tokens_seen = tokens_per_batch * step
@@ -175,9 +167,8 @@ for step in range(args.steps):  # training loop
         logger.log(dict(
             loss                 = lossv, 
             lr                   = muon_lr, 
-            linear_grad_norm     = linear_grad_norm,
-            sparsable_grad_norm  = sparsable_grad_norm,
-            embedding_grad_norm  = embedding_grad_norm,
+            muon_grad_norm       = muon_grad_norm,
+            adam_grad_norm       = adam_grad_norm,
             max_memory_allocated = torch.cuda.max_memory_allocated(), 
             tokens_seen_M        = tokens_seen / 1e6,
             tokens_per_second_K  = tokens_per_second_K,
