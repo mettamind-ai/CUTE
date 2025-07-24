@@ -330,7 +330,7 @@ Huấn luyện model lớn:
 
 20250724
 --------
-```py pretrain.py
+```py pretrain.py https://arxiv.org/html/2503.16672v1#S2
 ## https://github.com/pytorch/ao/tree/main/torchao/prototype/sparsity
 # Activation quant dạng int8 đối xứng động theo từng token và 
 # định lượng trọng số (weight) int8 theo từng kênh (per-channel) cho các lớp tuyến tính (linear).
