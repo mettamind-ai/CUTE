@@ -138,12 +138,11 @@ for step in range(args.steps):  # training loop
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    if args.sparse and step == lr_schedule.t1:
+    if args.sparse and step == 100: # lr_schedule.t1
         # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
-        for m in sparsable_params:
-            quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+        for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
         muon_optim.reset_momentum()
 
     muon_optim.step()
