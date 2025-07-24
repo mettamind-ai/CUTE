@@ -14,7 +14,7 @@ parser.add_argument("--sparse", type=bool, default=False)
 
 args = parser.parse_args()
 tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=20, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 # model = WinGPT(dim=1536, n_layers=15, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
 
 from datetime import datetime
