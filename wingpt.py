@@ -67,8 +67,9 @@ SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
-        self.long = ( layer_id % 4 == 3 )             # 3 ngắn + 1 dài
-        if n_layers - 1 == layer_id: self.long = True # last layer should be long
+        self.long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
+        if n_layers - 1 == layer_id and layer_id % 4 == 2:
+            self.long = True # last layer should be long
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
         self.vdim = dim//self.group
