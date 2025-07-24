@@ -65,10 +65,10 @@ class Rotary(nn.Module):
 
 SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
-    def __init__(self, dim, head_dim, vocab_size, layer_id):
+    def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
-        self.layer_id = layer_id
-        self.long = layer_id % 4 == 3 # 3 ngắn + 1 dài
+        self.long = ( layer_id % 4 == 3 )             # 3 ngắn + 1 dài
+        if n_layers - 1 == layer_id: self.long = True # last layer should be long
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
         self.vdim = dim//self.group
@@ -125,9 +125,9 @@ class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128):
         super().__init__()
         self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i) for i in range(n_layers)])
+        self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i, n_layers) for i in range(n_layers)])
         self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, vocab_size, -2 if n_layers % 4 == 0 else -1)
+        self.mtp_head = Block(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
         with torch.no_grad():
