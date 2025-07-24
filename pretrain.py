@@ -124,12 +124,12 @@ logger = wandb.init(dir="/tmp", config=args,)
 
 for step in range(args.steps):  # training loop
     started_at = time.time()
+    model.zero_grad(set_to_none=True)
 
     cu_seqlens, max_seqlen = get_cu_max_seqlens_from(tokens, eot=eot)
     loss = lossf(model, tokens, targets, cu_seqlens, max_seqlen, cu_steps=1)
     tokens, targets = next(train_loader)
     loss.backward()
-    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0)
 
     # set optimization hyperparameters
     frac = min(step / lr_schedule.t1, 1)
@@ -139,16 +139,9 @@ for step in range(args.steps):  # training loop
             if opt == muon_optim:  # muon momentum warmup
                 group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-    if args.sparse and step == lr_schedule.t1:
-        # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
-        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-        from torchao.dtypes import SemiSparseLayout
-        for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        muon_optim.reset_momentum()
-
+    # grad_norm = torch.nn.utils.clip_grad_norm_(muon_params, max_norm=1.0)
     muon_optim.step()
     adam_optim.step()
-    model.zero_grad(set_to_none=True)
     
     if   step == 0:
         time0 = time.time() # cần time0 asap để tính tokens_per_second
@@ -161,6 +154,13 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
+
+    if args.sparse and step == lr_schedule.t1:
+        # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
+        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+        from torchao.dtypes import SemiSparseLayout
+        for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+        muon_optim.reset_momentum()
 
     if step % 2 == 0:
         grad_norm = sum(p.grad.square().sum() for p in linear_params if p.grad is not None).item() ** 0.5
