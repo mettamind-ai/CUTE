@@ -13,9 +13,9 @@ parser.add_argument("--vocab", type=int, default=1024*50)
 parser.add_argument("--sparse", type=bool, default=False)
 
 args = parser.parse_args()
-tokens_per_batch =  args.bs*1024
-model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
-# model = WinGPT(dim=1536, n_layers=15, vocab_size=args.vocab, ctxlen=tokens_per_batch).cuda()
+tokens_per_step = args.bs*1024
+model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_step).cuda()
+# model = WinGPT(dim=1536, n_layers=15, vocab_size=args.vocab, ctxlen=tokens_per_step).cuda()
 
 from datetime import datetime
 from pathlib import Path
@@ -49,7 +49,7 @@ def data_generator(filename_pattern: str, batch_size: int):
 
 # end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
 eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"end-of-text: {eot}")
-train_loader = data_generator("data/fineweb10B/fineweb_train_*.bin", tokens_per_batch)
+train_loader = data_generator("data/fineweb10B/fineweb_train_*.bin", tokens_per_step)
 tokens, targets = next(train_loader)
 
 ## INT8 hoá
@@ -117,7 +117,7 @@ model.train()
 save_dir = Path("runs/") / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 save_dir.mkdir(parents=True, exist_ok=True)
 
-print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_batch//1024}k_tok_seq / step\n\n")
+print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_step//1024}k_tok_seq / step\n\n")
 logger = wandb.init(dir="/tmp", config=args,)
 
 for step in range(args.steps):  # training loop
@@ -161,8 +161,8 @@ for step in range(args.steps):  # training loop
         adam_grad_norm = sum(p.grad.square().sum() for p in adam_params).item() ** 0.5
 
         muon_lr = muon_optim.param_groups[0]["lr"]
-        tokens_seen = tokens_per_batch * step
-        tokens_per_second_K = int(tokens_per_batch / (time.time() - started_at))/1000
+        tokens_seen = tokens_per_step * step
+        tokens_per_second_K = int(tokens_per_step / (time.time() - started_at))/1000
         lossv = loss.item()
         logger.log(dict(
             loss                 = lossv, 
