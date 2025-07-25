@@ -78,10 +78,10 @@ SPARSE: {sparsable_short_names}""")
 #########################
 ##  Init Optimizer(s)  ##
 #########################
-muon_params = [p for n, p in model.named_parameters() if "proj" in n]
+muon_params = [p for n, p in model.named_parameters() if "proj"     in n]
 adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
 
-adam_optim = torch.optim.AdamW(adam_params, lr=0.002,  weight_decay=0, fused=True)
+adam_optim = torch.optim.AdamW(adam_params, lr=0.002,  weight_decay=0.002, fused=True)
 muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
@@ -154,7 +154,7 @@ for step in range(args.steps):  # training loop
         from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
         from torchao.dtypes import SemiSparseLayout
         for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        # muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
+        muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
     if step % 2 == 0:
         muon_grad_norm = sum(p.grad.square().sum() for p in muon_params).item() ** 0.5
