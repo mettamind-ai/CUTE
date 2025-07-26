@@ -65,6 +65,7 @@
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
   - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
+  - `PaTH` nâng cấp RoPE giúp Attn từ TC0 lên NC1
   - `DeltaFormer` áp dụng delta rule vào value của softmax attn
   - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
 
