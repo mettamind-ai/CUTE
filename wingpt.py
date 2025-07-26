@@ -114,12 +114,13 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-            act = torch.chunk(F.relu(up).square(), 2, dim=-1)
-            ffn = self.down0_proj(act[0]) + self.down1_proj(act[1])
+            y = torch.chunk(up, 2, dim=-1)
+            ffn0 = self.down0_proj(F.relu(y[0]).square())
+            ffn1 = self.down1_proj(F.sigmoid(y[1])*y[1])
 
-            return x + att + ffn
+            return x + att + ffn0 + ffn1
         return checkpoint(prepare, use_reentrant=False)
-    
+
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
