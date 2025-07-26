@@ -119,7 +119,7 @@ class Block(nn.Module):
 
             return x + att + ffn
         return checkpoint(prepare, use_reentrant=False)
-
+    
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
