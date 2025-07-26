@@ -82,11 +82,13 @@ class Block(nn.Module):
 
         inter_dim_ffn = int(4 * dim)
         self.up_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
-        self.down_proj = nn.Linear(inter_dim_ffn, dim, bias=False)
+        self.down0_proj = nn.Linear(inter_dim_ffn//2, dim, bias=False)
+        self.down1_proj = nn.Linear(inter_dim_ffn//2, dim, bias=False)
 
         with torch.no_grad():
             self.up_proj.weight.copy_(init_linear(torch.empty(inter_dim_ffn, dim)))
-            self.down_proj.weight.zero_()
+            self.down0_proj.weight.zero_()
+            self.down1_proj.weight.zero_()
 
 
     def forward(self, x, cu_seqlens, max_seqlen, input_seq, rotary):
@@ -112,8 +114,8 @@ class Block(nn.Module):
             att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
                 window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
 
-            act = F.relu(up).square()
-            ffn = self.down_proj(act)
+            act = torch.chunk(F.relu(up).square(), 2, dim=-1)
+            ffn = self.down0_proj(act[0]) + self.down1_proj(act[1])
 
             return x + att + ffn
         return checkpoint(prepare, use_reentrant=False)
