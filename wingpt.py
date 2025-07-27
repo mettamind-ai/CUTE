@@ -15,7 +15,8 @@ from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from flash.ops.swiglu import swiglu
-from einops import repeat
+from liwin.path_attn.parallel import parallel_path_attention
+from einops import repeat, rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -67,15 +68,16 @@ SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
-        self.long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
-        if n_layers - 1 == layer_id and layer_id % 4 == 2:
-            self.long = True # last layer should be long
+
+        long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
+        if n_layers - 1 == layer_id and layer_id % 4 == 2: long = True
+
+        self.window = SLIDING_WINDOW * 4 if long else SLIDING_WINDOW
+        self.type = "nope" if long else "path" # "rope"
+        print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
-        self.vdim = dim//self.group
-
-        self.window = SLIDING_WINDOW * 4 if self.long else SLIDING_WINDOW
-        print(f"Layer {layer_id} => {'Nope' if self.long else 'RoPE'}, win {self.window}")
+        self.vdim = dim // self.group
 
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
@@ -87,29 +89,44 @@ class Block(nn.Module):
             init_linear(self.up_proj.weight)
             self.down_proj.weight.zero_()
 
+        if self.type == "path":
+            self.forget_beta = nn.Linear(dim, self.num_heads + self.num_heads // self.group, bias=True)
+
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        kvgq  = [HD//2, VD, D, D]
+        KVQW  = [HD//2, VD, D, VD, D]
 
         up = self.up_proj(norm(x))
         def prepare():
-            k, v, q, g = torch.split(up[..., : sum(kvgq)], kvgq, dim=-1)
+            k, v, q, w = torch.split(up[..., : sum(KVQW)], KVQW, dim=-1)
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
-            if not self.long: q, k = rotary(q, half=True), rotary(k)
+            if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
-            C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
-            att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
-            att = att.view(T, D) * F.sigmoid(g) # Gated Attention https://alphaxiv.org/abs/2505.06708
+            if self.type == "path":
+                g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
+                att = parallel_path_attention(
+                    q=q.view(1, T, H   , HD), 
+                    k=k.view(1, T, H//G, HD), 
+                    v=v.view(1, T, H//G, HD),
+                    w=F.normalize(w.view(1, T, H//G, HD), dim=-1, p=2), # L2 norm
+                    g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
+                    beta=b.view(1, T, H//G).sigmoid()*2, # allowing negative eigenvalues
+                    cu_seqlens=cu_seqlens
+                )[0].view(T, D)
+            else: # rope or nope
+                # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
+                C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
+                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
+                att = att.view(T, D)
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
             y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)

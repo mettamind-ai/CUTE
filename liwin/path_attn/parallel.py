@@ -205,8 +205,7 @@ def parallel_path_attention(
     assert q.shape[-1] == k.shape[-1], 'q, k should have the same head_dim.'
     assert k.shape == w.shape, 'k, w should have the same shape.'
     assert beta.shape[:3] == k.shape[:3], 'beta should have the same number of heads as k'
-    if g is not None:
-        assert g.shape[:3] == q.shape[:3], 'g should have the same number of heads as q'
+    if g is not None: assert g.shape[:3] == q.shape[:3], 'g should have the same number of heads as q'
     assert q.shape[-2] % k.shape[-2] == 0, 'the number of query heads should be divisible by the number of key heads'
     o, k_cache = ParallelPATHAttentionFunction.apply(q, k, v, w, beta, g, scale, cu_seqlens, use_cache)
     return o, k_cache
