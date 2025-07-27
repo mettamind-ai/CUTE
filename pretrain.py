@@ -68,11 +68,11 @@ sparsable_short_names = sorted(set(find_key(x) for x in sparsable_names))
 sparsable_percent = (sparsable_params_/total_params)*100
 
 print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
-* {len(linear_names)} Linear {linear_percent:.1f}% {linear_params_:,}
-* {len(sparsable_names)} Sparse {sparsable_percent:.1f}% {sparsable_params_:,}
-* {len(list(model.parameters())) - len(linear_names) - len(sparsable_names)} Embeds {100 - linear_percent - sparsable_percent:.1f}% {total_params - linear_params_ - sparsable_params_:,}
+* {len(linear_names)} INT8Linear {linear_percent:.1f}% {linear_params_:,}
+* {len(sparsable_names)} Sparsable {sparsable_percent:.1f}% {sparsable_params_:,}
+* {len(list(model.parameters())) - len(linear_names) - len(sparsable_names)} Embedding {100 - linear_percent - sparsable_percent:.1f}% {total_params - linear_params_ - sparsable_params_:,}
 INT8: {linear_short_names}
-SPARSE: {sparsable_short_names}""")
+SPARSABLE: {sparsable_short_names}""")
 
 #########################
 ##  Init Optimizer(s)  ##
