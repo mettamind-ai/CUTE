@@ -97,7 +97,7 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        KVQW  = [HD//2, VD, D, VD, D]
+        KVQW  = [HD//2, VD, D, VD]
 
         up = self.up_proj(norm(x))
         def prepare():
