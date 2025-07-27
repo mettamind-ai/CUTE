@@ -10,7 +10,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",    type=int, default=64)
 parser.add_argument("--steps", type=int, default=80_000)
 parser.add_argument("--vocab", type=int, default=1024*50)
-parser.add_argument("--sparse", type=bool, default=False)
 
 args = parser.parse_args()
 tokens_per_step = args.bs*1024
@@ -148,13 +147,6 @@ for step in range(args.steps):  # training loop
     elif step == 2:
         step_time = time.time() - time1
         time0 = time1 - step_time # tính đúng time0 theo step timing chuẩn
-
-    if args.sparse and step == 2 * lr_schedule.t1:
-        # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
-        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-        from torchao.dtypes import SemiSparseLayout
-        for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-        muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 
     if step % 2 == 0:
         muon_grad_norm = sum(p.grad.square().sum() for p in muon_params).item() ** 0.5

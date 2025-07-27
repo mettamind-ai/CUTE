@@ -80,27 +80,24 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim_ffn = int(4 * dim)
-        self.up_proj = nn.Linear(dim, inter_dim_ffn, bias=False)
-        self.down0_proj = nn.Linear(inter_dim_ffn//2, dim, bias=False)
-        self.down1_proj = nn.Linear(inter_dim_ffn//2, dim, bias=False)
+        self.up_proj = nn.Linear(dim, dim*4, bias=False)
+        self.down_proj = nn.Linear(dim*3, dim, bias=False)
 
         with torch.no_grad():
-            self.up_proj.weight.copy_(init_linear(torch.empty(inter_dim_ffn, dim)))
-            self.down0_proj.weight.zero_()
-            self.down1_proj.weight.zero_()
+            init_linear(self.up_proj.weight)
+            self.down_proj.weight.zero_()
 
 
-    def forward(self, x, cu_seqlens, max_seqlen, input_seq, rotary):
+    def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        k_v_q = [HD//2, VD, D]
+        kvgq  = [HD//2, VD, D, D]
 
         up = self.up_proj(norm(x))
         def prepare():
 
-            k, v, q = torch.split(up[..., : sum(k_v_q)], k_v_q, dim=-1)
+            k, v, q, g = torch.split(up[..., : sum(kvgq)], kvgq, dim=-1)
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
@@ -110,15 +107,17 @@ class Block(nn.Module):
             if not self.long: q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            # TODO: Với non-rotate tạo hàm flash_attn mới nhận k chưa repeat để speedup cho long attention
-            att = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, \
-                window_size=(self.window, 0), softcap=50).view(T, D)  # softcap https://www.alphaxiv.org/abs/2410.16682
+            # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
+            C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
+            att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
+            att = att.view(T, D) * F.sigmoid(g) # Gated Attention https://alphaxiv.org/abs/2505.06708
 
-            y = torch.chunk(up, 2, dim=-1)
-            ffn0 = self.down0_proj(F.relu(y[0]).square())
-            ffn1 = self.down1_proj(F.sigmoid(y[1])*y[1])
+            # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
+            y   = up[..., -self.down_proj.weight.shape[1] : ]   # query (x) @ key (up_proj)
+            act = F.relu(y).square()    # kernel
+            ffn = self.down_proj(act)   # value
 
-            return x + att + ffn0 + ffn1
+            return x + att + ffn
         return checkpoint(prepare, use_reentrant=False)
 
 
@@ -134,29 +133,29 @@ class WinGPT(nn.Module):
         self.mtp_head = Block(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
         self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
-        with torch.no_grad():
-            self.mtp_proj.weight.copy_(init_linear(torch.empty(dim, 2*dim)))
+        with torch.no_grad(): init_linear(self.mtp_proj.weight)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = x0 = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
-        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, input_seq, self.rotary)
-        return norm(x), x0
+        x = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
+        return norm(x)
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, ignore=-100, cu_steps=1):
     target = model.unembeds.activate(target)
-    xn, x0 = model(input_seq, cu_seqlens, max_seqlen)
+    xn = model(input_seq, cu_seqlens, max_seqlen)
     model.unembeds.update_new_tokens_weight()
 
     def prepare():
         zeros = torch.zeros_like(xn[:1])
         xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
+        x0    = norm(model.embeds(input_seq))
         y0    = torch.cat([xx, x0], dim=-1)
         y1    = model.mtp_proj(y0)
         return y1
 
     y1 = checkpoint(prepare, use_reentrant=False)
-    y2 = model.mtp_head(y1, cu_seqlens, max_seqlen, input_seq, model.rotary)
+    y2 = model.mtp_head(y1, cu_seqlens, max_seqlen, model.rotary)
     yn = norm(y2)
     target[0] = ignore
 

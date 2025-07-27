@@ -339,12 +339,11 @@ Huấn luyện model lớn:
 
 # 5% training progress thì 2:4 sparse hoá sparsable_params
 # TODO: điều tra lỗi trong 2:4 sparse engine khiến loss đi lên !!!
-if step == int(args.steps * 0.05):
-    from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-    from torchao.dtypes import SemiSparseLayout
-    for m in sparsable_params:
-        assert m.shape == sparsable_params[0].shape
-        quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-    muon_optim.reset_momentum(sparsable_params[0].shape)
+    if args.sparse and step == 2 * lr_schedule.t1:
+        # Applies int8 dnynamic symmetric per-token activation and int8 per-channel weigh quantization + 2:4 sparsity
+        from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
+        from torchao.dtypes import SemiSparseLayout
+        for m in sparsable_params: quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
+        # muon_optim.reset_momentum(shape=sparsable_params[0].weight.shape)
 ```
 - khi chuyển sang 2:4 có thể phải reset momentum về `0`?
