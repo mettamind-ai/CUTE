@@ -54,18 +54,15 @@
 # TODO
 
 - PLE linh hoạt
-  - [ ] concat `embedding` với `x (hidden)` rồi mới `up_proj` giúp tăng khả năng học?
   - [x] concat với value giúp giảm 1/2 value (loss giữ nguyên)
+  - [ ] concat `embedding` với `x (hidden)` rồi mới `up_proj` giúp tăng khả năng học?
   - [ ] khi dùng với hnet, thống kê bi-byte hay được dùng nhất để làm capped-PLE
 
 - HNet để cải thiện token embedding / abstract representation
   - [ ] tknz nhẹ (giống pre-processing)
-  - [ ] hnet có giúp loại bỏ sparse attn?
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
-  - `PaTH` nâng cấp RoPE giúp Attn từ TC0 lên NC1
-  - `Gated Attention` Đầu ra đã được điều chỉnh `attn = attn ⊙ sigmoid(W_g(x))` https://www.alphaxiv.org/abs/2505.06708
 
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`

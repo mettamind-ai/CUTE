@@ -356,3 +356,5 @@ Huấn luyện model lớn:
   - Tận dụng độ thưa từ `Spark` / `Selective Attn` và hỗ trợ `FlashMask`
   - DistrAttention xấp xỉ ở hidden dim, 1.35x speedup https://www.alphaxiv.org/abs/2507.17245
   - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
+  - `PaTH` nâng cấp RoPE giúp Attn từ TC0 lên NC1 (bị loss=NaN)
+  - `Gated Attention` Đầu ra đã được điều chỉnh `attn = attn ⊙ sigmoid(W_g(x))` (ko thấy tốt lên)

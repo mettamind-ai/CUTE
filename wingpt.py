@@ -65,7 +65,7 @@ class Rotary(nn.Module):
         else:    return x_rot
 
 
-SLIDING_WINDOW = 1024*2
+SLIDING_WINDOW = 1024*1
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
@@ -74,7 +74,8 @@ class Block(nn.Module):
         if n_layers - 1 == layer_id and layer_id % 4 == 2: long = True
 
         self.window = SLIDING_WINDOW * 4 if long else SLIDING_WINDOW
-        self.type = "nope" if long else "path" # "rope"
+        self.type = "nope" if long else "rope"
+        assert self.type in "nope rope path".split()
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
@@ -84,10 +85,12 @@ class Block(nn.Module):
         self.num_heads = dim // head_dim
 
         self.up_proj = nn.Linear(dim, dim*4, bias=False)
-        self.down_proj = nn.Linear(dim*2, dim, bias=False)
+        self.down_proj = nn.Linear(dim*3, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
+            init_linear(self.down_proj.weight)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
@@ -128,6 +131,7 @@ class Block(nn.Module):
                 C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
                 att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
                 att = att.view(T, D)
+            att = self.o_proj(att)
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
             y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
