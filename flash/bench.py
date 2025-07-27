@@ -4,9 +4,6 @@ import triton, torch, torch.nn.functional as F
 from sagefwd import sageattn_varlen
 from attn import flash_attn_func, flash_attn_varlen_func
 
-from linear_attn.parallel_nsa import parallel_nsa
-from linear_attn.parallel_attn import parallel_attn
-
 def assert_sage_attn_is_same_as_sdpa():
     torch.manual_seed(0)
     q = torch.randn((4, 32, 1024, 64), dtype=torch.bfloat16, device="cuda")
@@ -36,10 +33,10 @@ def assert_sage_attn_is_same_as_sdpa():
 assert_sage_attn_is_same_as_sdpa()
 
 
-lines = "FA_varlen sage_varlen FA".split() # NSA fla_attn".split()
+lines = "FA_varlen sage_varlen FA".split()
 BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
-# assert N_HEADS == Hkv # cần cho MoBA và wingpt
-assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen và NSA (tối ưu GPU)
+# assert N_HEADS == Hkv # cần cho MoBA
+# assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen và NSA
 
 config = triton.testing.Benchmark(
     line_vals=lines, line_names=lines,
@@ -76,10 +73,6 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
         if provider == "FA_varlen": return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
         if provider == "sage_varlen": return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
         if provider == "FA": return lambda: flash_attn_func(q=q, k=k, v=v, softmax_scale=1.3, causal=True,)
-
-        # qt, kt, vt = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-        # if provider == "NSA": return lambda: parallel_nsa(qt, kt, vt, block_indices=indices, block_size=block_size)
-        # if provider == "fla_attn": return lambda: parallel_attn(qt, kt, vt, scale=1.3, head_first=False)
 
     ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
     flops_per_matmul = 2.0 * BATCH * H * N_CTX * N_CTX * HEAD_DIM
