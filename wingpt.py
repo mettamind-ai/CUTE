@@ -16,6 +16,7 @@ from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from flash.ops.swiglu import swiglu
 from liwin.path_attn.parallel import parallel_path_attention
+from fla.modules.l2norm import l2_norm
 from einops import repeat, rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -91,7 +92,6 @@ class Block(nn.Module):
 
         if self.type == "path":
             self.forget_beta = nn.Linear(dim, self.num_heads + self.num_heads // self.group, bias=True)
-            self.o_proj = nn.Linear(dim, dim, bias=False)
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
@@ -118,12 +118,11 @@ class Block(nn.Module):
                     q=q.view(1, T, H   , HD), 
                     k=k.view(1, T, H//G, HD), 
                     v=v.view(1, T, H//G, HD),
-                    w=F.normalize(w.view(1, T, H//G, HD), dim=-1, p=2), # L2 norm
+                    w=l2_norm(w.view(1, T, H//G, HD)),
                     g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
                     beta=b.view(1, T, H//G).sigmoid()*2, # allowing negative eigenvalues
                     cu_seqlens=cu_seqlens
                 )[0].view(T, D)
-                att = self.o_proj(att)
             else: # rope or nope
                 # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
                 C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
