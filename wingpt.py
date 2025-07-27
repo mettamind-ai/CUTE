@@ -118,7 +118,7 @@ class Block(nn.Module):
                     k=k.view(1, T, H//G, HD), 
                     v=v.view(1, T, H//G, HD),
                     w=F.normalize(w.view(1, T, H//G, HD), dim=-1, p=2), # L2 norm
-                    g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
+                    # g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
                     beta=b.view(1, T, H//G).sigmoid()*2, # allowing negative eigenvalues
                     cu_seqlens=cu_seqlens
                 )[0].view(T, D)
