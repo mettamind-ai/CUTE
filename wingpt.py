@@ -112,12 +112,12 @@ class Block(nn.Module):
             att = att.view(T, D) * F.sigmoid(g) # Gated Attention https://alphaxiv.org/abs/2505.06708
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up[..., -self.down_proj.weight.shape[1] : ]   ### query (x) @ key (up_proj)
-            act = F.relu(y).square()                            ### kernel
+            y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
+            act = F.relu(y).square()                            ### FFN: kernel
             return x + att, act
 
         x_att, act = checkpoint(prepare, use_reentrant=False)
-        ffn = self.down_proj(act)                               ### value
+        ffn = self.down_proj(act)                               ### FFN: value
         return x_att + ffn
 
 

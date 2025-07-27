@@ -67,7 +67,7 @@
   - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
   - `PaTH` nâng cấp RoPE giúp Attn từ TC0 lên NC1
   - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
-  - `Gated Attention` Đầu ra đã được điều chỉnh `O' = O ⊙ sigmoid(x)` https://www.alphaxiv.org/abs/2505.06708
+  - `Gated Attention` Đầu ra đã được điều chỉnh `attn = attn ⊙ sigmoid(W_g(x))` https://www.alphaxiv.org/abs/2505.06708
 
 - Quy chiếu MoA / FFN / Attn về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
   - `2:4 sparse` 1.3x nếu độ thưa > 90%
