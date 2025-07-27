@@ -96,7 +96,6 @@ class Block(nn.Module):
 
         up = self.up_proj(norm(x))
         def prepare():
-
             k, v, q, g = torch.split(up[..., : sum(kvgq)], kvgq, dim=-1)
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
@@ -113,12 +112,13 @@ class Block(nn.Module):
             att = att.view(T, D) * F.sigmoid(g) # Gated Attention https://alphaxiv.org/abs/2505.06708
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up[..., -self.down_proj.weight.shape[1] : ]   # query (x) @ key (up_proj)
-            act = F.relu(y).square()    # kernel
-            ffn = self.down_proj(act)   # value
+            y   = up[..., -self.down_proj.weight.shape[1] : ]   ### query (x) @ key (up_proj)
+            act = F.relu(y).square()                            ### kernel
+            return x + att, act
 
-            return x + att + ffn
-        return checkpoint(prepare, use_reentrant=False)
+        x_att, act = checkpoint(prepare, use_reentrant=False)
+        ffn = self.down_proj(act)                               ### value
+        return x_att + ffn
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
