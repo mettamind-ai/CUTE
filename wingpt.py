@@ -131,16 +131,16 @@ class Block(nn.Module):
                 C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
                 att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
                 att = att.view(T, D)
-            att = self.o_proj(att)
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
             y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
             act = F.relu(y).square()                            ### FFN: kernel
-            return x + att, act
+            return x, att, act
 
-        x_att, act = checkpoint(prepare, use_reentrant=False)
+        x, att, act = checkpoint(prepare, use_reentrant=False)
+        att = self.o_proj(att)
         ffn = self.down_proj(act)                               ### FFN: value
-        return x_att + ffn
+        return x + att + ffn
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
