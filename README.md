@@ -64,21 +64,9 @@
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
-  - `FoX` áp dụng cơ chế quên, giống learnable alibi => thay RoPE !!
   - `PaTH` nâng cấp RoPE giúp Attn từ TC0 lên NC1
-  - `Stack Transformer` giúp học ngôn ngữ (hình thức) tốt hơn https://www.alphaxiv.org/abs/2507.15343
   - `Gated Attention` Đầu ra đã được điều chỉnh `attn = attn ⊙ sigmoid(W_g(x))` https://www.alphaxiv.org/abs/2505.06708
-
-- Quy chiếu MoA / FFN / Attn về chung cơ chế Sparse (Sparse Matrix / Sparse Matmul / MegaBlocks)
-  - `2:4 sparse` 1.3x nếu độ thưa > 90%
-    - [ ] tích hợp https://github.com/pytorch/ao/tree/main/torchao/sparsity vào int8 mixed
-      - https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1363
-  - `Spark` 1/2 Q@K + GeLU làm score rồi chọn stastical topk (sparse 92% mlp & 96% attn) https://www.alphaxiv.org/abs/2506.06644
-  - `Polynomial` Composition Activations giúp tăng perf https://arxiv.org/abs/2411.03884v3
-  - `Selective Attn` sử dụng lại 1 attn head làm selective mask https://www.alphaxiv.org/abs/2410.02703
 
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
-  - Tận dụng độ thưa từ `Spark` / `Selective Attn` và hỗ trợ `FlashMask`
-  - DistrAttention xấp xỉ ở hidden dim, 1.35x speedup https://www.alphaxiv.org/abs/2507.17245

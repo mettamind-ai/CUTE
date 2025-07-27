@@ -8,7 +8,7 @@ import pytest
 import torch
 from einops import rearrange
 
-from fla.ops.path_attn.parallel import parallel_path_attention
+from path_attn.parallel import parallel_path_attention
 from fla.utils import assert_close, device, is_intel_alchemist
 
 
