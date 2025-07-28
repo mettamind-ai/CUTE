@@ -84,9 +84,10 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        self.up_proj = nn.Linear(dim, dim*4, bias=False)
-        self.down_proj = nn.Linear(dim*3, dim, bias=False)
-        self.o_proj = nn.Linear(dim, dim, bias=False)
+        inter_dim = int(dim * 3.5)
+        self.up_proj = nn.Linear(dim, inter_dim + dim, bias=False)
+        self.down_proj = nn.Linear(inter_dim, dim, bias=False)
+        # self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
@@ -140,7 +141,7 @@ class Block(nn.Module):
             return x, att, act
         x, att, act = checkpoint(prepare, use_reentrant=False)
 
-        att = self.o_proj(att)
+        # att = self.o_proj(att)
         ffn = self.down_proj(act)                               ### FFN: value
         return x + att + ffn
 
