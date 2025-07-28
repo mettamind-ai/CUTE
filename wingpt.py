@@ -101,11 +101,11 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        KVQW  = [HD//2, VD, D, VD]
+        K_V_Q = [HD//2, VD, D]
 
         up = self.up_proj(norm(x))
         def prepare():
-            k, v, q, w = torch.split(up[..., : sum(KVQW)], KVQW, dim=-1)
+            k, v, q = torch.split(up[..., : sum(K_V_Q)], K_V_Q, dim=-1)
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
@@ -116,6 +116,7 @@ class Block(nn.Module):
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
             if self.type == "path":
+                w = up[..., -VD : ]
                 g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
                 att = parallel_path_attention(
                     q=q.view(1, T, H   , HD), 
@@ -129,15 +130,16 @@ class Block(nn.Module):
             else: # rope or nope
                 # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
                 C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
-                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS) # softcap=50 https://alphaxiv.org/abs/2410.16682
-                att = att.view(T, D)
+                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, D) 
+                # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
             y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
             act = F.relu(y).square()                            ### FFN: kernel
-            return x, att, act
 
+            return x, att, act
         x, att, act = checkpoint(prepare, use_reentrant=False)
+
         att = self.o_proj(att)
         ffn = self.down_proj(act)                               ### FFN: value
         return x + att + ffn
@@ -149,16 +151,17 @@ def norm(x: Tensor): # root mean square của các phần tử theo chiều cu�
 class WinGPT(nn.Module):
     def __init__(self, vocab_size, n_layers, dim, ctxlen, head_dim=128):
         super().__init__()
-        self.rotary   = Rotary(head_dim, ctxlen)
-        self.blocks   = nn.ModuleList([Block(dim, head_dim, vocab_size, i, n_layers) for i in range(n_layers)])
-        self.embeds   = nn.Embedding(vocab_size, dim)
-        self.mtp_head = Block(dim, head_dim, vocab_size, -2, n_layers)
-        self.mtp_proj = nn.Linear(2*dim, dim, bias=False)
-        self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
+        self.emb_scale = math.sqrt(dim)
+        self.rotary    = Rotary(head_dim, ctxlen)
+        self.blocks    = nn.ModuleList([Block(dim, head_dim, vocab_size, i, n_layers) for i in range(n_layers)])
+        self.embeds    = nn.Embedding(vocab_size, dim)
+        self.mtp_head  = Block(dim, head_dim, vocab_size, -2, n_layers)
+        self.mtp_proj  = nn.Linear(2*dim, dim, bias=False)
+        self.unembeds  = OhMaiHead(dim, vocab_size, bias=False)
         with torch.no_grad(): init_linear(self.mtp_proj.weight)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
-        x = norm(self.embeds(input_seq))  # norm emb để tạo large residuals https://www.alphaxiv.org/abs/2312.16903
+        x = self.embeds(input_seq) * self.emb_scale # large residuals https://www.alphaxiv.org/abs/2312.16903
         for blk in self.blocks: x = blk(x, cu_seqlens, max_seqlen, self.rotary)
         return norm(x)
 
@@ -170,7 +173,7 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
 
     def prepare():
         zeros = torch.zeros_like(xn[:1])
-        xx    = torch.cat([zeros, xn[:-1]], dim=0)  # x dịch phải
+        xx    = torch.cat([zeros, xn[:-1]], dim=0)  # xn dịch phải
         x0    = norm(model.embeds(input_seq))
         y0    = torch.cat([xx, x0], dim=-1)
         y1    = model.mtp_proj(y0)
