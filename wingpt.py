@@ -71,9 +71,10 @@ class Block(nn.Module):
         long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
         if n_layers - 1 == layer_id and layer_id % 4 == 2: long = True
 
-        self.window = SLIDING_WINDOW * 4 if long else SLIDING_WINDOW
         self.type = "nope" if long else "rope"
         assert self.type in "nope rope path".split()
+
+        self.window = SLIDING_WINDOW * 4 if long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
@@ -82,33 +83,38 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim = int(dim * 4)
+        inter_dim = int(dim * 3)
         self.up_proj = nn.Linear(dim, inter_dim, bias=False)
         self.down_proj = nn.Linear(inter_dim, dim, bias=False)
+
         self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
             init_linear(self.down_proj.weight)
             init_linear(self.q_proj.weight)
+            init_linear(self.o_proj.weight)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
             self.forget_beta = nn.Linear(dim, self.num_heads + self.num_heads // self.group, bias=True)
+            with torch.no_grad(): init_linear(self.forget_beta.weight)
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        K_V   = [HD//2, VD]
 
         xn = norm(x)
         up = self.up_proj(xn)
 
         def prepare():
-            q = self.q_proj(xn)
-            k, v = torch.split(up[..., : sum(K_V)], K_V, dim=-1)
+            q = self.q_proj(xn)  # query sử dụng proj riêng
+            kvg = [HD//2, VD, D] # key, value, gate dùng chung tham số với FFN up_proj
+            k, v, g = torch.split(up[..., : sum(kvg)], kvg, dim=-1)
+
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
@@ -119,7 +125,7 @@ class Block(nn.Module):
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            if self.type == "path":
+            if self.type == "path":  # hiện đang bị lỗi loss -> NaN (int8?)
                 w = up[..., -VD : ]
                 g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
                 att = parallel_path_attention(
@@ -142,8 +148,12 @@ class Block(nn.Module):
             act = F.relu(y).square()    # FFN: kernel
             ffn = self.down_proj(act)   # FFN: value
 
+            # Gated attn giúp giảm bùng grad và tăng khả năng biểu diễn https://arxiv.org/abs/2505.06708
+            att = att * g.sigmoid()     # ATT: sigmoid gated phá tính linear của att
+            att = self.o_proj(att)      # ATT: qua o_proj vừa trộn các head att vừa giống như FFN down_proj
+
             return x + att + ffn
-        return  checkpoint(prepare, use_reentrant=False)
+        return checkpoint(prepare, use_reentrant=False)
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
