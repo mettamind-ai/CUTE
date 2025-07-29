@@ -85,15 +85,12 @@ class Block(nn.Module):
         inter_dim = int(dim * 4)
         self.up_proj = nn.Linear(dim, inter_dim, bias=False)
         self.down_proj = nn.Linear(inter_dim, dim, bias=False)
-
         self.q_proj = nn.Linear(dim, dim, bias=False)
-        # self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
             init_linear(self.down_proj.weight)
             init_linear(self.q_proj.weight)
-            # init_linear(self.o_proj.weight)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
@@ -141,15 +138,12 @@ class Block(nn.Module):
                 # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
-            act = F.relu(y).square()                            ### FFN: kernel
-            ffn = self.down_proj(act)                           ### FFN: value
+            y   = up                    # FFN: query (x) @ key (up_proj)
+            act = F.relu(y).square()    # FFN: kernel
+            ffn = self.down_proj(act)   # FFN: value
 
-            # att = self.o_proj(att)
             return x + att + ffn
         return  checkpoint(prepare, use_reentrant=False)
-
-
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))
