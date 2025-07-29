@@ -67,3 +67,4 @@
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
+  - PaTH attention với cơ chế sliding window (local)
