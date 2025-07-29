@@ -31,39 +31,37 @@ def init_linear(w: Tensor):
     return w.uniform_(-bound, bound)
 
 class Rotary(nn.Module):
-    def __init__(self, dim: int, ctxlen: int):
+    def __init__(self, head_dim: int, ctxlen: int):
         super().__init__()
-        self.rotary_dim = dim // 2
-        base, half = 1/10_000, self.rotary_dim // 2
-        angular_freq = base ** torch.linspace(0, 1, steps=half, dtype=torch.float32)
+        self.rot_dim = head_dim//2              # 128 head dim => 64 rotate dim
+        base, pairs = 1/10_000, self.rot_dim//2 # 64 rot_dim form 32 unique pairs of dim to rotate
+        angular_freq = base ** torch.linspace(0, 1, steps=pairs, dtype=torch.float32)
         positions = torch.arange(ctxlen, dtype=torch.float32)
-        theta = torch.einsum("i,j -> ij", positions, angular_freq)  # theta[i, j] = p[i] * a[j]
-        self.cos = nn.Buffer(theta.cos(), persistent=False)
-        self.sin = nn.Buffer(theta.sin(), persistent=False)
-
+        θ = torch.einsum("i,j -> ij", positions, angular_freq)
+        # θ[i,j] = i × a[j] = absolute rotation angle for position i in dimension pair j
+        self.cos = nn.Buffer(θ.cos(), persistent=False)
+        self.sin = nn.Buffer(θ.sin(), persistent=False)
 
     def forward(self, x: Tensor, half=False):
         ctxlen, head, dim = x.shape
         assert self.cos.shape[0] >= ctxlen
-
         if half:
-            assert self.rotary_dim == dim // 2 and dim % 2 == 0
+            assert self.rot_dim * 2 == dim
             x_pass, x_rot = x.chunk(2, dim=-1)
         else:
-            assert self.rotary_dim == dim
+            assert self.rot_dim == dim
             x_rot = x
-
-        ## Áp dụng phép quay cho x_rot
-        cos    = self.cos[:ctxlen, None, :]
-        sin    = self.sin[:ctxlen, None, :]
+        cos    = self.cos[:ctxlen, None, :] # (T, D) => (T, H, D)
+        sin    = self.sin[:ctxlen, None, :] # (T, D) => (T, H, D)
+        ## Chia cặp để quay
         x1, x2 = x_rot.to(dtype=torch.float32).chunk(2, dim=-1)
-        y1     = x1 * (+cos) + x2 * sin
-        y2     = x1 * (-sin) + x2 * cos
+        ## Quay từng cặp (x1, x2) một góc θ tương ứng với position và pair's angular_freq
+        y1     = x1 * (+cos) + x2 * sin     # |y1| = | cos(θ)   sin(θ)| |x1|
+        y2     = x1 * (-sin) + x2 * cos     # |y2|   |-sin(θ)   cos(θ)| |x2|
         x_rot  = torch.cat((y1, y2), -1).type_as(x)
 
         if half: return torch.cat((x_pass, x_rot), dim=-1)
         else:    return x_rot
-
 
 SLIDING_WINDOW = 1024*1
 class Block(nn.Module):
@@ -84,14 +82,18 @@ class Block(nn.Module):
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
 
-        inter_dim = int(dim * 3.5)
-        self.up_proj = nn.Linear(dim, inter_dim + dim, bias=False)
+        inter_dim = int(dim * 4)
+        self.up_proj = nn.Linear(dim, inter_dim, bias=False)
         self.down_proj = nn.Linear(inter_dim, dim, bias=False)
+
+        self.q_proj = nn.Linear(dim, dim, bias=False)
         # self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
             init_linear(self.down_proj.weight)
+            init_linear(self.q_proj.weight)
+            # init_linear(self.o_proj.weight)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
@@ -102,11 +104,14 @@ class Block(nn.Module):
         T, D  = x.shape
         H, HD = self.num_heads, self.head_dim
         G, VD = self.group, self.vdim
-        K_V_Q = [HD//2, VD, D]
+        K_V   = [HD//2, VD]
 
-        up = self.up_proj(norm(x))
+        xn = norm(x)
+        up = self.up_proj(xn)
+
         def prepare():
-            k, v, q = torch.split(up[..., : sum(K_V_Q)], K_V_Q, dim=-1)
+            q = self.q_proj(xn)
+            k, v = torch.split(up[..., : sum(K_V)], K_V, dim=-1)
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
             v = v.view(T, H//G, HD   )    # KV_half ∈ R^(ctxlen, head_kv, dim/2)
