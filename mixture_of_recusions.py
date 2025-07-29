@@ -16,14 +16,10 @@ class Cache:
     """
 
 def get_torch_dtype(cfg):
-    if cfg.precision == "bf16":
-        return torch.bfloat16
-    elif cfg.precision == "fp16":
-        return torch.float16
-    elif cfg.precision == "fp32":
-        return torch.float32
-    else:
-        raise ValueError(f"Invalid precision: {cfg.precision}")
+    if cfg.precision == "bf16": return torch.bfloat16
+    elif cfg.precision == "fp16": return torch.float16
+    elif cfg.precision == "fp32": return torch.float32
+    else: raise ValueError(f"Invalid precision: {cfg.precision}")
 
 
 class LinearRouter(nn.Module):

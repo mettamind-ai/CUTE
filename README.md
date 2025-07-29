@@ -63,6 +63,8 @@
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
+    -  Nᵣ=3: scaling_factor 100% -> 66% -> 33%
+    - original 24 layers => (4 layers) + (8 MoR layers)x2 + (4 layers)
 
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
