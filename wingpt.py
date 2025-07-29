@@ -113,6 +113,7 @@ class Block(nn.Module):
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
+            # q, k = norm(q), norm(k)
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
@@ -137,13 +138,12 @@ class Block(nn.Module):
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
             y   = up[..., -self.down_proj.weight.shape[1] : ]   ### FFN: query (x) @ key (up_proj)
             act = F.relu(y).square()                            ### FFN: kernel
+            ffn = self.down_proj(act)                           ### FFN: value
 
-            return x, att, act
-        x, att, act = checkpoint(prepare, use_reentrant=False)
+            # att = self.o_proj(att)
+            return x + att + ffn
+        return  checkpoint(prepare, use_reentrant=False)
 
-        # att = self.o_proj(att)
-        ffn = self.down_proj(act)                               ### FFN: value
-        return x + att + ffn
 
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
