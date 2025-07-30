@@ -121,7 +121,7 @@ class Block(nn.Module):
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            if self.type == "path":  # hiện đang bị lỗi loss -> NaN (int8?)
+            if self.type == "path":  # đang bị lỗi loss -> NaN (int8?)
                 w = up[..., -VD : ]
                 g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
                 att = parallel_path_attention(
