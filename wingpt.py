@@ -63,7 +63,7 @@ class Rotary(nn.Module):
         if half: return torch.cat((x_pass, x_rot), dim=-1)
         else:    return x_rot
 
-SLIDING_WINDOW = 1024*1
+SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
@@ -74,7 +74,7 @@ class Block(nn.Module):
         self.type = "nope" if long else "rope"
         assert self.type in "nope rope path".split()
 
-        self.window = SLIDING_WINDOW * 4 if long else SLIDING_WINDOW
+        self.window = SLIDING_WINDOW*2 if long else SLIDING_WINDOW
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
         self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn

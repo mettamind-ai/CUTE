@@ -62,11 +62,15 @@
   - [ ] tknz nhẹ (giống pre-processing)
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
-  - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
-    - `Nᵣ=3` => scaling_factor 100% -> 66% -> 33%
-    - `original 24 layers` => (4 layers) + (12 MoR layers)x2 + (4 layers)
+  - MPAS alike https://www.alphaxiv.org/abs/2506.22389
+
+- `zoomout` = loại bớt token khỏi context
+  - Dùng Linear + Sigmoid để loại tokens
+  - Giảm params tương ứng với # selected tokens để giữ nguyên hiệu quả huấn luyện toàn mạng
+    - Cách dễ nhất: phối 4 layers bình thường với 2 layers cho 1/2 selected tokens
+  - hnet cũng là `zoomout` với cơ chế selected boundaries + tích luỹ (encode) và dàn trải lại (decode) thông tin
 
 - Sửa Flash Attn
-  - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
+  - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `k`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - PaTH attention với cơ chế sliding window (local)
