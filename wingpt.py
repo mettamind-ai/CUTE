@@ -82,18 +82,15 @@ class Block(nn.Module):
 
         self.head_dim  = head_dim
         self.num_heads = dim // head_dim
+        self.inter_dim = int(dim * 3)
 
-        inter_dim = int(dim * 3)
-        self.up_proj = nn.Linear(dim, inter_dim, bias=False)
-        self.down_proj = nn.Linear(inter_dim, dim, bias=False)
-
-        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.up_proj = nn.Linear(dim, self.inter_dim + dim, bias=False)
+        self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
         self.o_proj = nn.Linear(dim, dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj.weight)
             init_linear(self.down_proj.weight)
-            init_linear(self.q_proj.weight)
             init_linear(self.o_proj.weight)
             self.down_proj.weight.zero_()
 
@@ -111,9 +108,8 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            q = self.q_proj(xn)  # query sử dụng proj riêng
-            kvg = [HD//2, VD, D] # key, value, gate dùng chung tham số với FFN up_proj
-            k, v, g = torch.split(up[..., : sum(kvg)], kvg, dim=-1)
+            kvq = [HD//2, VD, D]
+            k, v, q = torch.split(up[..., : sum(kvq)], kvq, dim=-1)
 
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
@@ -121,7 +117,7 @@ class Block(nn.Module):
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
-            # q, k = norm(q), norm(k)
+            q, k = norm(q), norm(k)
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
@@ -144,16 +140,16 @@ class Block(nn.Module):
                 # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up                    # FFN: query (x) @ key (up_proj)
-            act = F.relu(y).square()    # FFN: kernel
-            ffn = self.down_proj(act)   # FFN: value
+            y   = up[..., -self.inter_dim : ] # FFN: query (x) @ key (up_proj)
+            act = F.relu(y).square()          # FFN: kernel
+            att = self.o_proj(att)            # ATT: o_proj vừa trộn các head att vừa giống như FFN down_proj
 
-            # Gated attn giúp giảm bùng grad và tăng khả năng biểu diễn https://arxiv.org/abs/2505.06708
-            att = att * g.sigmoid()     # ATT: sigmoid gated phá tính linear của att
-            att = self.o_proj(att)      # ATT: qua o_proj vừa trộn các head att vừa giống như FFN down_proj
+            return x + att, act
+        x_att, act = checkpoint(prepare, use_reentrant=False)
 
-            return x + att + ffn
-        return checkpoint(prepare, use_reentrant=False)
+        ffn = self.down_proj(act)             # FFN: value
+        return x_att + ffn
+
 
 def norm(x: Tensor): # root mean square của các phần tử theo chiều cuối
     return F.rms_norm(x, (x.size(-1),))

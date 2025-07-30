@@ -22,7 +22,7 @@
 - [x] `OhMaiHead    ~1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
 - [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
-- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flex Mask; Sparse Attn; 8,4-bit Mixed; FoX ...)
+- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; FlashMask; Sparse Attn; 8,4-bit Mixed; FoX ...)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
@@ -63,8 +63,8 @@
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - [ ] Mixture-of-Recursions https://arxiv.org/abs/2507.10524
-    -  Nᵣ=3: scaling_factor 100% -> 66% -> 33%
-    - original 24 layers => (4 layers) + (8 MoR layers)x2 + (4 layers)
+    - `Nᵣ=3` => scaling_factor 100% -> 66% -> 33%
+    - `original 24 layers` => (4 layers) + (12 MoR layers)x2 + (4 layers)
 
 - Sửa Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `K`
