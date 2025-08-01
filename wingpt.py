@@ -15,8 +15,6 @@ from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
 from flash.ops.swiglu import swiglu
-from liwin.path_attn.parallel import parallel_path_attention
-from fla.modules.l2norm import l2_norm
 from einops import repeat, rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -122,6 +120,8 @@ class Block(nn.Module):
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
             if self.type == "path":  # đang bị lỗi loss -> NaN (int8?)
+                from liwin.path_attn.parallel import parallel_path_attention
+                from fla.modules.l2norm import l2_norm
                 w = up[..., -VD : ]
                 g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
                 att = parallel_path_attention(
