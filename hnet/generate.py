@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # Tham khảo thêm https://github.com/main-horse/hnet/blob/main/generate.py
-import json, torch, numpy as np, os, sys
+import json, torch, os, sys
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..'))
 
 import torch, torch.nn as nn
 from hnet import HNet
-from utils import HNetConfig, AttnConfig, SSMConfig
+from utils import HNetConfig, AttnConfig, SSMConfig, ByteTokenizer
 
 class HNetForCausalLM(nn.Module):
     def __init__(self, config: HNetConfig, device=None, dtype=None) -> None:
@@ -51,26 +51,6 @@ class HNetForCausalLM(nn.Module):
         x, bpred_output = self.backbone.step(x, inference_params)
         logits = self.lm_head(x)
         return (logits, bpred_output, inference_params)
-
-
-class ByteTokenizer:
-    def __init__(self):
-        self.vocab_size = 256
-        self.bos_idx = 254
-        self.eos_idx = 255
-
-    def text2bytes(self, text, add_bos, add_eos):
-        text_byte = text.encode("utf-8")
-        if add_bos: text_byte = bytes([self.bos_idx]) + text_byte
-        if add_eos: text_byte = text_byte + bytes([self.eos_idx])
-        return np.array(bytearray(text_byte), dtype=np.uint8)
-
-    def encode(self, seqs, add_bos=False, add_eos=False, **kwargs):
-        return [ { "input_ids": self.text2bytes(text, add_bos, add_eos) } for text in seqs ]
-
-    def decode(self, tokens, **kwargs):
-        if isinstance(tokens, np.ndarray): tokens = tokens.tolist()
-        return bytearray(tokens).decode("utf-8", **kwargs)
 
 
 def load_from_pretrained(model_path: str, model_config_path: str):

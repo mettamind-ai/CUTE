@@ -56,7 +56,7 @@ class RoutingModule(nn.Module):
         assert (mask is not None) or (cu_seqlens is not None), "Either mask or cu_seqlens must be provided"
 
         if inference_params is not None:
-            assert (mask is not None), "Mask must be provided if inference_params is not provided"
+            assert (mask is not None), "Mask must be provided if inference_params is provided"
             assert (~inference_params.has_seen_tokens).all(), "Cannot have seen tokens when inference_params is not provided"
 
         if cu_seqlens is not None:
@@ -201,13 +201,9 @@ class DeChunkLayer(nn.Module):
         inference_params=None,
         mask=None,
     ):
-        if inference_params is None:
-            assert (
-                mask is not None
-            ), "Mask must be provided if inference_params is not provided"
-            assert boundary_mask[
-                :, 0
-            ].all(), "First token must be a boundary if running prefill"
+        if inference_params is not None:
+            assert mask is not None, "Mask must be provided if inference_params is provided"
+            assert boundary_mask[:, 0].all(), "First token must be a boundary if running prefill"
 
         p = torch.clamp(boundary_prob[..., -1].float(), min=1e-4, max=1 - (1e-4))
 
