@@ -49,7 +49,7 @@ BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
 config = triton.testing.Benchmark(
     line_vals=lines, line_names=lines,
     line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-    x_vals=[2**i for i in range(12, 13)], # 4096 8192   
+    x_vals=[2**i for i in range(10, 13)], # 1k 2k 4k   
     plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
     args=dict(H=N_HEADS, Hkv=Hkv, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
 )
