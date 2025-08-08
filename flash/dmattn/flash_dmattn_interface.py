@@ -1086,13 +1086,15 @@ class FlashDMAttnVarlenFunc(torch.autograd.Function):
     ):
         # q, k, v are expected to be of shape (total, num_heads, head_size)
         batch_size = cu_seqlens_q.numel() - 1
-        _, num_heads, _ = q.shape
+        total_q, num_heads, head_size = q.shape
         is_grad = is_grad_enabled and any(
             x.requires_grad for x in [q, k, v]
         )
-        # mask and bias must have shapes of total_q x num_heads_k x max_seqlen_k ??? <= flash_api.cpp#L531
-        if mask is None: mask = torch.ones( (batch_size, num_heads, max_seqlen_q, max_seqlen_k), dtype=q.dtype, device=q.device)
-        if bias is None: bias = torch.zeros((batch_size, num_heads, max_seqlen_q, max_seqlen_k), dtype=q.dtype, device=q.device)
+        # if mask is None: mask = torch.ones( (batch_size, num_heads, max_seqlen_q, max_seqlen_k), dtype=q.dtype, device=q.device)
+        # if bias is None: bias = torch.zeros((batch_size, num_heads, max_seqlen_q, max_seqlen_k), dtype=q.dtype, device=q.device)
+        ## mask and bias must have shapes of total_q x num_heads_k x max_seqlen_k ??? <= flash_api.cpp#L531
+        if mask is None: mask = torch.ones( (total_q, num_heads, max_seqlen_k), dtype=q.dtype, device=q.device)
+        if bias is None: bias = torch.zeros((total_q, num_heads, max_seqlen_k), dtype=q.dtype, device=q.device)
         if dropout_p is None: dropout_p = 0.0
         if dropout_p < 0.0 or dropout_p > 1.0:
             raise ValueError(f"Invalid dropout_p: {dropout_p}. It should be in [0, 1].")
