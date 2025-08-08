@@ -1,15 +1,7 @@
 import torch
 
 from dc import RoutingModuleOutput
-from mixer_seq import HNetForCausalLM
-
-def apply_optimization_params(param: torch.Tensor, **kwargs) -> None:
-    """ Annotates a parameter with optimization parameters.
-    Specifically, updates the parameter's `_optim` attribute with the given kwargs.
-    """
-    if hasattr(param, "_optim"): param._optim.update(kwargs)
-    else:                        param._optim = kwargs
-
+from hnet import HNetForCausalLM, apply_optimization_params
 
 def load_balancing_loss(
     router_output: RoutingModuleOutput,
