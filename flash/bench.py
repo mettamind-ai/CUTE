@@ -2,7 +2,8 @@
 import triton, torch, torch.nn.functional as F
 
 from sagefwd import sageattn_varlen
-from attn import flash_attn_func, flash_attn_varlen_func
+from   attn import   flash_attn_func, flash_attn_varlen_func
+from dmattn import flash_dmattn_func, flash_dmattn_varlen_func
 
 def assert_sage_attn_is_same_as_sdpa():
     torch.manual_seed(0)
@@ -24,16 +25,23 @@ def assert_sage_attn_is_same_as_sdpa():
     o_flash = o_flash.reshape(4, 1024, 32, 64).transpose(1, 2)
     assert o_flash.shape  == (4, 32, 1024, 64)
     x, y = o_torch[0][0], o_flash[0][0]
-    if torch.allclose(x, y, rtol=0.25*1e-2, atol=0.3*1e-1): print("torch ~= flash")
+    if torch.allclose(x, y, rtol=0.25*1e-2, atol=0.3*1e-1): print("torch == flash")
     else: print(f"torch ~= flash AssertionError")
 
+    o_flash = flash_dmattn_varlen_func(q, k, v, None, None, c, c, m, m, is_causal=True, scale=1.3)
+    o_flash = o_flash.reshape(4, 1024, 32, 64).transpose(1, 2)
+    assert o_flash.shape  == (4, 32, 1024, 64)
+    x, y = o_torch[0][0], o_flash[0][0]
+    if torch.allclose(x, y, rtol=0.25*1e-2, atol=0.3*1e-1): print("torch == flash dm")
+    else: print(f"torch ~= flash dm AssertionError")
+
     x, y = o_sage[0][0], o_torch[0][0]
-    if torch.allclose(x, y, rtol=0.25*1e-1, atol=0.3*1e-1): print("torch ~= sage")
+    if torch.allclose(x, y, rtol=0.25*1e-1, atol=0.3*1e-1): print("torch == sage")
     else: print(f"torch ~= sage AssertionError")
 assert_sage_attn_is_same_as_sdpa()
 
 
-lines = "FA_varlen sage_varlen FA".split()
+lines = "FA_varlen sage_varlen FADM_varlen FADM FA".split()
 BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
 # assert N_HEADS == Hkv # cần cho MoBA
 # assert N_HEADS // Hkv == 16 # cần cho infllmv2_varlen và NSA
@@ -70,9 +78,11 @@ def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda
     vv = v.transpose(1, 2).reshape(seq_len, Hkv, HEAD_DIM) # seq_len, H, D
 
     def attn_fn(provider, q, k, v):
-        if provider == "FA_varlen": return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
+        if provider == "FA_varlen":   return lambda: flash_attn_varlen_func(qq, kk, vv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, causal=True)
+        if provider == "FADM_varlen": return lambda: flash_dmattn_varlen_func(qq, kk, vv, None, None, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen, is_causal=True)
         if provider == "sage_varlen": return lambda: sageattn_varlen(qq, kk, vv, cu_seqlens, max_seqlen, sm_scale=1.3)
-        if provider == "FA": return lambda: flash_attn_func(q=q, k=k, v=v, softmax_scale=1.3, causal=True,)
+        if provider == "FA":          return lambda: flash_attn_func(q, k, v, softmax_scale=1.3, causal=True)
+        if provider == "FADM":        return lambda: flash_dmattn_func(q, k, v, scale=1.3, is_causal=True)
 
     ms = triton.testing.do_bench(attn_fn(provider, q, k, v), warmup=15, rep=50)
     flops_per_matmul = 2.0 * BATCH * H * N_CTX * N_CTX * HEAD_DIM

@@ -14,6 +14,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
+from flash.dmattn import flash_dmattn_varlen_func
 from flash.ops.swiglu import swiglu
 from einops import repeat, rearrange
 

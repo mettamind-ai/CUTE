@@ -74,3 +74,4 @@
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `k`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - PaTH attention với cơ chế sliding window (local)
+  - conv attn https://github.com/facebookresearch/RAM/blob/main/projects/mta/mta_transformer.py
