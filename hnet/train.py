@@ -58,22 +58,29 @@ def group_params(
     all_keys = set()
 
     for name, param in model.named_parameters():
+        # Ensure we have an optimization dict present for this parameter
+        optim_dict = getattr(param, "_optim", {})
+
+        # Zero weight decay for bias and norm parameters
         if name.endswith(".bias") or ".norm." in name:
             apply_optimization_params(param, weight_decay=0.0)
-        
-        all_keys.update(param._optim.keys())
+            optim_dict = getattr(param, "_optim", {})
+
+        # Collect all optimization keys across parameters
+        all_keys.update(optim_dict.keys())
     
     all_keys = list(all_keys)
     all_tuples = []
     param_groups = []
 
     for name, param in model.named_parameters():
-        current_tuple = tuple(param._optim.get(key, None) for key in all_keys)
+        optim_dict = getattr(param, "_optim", {})
+        current_tuple = tuple(optim_dict.get(key, None) for key in all_keys)
         if current_tuple not in all_tuples:
             all_tuples.append(current_tuple)
             param_groups.append({
                 "params": [param],
-                **param._optim,
+                **optim_dict,
             })
         else:
             idx = all_tuples.index(current_tuple)

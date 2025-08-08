@@ -49,7 +49,7 @@ def generate(model, prompt:str, max_tokens=512, temperature=.6):
 
 if __name__ == "__main__":
 
-    model = load_from_pretrained("hnet/2stage_L.pt", "hnet/2stage_L.json")
+    model = load_from_pretrained(f"{current_dir}/2stage_L.pt", f"{current_dir}/2stage_L.json")
     tokenizer = ByteTokenizer()
 
     while True:
