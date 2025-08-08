@@ -49,7 +49,7 @@ BATCH, N_HEADS, Hkv, HEAD_DIM = 4, 64, 4, 128
 config = triton.testing.Benchmark(
     line_vals=lines, line_names=lines,
     line_arg="provider", x_names=["N_CTX"], ylabel="ms", 
-    x_vals=[2**i for i in range(10, 14)], # 1k 2k 4k   
+    x_vals=[2**i for i in range(10, 13)], # 1k 2k 4k   
     plot_name=f"attn-bs{BATCH}-h{N_HEADS}-d{HEAD_DIM}",
     args=dict(H=N_HEADS, Hkv=Hkv, BATCH=BATCH, HEAD_DIM=HEAD_DIM),
 )
@@ -57,7 +57,7 @@ config = triton.testing.Benchmark(
 @triton.testing.perf_report([config])
 def bench_flash_attention(BATCH, H, Hkv, N_CTX, HEAD_DIM, provider, device="cuda"):
     dtype = torch.bfloat16
-    BATCH = int(BATCH * 8*1024 / N_CTX)
+    BATCH = int(BATCH * 4*1024 / N_CTX)
     q = torch.randn((BATCH, H,   N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
     k = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
     v = torch.randn((BATCH, Hkv, N_CTX, HEAD_DIM), dtype=dtype, device=device, requires_grad=False)
