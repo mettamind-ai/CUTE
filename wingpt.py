@@ -23,11 +23,11 @@ torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
 
 @torch.no_grad()
-def init_linear(w: Tensor):
+def init_linear(linear: nn.Linear):
     val = 0.632  # change from 0.5 to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
-    std = val * (w.size(-1) ** -0.5)
+    std = val * (linear.weight.size(-1) ** -0.5)
     bound = (3 ** 0.5) * std
-    return w.uniform_(-bound, bound)
+    torch.nn.init.uniform_(linear.weight, -bound, bound)
 
 class Rotary(nn.Module):
     def __init__(self, head_dim: int, ctxlen: int):
@@ -62,52 +62,52 @@ class Rotary(nn.Module):
         if half: return torch.cat((x_pass, x_rot), dim=-1)
         else:    return x_rot
 
-SLIDING_WINDOW = 1024*2
 class Block(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
 
-        long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
-        if n_layers - 1 == layer_id and layer_id % 4 == 2: long = True
+        is_long = ( layer_id % 4 == 3 )  # 3 ngắn + 1 dài
+        if n_layers - 1 == layer_id and layer_id % 4 == 2: is_long = True
 
-        self.type = "nope" if long else "rope"
+        self.type = "nope" if is_long else "rope"
         assert self.type in "nope rope path".split()
 
-        self.window = SLIDING_WINDOW*2 if long else SLIDING_WINDOW
+        self.window = 1024 * 8 if is_long else 1024
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
-        self.group = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
-        self.vdim = dim // self.group
-
         self.head_dim  = head_dim
-        self.num_heads = dim // head_dim
+        self.num_heads = 2 * dim // head_dim
+        self.query_dim = head_dim * self.num_heads
         self.inter_dim = int(dim * 3)
 
-        self.up_proj = nn.Linear(dim, self.inter_dim + dim, bias=False)
+        self.group = 4 # * self.query_dim // dim # query head per group, cân bằng cho cả model nhỡ và lớn
+        self.value_dim = self.query_dim // self.group
+
+        self.up_proj = nn.Linear(dim, self.inter_dim + self.query_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
-        self.o_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(self.query_dim, dim, bias=False)
 
         with torch.no_grad():
-            init_linear(self.up_proj.weight)
-            init_linear(self.down_proj.weight)
-            init_linear(self.o_proj.weight)
+            init_linear(self.up_proj)
+            init_linear(self.down_proj)
+            init_linear(self.o_proj)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
             self.forget_beta = nn.Linear(dim, self.num_heads + self.num_heads // self.group, bias=True)
-            with torch.no_grad(): init_linear(self.forget_beta.weight)
+            with torch.no_grad(): init_linear(self.forget_beta)
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
-        T, D  = x.shape
+        T, QD = x.shape[0], self.query_dim
         H, HD = self.num_heads, self.head_dim
-        G, VD = self.group, self.vdim
+        G, VD = self.group, self.value_dim
 
         xn = norm(x)
         up = self.up_proj(xn)
 
         def prepare():
-            kvq = [HD//2, VD, D]
+            kvq = [HD//2, VD, QD]
             k, v, q = torch.split(up[..., : sum(kvq)], kvq, dim=-1)
 
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
@@ -133,11 +133,11 @@ class Block(nn.Module):
                     g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
                     beta=b.view(1, T, H//G).sigmoid()*2, # allowing negative eigenvalues
                     cu_seqlens=cu_seqlens
-                )[0].view(T, D)
+                )[0].view(T, QD)
             else: # rope or nope
                 # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
                 C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
-                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, D) 
+                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, QD) 
                 # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
@@ -165,7 +165,7 @@ class WinGPT(nn.Module):
         self.mtp_head  = Block(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj  = nn.Linear(2*dim, dim, bias=False)
         self.unembeds  = OhMaiHead(dim, vocab_size, bias=False)
-        with torch.no_grad(): init_linear(self.mtp_proj.weight)
+        with torch.no_grad(): init_linear(self.mtp_proj)
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = self.embeds(input_seq) * self.emb_scale # large residuals https://www.alphaxiv.org/abs/2312.16903
