@@ -14,8 +14,8 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
-from flash.dmattn import flash_dmattn_varlen_func
-from flash.ops.swiglu import swiglu
+# from flash.dmattn import flash_dmattn_varlen_func
+# from flash.ops.swiglu import swiglu
 from einops import repeat, rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -85,12 +85,15 @@ class Block(nn.Module):
 
         self.up_proj = nn.Linear(dim, self.inter_dim + self.query_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
+
         self.o_proj = nn.Linear(self.query_dim, dim, bias=False)
+        self.q_proj = nn.Linear(dim, self.query_dim, bias=False)
 
         with torch.no_grad():
             init_linear(self.up_proj)
             init_linear(self.down_proj)
             init_linear(self.o_proj)
+            init_linear(self.q_proj)
             self.down_proj.weight.zero_()
 
         if self.type == "path":
@@ -107,8 +110,8 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            kvq = [HD//2, VD, QD]
-            k, v, q = torch.split(up[..., : sum(kvq)], kvq, dim=-1)
+            q    = self.q_proj(xn) 
+            k, v = torch.split(up[..., : HD//2 + VD], [HD//2, VD], dim=-1)
 
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
@@ -120,14 +123,14 @@ class Block(nn.Module):
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            if self.type == "path":  # đang bị lỗi loss -> NaN (int8?)
+            if self.type == "path":  # lỗi loss -> NaN (int8?)
                 from liwin.path_attn.parallel import parallel_path_attention
                 from fla.modules.l2norm import l2_norm
                 w = up[..., -VD : ]
                 g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
                 att = parallel_path_attention(
-                    q=q.view(1, T, H   , HD), 
-                    k=k.view(1, T, H//G, HD), 
+                    q=q.view(1, T, H   , HD),
+                    k=k.view(1, T, H//G, HD),
                     v=v.view(1, T, H//G, HD),
                     w=l2_norm(w.view(1, T, H//G, HD)),
                     g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
