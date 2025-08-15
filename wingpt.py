@@ -74,7 +74,7 @@ class Block(nn.Module):
         self.window = 1024 * 4 if is_long else 1024
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
-        self.inter_dim = int(dim * 3.5)
+        self.inter_dim = int(dim * 4)
         self.up_proj   = nn.Linear(dim, self.inter_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
 
