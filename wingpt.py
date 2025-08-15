@@ -110,7 +110,7 @@ class Block(nn.Module):
         up = self.up_proj(xn)
 
         def prepare():
-            q    = self.q_proj(xn) 
+            q    = self.q_proj(xn)
             k, v = torch.split(up[..., : HD//2 + VD], [HD//2, VD], dim=-1)
 
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
@@ -119,38 +119,21 @@ class Block(nn.Module):
             k = k.view(T, 1   , HD//2)    # K_RoPE  ∈ R^(ctxlen, 1,       dim/2)
             k = repeat(k, 'T 1 d -> T h d', h=H//G)
 
-            q, k = norm(q), norm(k)
             if self.type == "rope": q, k = rotary(q, half=True), rotary(k)
             k = torch.cat([v[..., : HD//2], k], dim=-1)
 
-            if self.type == "path":  # lỗi loss -> NaN (int8?)
-                from liwin.path_attn.parallel import parallel_path_attention
-                from fla.modules.l2norm import l2_norm
-                w = up[..., -VD : ]
-                g, b = torch.split(self.forget_beta(x), [H, H//G], dim=-1)
-                att = parallel_path_attention(
-                    q=q.view(1, T, H   , HD),
-                    k=k.view(1, T, H//G, HD),
-                    v=v.view(1, T, H//G, HD),
-                    w=l2_norm(w.view(1, T, H//G, HD)),
-                    g=F.logsigmoid(g.view(1, T, H).float()), # use_forget_gate
-                    beta=b.view(1, T, H//G).sigmoid()*2, # allowing negative eigenvalues
-                    cu_seqlens=cu_seqlens
-                )[0].view(T, QD)
-            else: # rope or nope
-                # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
-                C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
-                att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, QD) 
-                # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
+            # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
+            C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
+            att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, QD)
+            # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
+            att = self.o_proj(att)            # ATT: o_proj vừa trộn các attntion heads
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up[..., -self.inter_dim : ] # FFN: query (x) @ key (up_proj)
+            y   = up                          # FFN: query (x) @ key (up_proj)
             act = F.relu(y).square()          # FFN: kernel
-            att = self.o_proj(att)            # ATT: o_proj vừa trộn các head att vừa giống như FFN down_proj
-
             return x + att, act
-        x_att, act = checkpoint(prepare, use_reentrant=False)
 
+        x_att, act = checkpoint(prepare, use_reentrant=False)
         ffn = self.down_proj(act)             # FFN: value
         return x_att + ffn
 
