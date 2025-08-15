@@ -83,7 +83,7 @@ class Block(nn.Module):
         self.group = 4 # * self.query_dim // dim # query head per group, cân bằng cho cả model nhỡ và lớn
         self.value_dim = self.query_dim // self.group
 
-        self.up_proj = nn.Linear(dim, self.inter_dim + self.query_dim, bias=False)
+        self.up_proj = nn.Linear(dim, self.inter_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
 
         self.o_proj = nn.Linear(self.query_dim, dim, bias=False)
