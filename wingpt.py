@@ -14,8 +14,6 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 from flash.attn import flash_attn_varlen_func
-# from flash.dmattn import flash_dmattn_varlen_func
-# from flash.ops.swiglu import swiglu
 from einops import repeat, rearrange
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -23,11 +21,12 @@ torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
 
 @torch.no_grad()
-def init_linear(linear: nn.Linear):
+def init_linear(linears):
     val = 0.632  # change from 0.5 to 0.632 if follow https://www.alphaxiv.org/abs/2312.16903
-    std = val * (linear.weight.size(-1) ** -0.5)
-    bound = (3 ** 0.5) * std
-    torch.nn.init.uniform_(linear.weight, -bound, bound)
+    for linear in linears:
+        std = val * (linear.weight.size(-1) ** -0.5)
+        bound = (3 ** 0.5) * std
+        torch.nn.init.uniform_(linear.weight, -bound, bound)
 
 class Rotary(nn.Module):
     def __init__(self, head_dim: int, ctxlen: int):
@@ -72,46 +71,39 @@ class Block(nn.Module):
         self.type = "nope" if is_long else "rope"
         assert self.type in "nope rope path".split()
 
-        self.window = 1024 * 8 if is_long else 1024
+        self.window = 1024 * 4 if is_long else 1024
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
-        self.head_dim  = head_dim
-        self.num_heads = 2 * dim // head_dim
-        self.query_dim = head_dim * self.num_heads
-        self.inter_dim = int(dim * 3)
-
-        self.group = 4 # * self.query_dim // dim # query head per group, cân bằng cho cả model nhỡ và lớn
-        self.value_dim = self.query_dim // self.group
-
-        self.up_proj = nn.Linear(dim, self.inter_dim, bias=False)
+        self.inter_dim = int(dim * 3.5)
+        self.up_proj   = nn.Linear(dim, self.inter_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
+
+        self.num_heads = 12
+        self.group     = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
+
+        self.query_dim = head_dim * self.num_heads
+        self.value_dim = self.query_dim // self.group
 
         self.o_proj = nn.Linear(self.query_dim, dim, bias=False)
         self.q_proj = nn.Linear(dim, self.query_dim, bias=False)
 
         with torch.no_grad():
-            init_linear(self.up_proj)
-            init_linear(self.down_proj)
-            init_linear(self.o_proj)
-            init_linear(self.q_proj)
+            init_linear([ self.up_proj, self.down_proj, self.o_proj, self.q_proj ])
             self.down_proj.weight.zero_()
-
-        if self.type == "path":
-            self.forget_beta = nn.Linear(dim, self.num_heads + self.num_heads // self.group, bias=True)
-            with torch.no_grad(): init_linear(self.forget_beta)
 
 
     def forward(self, x, cu_seqlens, max_seqlen, rotary):
         T, QD = x.shape[0], self.query_dim
-        H, HD = self.num_heads, self.head_dim
+        H, HD = self.num_heads, self.query_dim // self.num_heads
         G, VD = self.group, self.value_dim
 
         xn = norm(x)
         up = self.up_proj(xn)
 
         def prepare():
-            q    = self.q_proj(xn)
-            k, v = torch.split(up[..., : HD//2 + VD], [HD//2, VD], dim=-1)
+            q = self.q_proj(xn)
+            k = up[..., : HD//2]
+            v = up[..., -VD :  ]
 
             # Group Tied https://github.com/Dao-AILab/grouped-latent-attention/blob/main/modeling_llama_GTA.py#L487
             q = q.view(T, H   , HD   )    # Q       ∈ R^(ctxlen, head_q,  dim)
@@ -151,7 +143,7 @@ class WinGPT(nn.Module):
         self.mtp_head  = Block(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj  = nn.Linear(2*dim, dim, bias=False)
         self.unembeds  = OhMaiHead(dim, vocab_size, bias=False)
-        with torch.no_grad(): init_linear(self.mtp_proj)
+        with torch.no_grad(): init_linear([ self.mtp_proj ])
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = self.embeds(input_seq) * self.emb_scale # large residuals https://www.alphaxiv.org/abs/2312.16903
