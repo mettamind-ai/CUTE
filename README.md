@@ -63,6 +63,7 @@
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - MPAS alike https://www.alphaxiv.org/abs/2506.22389
+  - LoRA + Sparse https://www.alphaxiv.org/abs/2508.02668
 
 - `zoomout` = loại bớt token khỏi context
   - Dùng Linear + Sigmoid để loại tokens

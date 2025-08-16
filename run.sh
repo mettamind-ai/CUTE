@@ -17,7 +17,7 @@
 # sudo apt-get install build-essential cmake ninja-build
 
 python -m pip install git+https://github.com/fla-org/flash-linear-attention.git -U
-pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.6.0 -U --user
+pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.8.0 -U --user
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
 cd flash/cutlass; git checkout c506e16788cb08416a4a57e11a9067beeee29420;  cd ../.. # flash_attn 2.7.3
 

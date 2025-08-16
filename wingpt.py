@@ -71,7 +71,7 @@ class Block(nn.Module):
         self.type = "nope" if is_long else "rope"
         assert self.type in "nope rope path".split()
 
-        self.window = 1024 * 4 if is_long else 1024
+        self.window = 1024 * 8 if is_long else 1024
         print(f"Layer {layer_id} => {self.type}, win {self.window}")
 
         self.inter_dim = int(dim * 4)
