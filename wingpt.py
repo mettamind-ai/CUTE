@@ -31,8 +31,8 @@ def init_linear(linears):
 class Rotary(nn.Module):
     def __init__(self, head_dim: int, ctxlen: int):
         super().__init__()
-        self.rot_dim = head_dim//2              # 128 head dim => 64 rotate dim
-        base, pairs = 1/10_000, self.rot_dim//2 # 64 rot_dim form 32 unique pairs of dim to rotate
+        self.rot_dim = head_dim//2               # 128 head dim => 64 rotate dim
+        base, pairs = 1/500_000, self.rot_dim//2 # 64 rot_dim form 32 unique pairs of dim to rotate
         angular_freq = base ** torch.linspace(0, 1, steps=pairs, dtype=torch.float32)
         positions = torch.arange(ctxlen, dtype=torch.float32)
         θ = torch.einsum("i,j -> ij", positions, angular_freq)
