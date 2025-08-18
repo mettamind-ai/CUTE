@@ -10,9 +10,9 @@ def get(fname):
             repo_id="alexjc/fineweb-tokmon-10B", filename=fname,
             repo_type="dataset", local_dir=local_dir,
         )
-get("english-28416-balanced/fineweb-tokmon_val_%06d.bin" % 0)
+get("english-50256-balanced-v2/fineweb-tokmon_val_%06d.bin" % 0)
 num_chunks = 103 # full fineweb10B. Each chunk is 100M tokens
 if len(sys.argv) >= 2: # we can pass an argument to download less
     num_chunks = int(sys.argv[1])
 for i in range(1, num_chunks+1):
-    get("english-28416-balanced/fineweb-tokmon_train_%06d.bin" % i)
+    get("english-50256-balanced-v2/fineweb-tokmon_train_%06d.bin" % i)

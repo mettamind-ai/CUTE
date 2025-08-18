@@ -14,7 +14,6 @@ parser.add_argument("--vocab", type=int, default=1024*50)
 args = parser.parse_args()
 tokens_per_step = args.bs*1024
 model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_step).cuda()
-# model = WinGPT(dim=1536, n_layers=15, vocab_size=args.vocab, ctxlen=tokens_per_step).cuda()
 
 from datetime import datetime
 from pathlib import Path
@@ -48,7 +47,7 @@ def data_generator(filename_pattern: str, batch_size: int):
 
 # end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
 eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"end-of-text: {eot}")
-train_loader = data_generator("data/fineweb10B/fineweb_train_*.bin", tokens_per_step)
+train_loader = data_generator("data/fineweb-tokmon-50k-10B/*train*.bin", tokens_per_step)
 tokens, targets = next(train_loader)
 
 ## INT8 hoá
