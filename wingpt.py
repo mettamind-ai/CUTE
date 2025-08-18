@@ -78,7 +78,7 @@ class Block(nn.Module):
         self.up_proj   = nn.Linear(dim, self.inter_dim, bias=False)
         self.down_proj = nn.Linear(self.inter_dim, dim, bias=False)
 
-        self.num_heads = 12
+        self.num_heads = 16
         self.group     = 4 # query head per group, cân bằng cho cả model nhỡ và lớn
 
         self.query_dim = head_dim * self.num_heads
@@ -116,17 +116,16 @@ class Block(nn.Module):
 
             # NOTE: Với NoPE flash_attn có thể nhận k chưa repeat để speedup
             C, M, WS = cu_seqlens, max_seqlen, (self.window, 0)
-            att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, QD)
-            # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
-            att = self.o_proj(att)            # ATT: o_proj vừa trộn các attntion heads
+            att = flash_attn_varlen_func(q, k, v, C, C, M, M, window_size=WS, softcap=30).view(T, QD) # softcap = 30 hoặc 50 https://alphaxiv.org/abs/2410.16682
+            att = self.o_proj(att)
 
             # NOTE: FFN là permanent associate memory với query là hidden input https://arxiv.org/abs/2505.19488v1
-            y   = up                          # FFN: query (x) @ key (up_proj)
-            act = F.relu(y).square()          # FFN: kernel
-            return x + att, act
+            x_att = x + att
+            act   = F.relu(up).square()
+            return x_att, act
 
         x_att, act = checkpoint(prepare, use_reentrant=False)
-        ffn = self.down_proj(act)             # FFN: value
+        ffn = self.down_proj(act)
         return x_att + ffn
 
 
