@@ -18,3 +18,5 @@ OpenCode.md
 .claude/
 .pytest_cache/
 *.pt
+.python-version
+uv.lock

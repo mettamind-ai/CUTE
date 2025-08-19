@@ -1,0 +1,18 @@
+[project]
+name = "2-cute"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "einops>=0.8.1",
+    "huggingface-hub>=0.34.4",
+    "ninja>=1.13.0",
+    "numpy>=2.3.2",
+    "omegaconf>=2.3.0",
+    "optree>=0.17.0",
+    "psutil>=7.0.0",
+    "torch==2.8.0",
+    "tqdm>=4.67.1",
+    "wandb>=0.21.1",
+]
