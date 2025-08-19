@@ -29,6 +29,9 @@ def init_linear(linears):
         torch.nn.init.uniform_(linear.weight, -bound, bound)
 
 class Rotary(nn.Module):
+    ''' SmallThinker mở rộng ngữ cảnh: 4B→32K, 21B→16K, điều chỉnh base RoPE từ 1e5 → 1.5e6
+    Chọn 5e5 theo paper FoX (fogetting transformer)
+    '''
     def __init__(self, head_dim: int, ctxlen: int):
         super().__init__()
         self.rot_dim = head_dim//2               # 128 head dim => 64 rotate dim

@@ -47,7 +47,7 @@ def data_generator(filename_pattern: str, batch_size: int):
 
 # end-of-text token là 6399 cho 6k, 8k vocab, và 31999 cho 32k vocab
 eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; print(f"end-of-text: {eot}")
-train_loader = data_generator("data/fineweb-tokmon-50k-10B/*train*.bin", tokens_per_step)
+train_loader = data_generator("data/fineweb-tokmon-10B/english-50256-balanced-v2/*train*.bin", tokens_per_step)
 tokens, targets = next(train_loader)
 
 ## INT8 hoá

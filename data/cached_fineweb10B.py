@@ -1,10 +1,10 @@
 import os
 import sys
 from huggingface_hub import hf_hub_download
-# Download the GPT-2 tokens of Fineweb10B from huggingface. This
+# Download the tokenmonster tokens of Fineweb10B from huggingface. This
 # saves about an hour of startup time compared to regenerating them.
 def get(fname):
-    local_dir = os.path.join(os.path.dirname(__file__), 'fineweb-tokmon-28k-10B')
+    local_dir = os.path.join(os.path.dirname(__file__), 'fineweb-tokmon-10B')
     if not os.path.exists(os.path.join(local_dir, fname)):
         hf_hub_download(
             repo_id="alexjc/fineweb-tokmon-10B", filename=fname,
