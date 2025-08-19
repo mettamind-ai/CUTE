@@ -18,11 +18,11 @@
 
 - [x] `Muon         ~1.5x` (Muon optimizer giúp giảm vram và tăng tốc độ hội tụ so với Adam)
 - [x] `int8         ~1.5x` (Linear matmul sử dụng INT8 mixed precision giúp tăng tốc 1.5 lần)
-- [x] `Dense Arch   ~2.0x` (giản lược kv_proj, bỏ o_proj; sparse Relu^2; SWA 2k-8k; 1 norm per layer)
+- [x] `Dense Arch   ~2.0x` (giản lược kv_proj; sparse Relu^2; SWA 1k-8k; 1 norm per layer)
 - [x] `OhMaiHead    ~1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
 - [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
-- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; FlashMask; Sparse Attn; 8,4-bit Mixed; FoX ...)
+- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flash/Dyna-Mask; Sparse Attn; 8,4-bit Mixed; FoX/PaTH ...)
 - [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
@@ -53,26 +53,28 @@
 ---
 # TODO
 
-- PLE linh hoạt
+- PLE (Per-Layer Embedding) linh hoạt
   - [x] concat với value giúp giảm 1/2 value (loss giữ nguyên)
   - [ ] concat `embedding` với `x (hidden)` rồi mới `up_proj` giúp tăng khả năng học?
-  - [ ] khi dùng với hnet, thống kê bi-byte hay được dùng nhất để làm capped-PLE
+  - [ ] khi dùng với `hnet`, thống kê `bi-gram` hay được dùng nhất để làm `capped-PLE`
 
 - HNet để cải thiện token embedding / abstract representation
-  - [ ] tknz nhẹ (giống pre-processing)
+  - [ ] tknz nhẹ với 4k or 8k vocab (pre-processing)
+  - [ ] dùng 1 tầng encode và decoder để không tốn computing / vram
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - MPAS alike https://www.alphaxiv.org/abs/2506.22389
   - LoRA + Sparse https://www.alphaxiv.org/abs/2508.02668
 
 - `zoomout` = loại bớt token khỏi context
-  - Dùng Linear + Sigmoid để loại tokens
-  - Giảm params tương ứng với # selected tokens để giữ nguyên hiệu quả huấn luyện toàn mạng
+  - Dùng `Linear + Sigmoid` để làm hàm chọn tokens nên giữ lại (zoomout by selection)
+  - Giảm params tương ứng với `# selected tokens` để giữ nguyên hiệu quả huấn luyện toàn mạng
     - Cách dễ nhất: phối 4 layers bình thường với 2 layers cho 1/2 selected tokens
-  - hnet cũng là `zoomout` với cơ chế selected boundaries + tích luỹ (encode) và dàn trải lại (decode) thông tin
+  - `hnet` cũng là `zoomout` với cơ chế selected boundaries + tích luỹ (encode) và dàn trải lại (decode) thông tin
 
-- Sửa Flash Attn
+- Sửa Cute-based Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `k`
   - [ ] Lấy max softmax value để làm `Muon QK Clipping` https://www.lakernewhouse.com/writing/muon-3
   - PaTH attention với cơ chế sliding window (local)
   - conv attn https://github.com/facebookresearch/RAM/blob/main/projects/mta/mta_transformer.py
+  - flashmask / dynamic mask attention
