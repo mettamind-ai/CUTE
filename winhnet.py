@@ -56,11 +56,10 @@ def get_seq_idx(cu_seqlens, device=None):
     return seq_idx
 
 class DeChunk(nn.Module):
-    def __init__(self, dim, dtype=torch.bfloat16, block_size=256, headdim=32):
+    def __init__(self, dim, block_size=256, headdim=32):
         super().__init__()
         self.dim = dim
-        # For Mamba2 kernel
-        self.dtype = dtype
+        # For Mamba2 kernell
         self.block_size = block_size
         self.headdim = headdim
         assert dim % self.headdim == 0
@@ -68,27 +67,27 @@ class DeChunk(nn.Module):
 
     def forward(self, hidden_states, boundary_mask, boundary_prob, cu_seqlens):
         p = torch.clamp(boundary_prob[..., -1].float(), min=1e-4, max=1-(1e-4))
-        p = p[boundary_mask].unsqueeze(0)
+        p = p[boundary_mask]
         seq_idx = get_seq_idx(cu_seqlens, device=hidden_states.device)
 
         # Reuse Mamba2 kernel for EMA Deaggregator.
-        dt = torch.log(1 / (1 - p)).to(self.dtype)
-        x = (hidden_states / dt[..., None]).to(self.dtype)
-        A = -torch.ones( (self.nheads,), device=hidden_states.device, dtype=torch.float32 )
-        b = p.to(self.dtype)
+        dt = torch.log(1 / (1 - p))#.to(torch.bfloat16)
+        x = (hidden_states / dt[..., None])#.to(torch.bfloat16)
+
+        A = -torch.ones((self.nheads,), device=hidden_states.device, dtype=torch.float32)
+        b = p#.to(torch.bfloat16)
         c = torch.ones_like(b)
 
         out = mamba_chunk_scan_combined(
-            rearrange(x, "b l (h p) -> b l h p", p=self.headdim),
-            repeat(dt, "b l -> b l h", h=self.nheads),
+            rearrange(x, "t (h d) -> t h d", d=self.headdim),
+            repeat(dt, "t -> t h", h=self.nheads),
             A,
-            rearrange(b, "b l -> b l 1 1"),
-            rearrange(c, "b l -> b l 1 1"),
+            rearrange(b, "t -> t 1 1"),
+            rearrange(c, "t -> t 1 1"),
             chunk_size=self.block_size,
             seq_idx=seq_idx,
         )
-        out = rearrange(out, "b l h p -> b l (h p)")
-        out = out.squeeze(0)
+        out = rearrange(out, "t h d -> t (h d)")
         plug_back_idx = boundary_mask.cumsum(dim=0) - 1
         index = plug_back_idx.unsqueeze(-1).expand(-1, self.dim)
         out = torch.gather(out, dim=0, index=index)
