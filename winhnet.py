@@ -1,3 +1,10 @@
+import torch
+from torch import nn, Tensor
+from flash.mamba2 import Mamba2
+
+ssm_cfg = { "chunk_size": 256, "d_conv": 4, "d_state": 128, "expand": 2 }
+
+
 class Routing(nn.Module):
     def __init__(self, dim, device=None, dtype=None):
         super().__init__()
@@ -41,7 +48,7 @@ class Routing(nn.Module):
 
 
 class Chunk(nn.Module):
-    def forward(self, hidden_states, boundary_mask, cu_seqlens=None):
+    def forward(self, hidden_states, boundary_mask, cu_seqlens):
         next_hidden_states = hidden_states[boundary_mask]
         next_cu_seqlens = boundary_mask.cumsum(dim=0)[cu_seqlens[1:] - 1]
         next_cu_seqlens = F.pad(next_cu_seqlens, (1, 0)) # thêm 0 vào đầu
@@ -71,11 +78,11 @@ class DeChunk(nn.Module):
         seq_idx = get_seq_idx(cu_seqlens, device=hidden_states.device)
 
         # Reuse Mamba2 kernel for EMA Deaggregator.
-        dt = torch.log(1 / (1 - p))#.to(torch.bfloat16)
-        x = (hidden_states / dt[..., None])#.to(torch.bfloat16)
+        dt = torch.log(1 / (1 - p)).to(torch.bfloat16)
+        x = (hidden_states / dt[..., None]).to(torch.bfloat16)
 
         A = -torch.ones((self.nheads,), device=hidden_states.device, dtype=torch.float32)
-        b = p#.to(torch.bfloat16)
+        b = p.to(torch.bfloat16)
         c = torch.ones_like(b)
 
         out = mamba_chunk_scan_combined(
