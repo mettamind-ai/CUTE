@@ -62,7 +62,7 @@ class Rotary(nn.Module):
         if half: return torch.cat((x_pass, x_rot), dim=-1)
         else:    return x_rot
 
-class Block(nn.Module):
+class GptBlock(nn.Module):
     def __init__(self, dim, head_dim, vocab_size, layer_id, n_layers):
         super().__init__()
 
@@ -138,9 +138,9 @@ class WinGPT(nn.Module):
         super().__init__()
         self.emb_scale = math.sqrt(dim)
         self.rotary    = Rotary(head_dim, ctxlen)
-        self.blocks    = nn.ModuleList([Block(dim, head_dim, vocab_size, i, n_layers) for i in range(n_layers)])
+        self.blocks    = nn.ModuleList([GptBlock(dim, head_dim, vocab_size, i, n_layers) for i in range(n_layers)])
         self.embeds    = nn.Embedding(vocab_size, dim)
-        self.mtp_head  = Block(dim, head_dim, vocab_size, -2, n_layers)
+        self.mtp_head  = GptBlock(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj  = nn.Linear(2*dim, dim, bias=False)
         self.unembeds  = OhMaiHead(dim, vocab_size, bias=False)
         with torch.no_grad(): init_linear([ self.mtp_proj ])
