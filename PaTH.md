@@ -232,8 +232,8 @@ RoPE không thể xử lý bài toán này vì:
 
 Điều này làm nổi bật những hạn chế cơ bản của RoPE trong việc mô hình hóa các `biến đổi phức tạp phụ thuộc trạng thái`. Chúng ta sẽ tìm hiểu lý do tại sao `RoPE không thể xử lý các tác vụ không giao hoán` và `cách sử dụng phép biến đổi tuyến tính khác` để mã hóa thao tác hoán đổi.
 
-|-|-|
 |![](https://pbs.twimg.com/media/GzkVRMebsAAFjaR?format=jpg&name=large)|![](https://pbs.twimg.com/media/GzkWHxgbwAAArCq?format=png&name=large)|
+|-|-|
 
 ## Ma Trận Householder Cho Thao Tác Hoán Đổi
 Chúng ta có thể sử dụng ma trận Householder để mã hóa thao tác hoán đổi:
