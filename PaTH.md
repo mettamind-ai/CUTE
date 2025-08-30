@@ -170,60 +170,65 @@ YARN là một mở rộng khác của RoPE, kết hợp NTK-by-parts với mộ
 
 Kết quả thực nghiệm cho thấy YARN vượt trội hơn RoPE truyền thống khi mở rộng độ dài chuỗi, nhờ kiểm soát tốt hơn việc nội suy góc quay cho từng nhóm kênh tần số.
 
-## Rotary Position Embedding in Modern Models
-Recent open-source models like DeepSeek, Llama 4, and GPT OSS all utilize Rotary Position Embedding (RoPE) as their positional encoding scheme. For sequence length extension, these models first modify RoPE by adjusting the rotation angle using NTK-aware scaling, then train on longer sequences to better fit extended contexts. This technique has become standard in the field.
+## Rotary Position Embedding trong các mô hình hiện đại
+Các mô hình mã nguồn mở gần đây như DeepSeek, Llama 4 và GPT OSS đều sử dụng Rotary Position Embedding (RoPE) làm phương pháp mã hóa vị trí. Để mở rộng độ dài chuỗi, các mô hình này trước tiên điều chỉnh RoPE bằng cách thay đổi góc quay dựa trên NTK-aware scaling, sau đó huấn luyện trên các chuỗi dài hơn để phù hợp hơn với ngữ cảnh mở rộng. Kỹ thuật này đã trở thành tiêu chuẩn trong lĩnh vực này.
 
-## Expressivity Limitations of Transformers
-Beyond interpolation challenges, transformers face fundamental expressivity constraints. We can analyze this through two complexity classes:
+( Kết thúc RoPE / NTK / YARN )
 
-### TC0 Complexity Class
-- Circuits with constant depth and polynomial size
-- Allows unbounded fan-in for AND/OR/NOT gates
-- Includes threshold gates (similar to majority voting)
-- Capable of counting operations
-- Encompasses basic mathematical operations:
-  - Addition, comparison
-  - Prefix parity tracking  
-  - Integer multiplication/division
 
-### NC1 Complexity Class  
-- Circuits with logarithmic depth (relative to input size)
-- Polynomial number of gates
-- Bounded fan-in for AND/OR gates
-- Captures `divide-and-conquer` algorithms
-- Handles more complex tasks:
-  - Boolean formula evaluation
-  - Permutation composition
-  - State tracking
+## Giới hạn về khả năng biểu đạt của Transformer
+Ngoài các thách thức về nội suy, transformer còn đối mặt với những giới hạn cơ bản về khả năng biểu đạt. Ta có thể phân tích điều này thông qua hai lớp độ phức tạp:
 
-As shown in the "Illusion of State in State Space Models" paper, both transformers and state space models fall within TC0, limiting their ability to handle complex reasoning tasks. This explains why techniques like chain-of-thought prompting are needed to enhance their capabilities.
+### Lớp độ phức tạp TC0
+- Mạch logic có độ sâu hằng số và kích thước đa thức
+- Cho phép số lượng đầu vào không giới hạn cho các cổng AND/OR/NOT
+- Bao gồm các cổng ngưỡng (giống như bỏ phiếu đa số)
+- Có thể thực hiện các phép đếm
+- Bao gồm các phép toán cơ bản:
+  - Cộng, so sánh
+  - Theo dõi parity tiền tố  
+  - Nhân/chia số nguyên
 
-## Position Information in RoPE
-A key question arises: Since RoPE only applies to queries and keys, does absolute position information propagate through values?
+### Lớp độ phức tạp NC1  
+- Mạch logic có độ sâu logarit (so với kích thước đầu vào)
+- Số lượng cổng đa thức
+- Số lượng đầu vào cho mỗi cổng AND/OR bị giới hạn
+- Bao hàm các thuật toán `chia để trị`
+- Xử lý các tác vụ phức tạp hơn:
+  - Đánh giá công thức logic
+  - Hợp thành hoán vị
+  - `Theo dõi trạng thái`
 
-The answer lies in RoPE's mathematical properties:
-1. Despite using absolute position encoding, the dot product operation effectively creates relative position encoding
-2. This occurs due to rotation matrix properties
-3. Values receive no direct positional encoding
-4. Final attention scores depend only on relative positions
-5. Therefore, no absolute position information remains in the values
+Như đã chỉ ra trong bài báo "Illusion of State in State Space Models", cả transformer và state space model đều thuộc lớp TC0, điều này giới hạn khả năng xử lý các tác vụ suy luận phức tạp. Đây là lý do tại sao các kỹ thuật như chain-of-thought prompting được sử dụng để tăng cường năng lực của chúng.
 
-## The S5 Permutation Problem
-To demonstrate NC1 capabilities, we examine the five-element permutation problem (S5):
-- Composing multiple swap operations
-- Each permutation decomposes into swaps
-- Requires tracking cumulative swap effects
-- Fundamentally non-commutative:
-  - Swap(A,B) then Swap(B,C) ≠ Swap(B,C) then Swap(A,B)
-  - Results in different final configurations
+![](https://pbs.twimg.com/media/GzkNdIjbsAAmqOW?format=jpg&name=large)
 
-## Why RoPE Fails at S5
-RoPE cannot handle this task because:
-1. Data Independence: Rotations depend only on position, not content
-2. Commutativity: Block-diagonal rotation matrices (2D blocks) are commutative
-3. These properties directly contradict S5's requirements:
-   - Data-dependent operations
-   - Non-commutative composition
+## Thông tin vị trí trong RoPE
+Một câu hỏi quan trọng đặt ra: Vì RoPE chỉ áp dụng cho truy vấn (query) và khóa (key), liệu thông tin vị trí tuyệt đối có truyền qua giá trị (value) không?
+
+Câu trả lời nằm ở các tính chất toán học của RoPE:
+1. Dù sử dụng mã hóa vị trí tuyệt đối, phép nhân vô hướng thực chất tạo ra mã hóa vị trí tương đối
+2. Điều này xảy ra nhờ tính chất của ma trận quay
+3. Value không nhận mã hóa vị trí trực tiếp
+4. Điểm attention cuối cùng chỉ phụ thuộc vào vị trí tương đối
+5. Do đó, không còn thông tin vị trí tuyệt đối trong value
+
+## Bài toán hoán vị S5
+Để minh họa khả năng của NC1, ta xét bài toán hoán vị 5 phần tử (S5):
+- Hợp thành nhiều phép hoán đổi (swap)
+- Mỗi hoán vị có thể phân rã thành các phép hoán đổi
+- Cần theo dõi hiệu ứng tích lũy của các phép hoán đổi
+- Bản chất là không giao hoán:
+  - Swap(A,B) rồi Swap(B,C) ≠ Swap(B,C) rồi Swap(A,B)
+  - Dẫn đến cấu hình cuối cùng khác nhau
+
+## Vì sao RoPE thất bại với S5
+RoPE không thể xử lý bài toán này vì:
+1. Độc lập dữ liệu: Các phép quay chỉ phụ thuộc vào vị trí, không phụ thuộc vào nội dung
+2. Tính giao hoán: Các ma trận quay dạng block-diagonal (khối 2D) là giao hoán
+3. Những tính chất này mâu thuẫn trực tiếp với yêu cầu của S5:
+   - Cần các phép toán phụ thuộc dữ liệu
+   - Cần hợp thành không giao hoán
 
 Điều này làm nổi bật những hạn chế cơ bản của RoPE trong việc mô hình hóa các biến đổi phức tạp phụ thuộc trạng thái. Chúng ta sẽ tìm hiểu lý do tại sao RoPE không thể xử lý các tác vụ không giao hoán và cách sử dụng phép biến đổi tuyến tính khác để mã hóa thao tác hoán đổi.
 
