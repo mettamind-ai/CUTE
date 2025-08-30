@@ -367,8 +367,12 @@ Phép biến đổi được sử dụng để tính tích lũy ma trận Househ
   - Cập nhật thống kê trực tuyến tương tự Flash Attention
   - Khác biệt chính: Cần cập nhật truy vấn sau mỗi khối để tích hợp biến đổi Householder tích lũy
 
+|![](https://pbs.twimg.com/media/Gzkd3NTb0AAsexL?format=jpg&name=large)|![](https://pbs.twimg.com/media/GzkeKOobUAAfqSe?format=jpg&name=large)|
+|-|-|
+
 ## Hiệu Suất Thực Tế
-- Hiện chậm hơn Flash Attention khoảng 2 lần
+- `Hiện chậm hơn Flash Attention khoảng 2 lần`
+  (NOTE: diff transformer cũng cần tới 2 lần tính attn)
 - Có thể cải thiện bằng DSL tùy chỉnh
 - Quan trọng là thuật toán phù hợp với phần cứng
 
@@ -391,6 +395,7 @@ Phép biến đổi được sử dụng để tính tích lũy ma trận Househ
 - Có thể áp dụng cơ chế tương tự cho bộ đệm giá trị (value cache)?
 - Cơ chế này mở ra khả năng nén bộ đệm khóa khi giá trị tiệm cận 0
 - Mô hình có thể tự học hệ số β để điều chỉnh tốc độ suy giảm
+
 ## Tối Ưu KV Cache và Cập Nhật Ma Trận
 - **Cập nhật khóa vào HBM**: Có thể thực hiện chồng chéo (pipeline) một phần
 - **Quy trình xử lý**:
@@ -426,8 +431,9 @@ Phép biến đổi được sử dụng để tính tích lũy ma trận Househ
   - RoPE sử dụng phép quay cố định
   - Householder cho phép reflection linh hoạt
   - Về lý thuyết có thể biểu diễn RoPE nhưng thực tế khác biệt
+
 - **Lý do chọn Householder**:
-  - Hiệu quả tính toán (O(n²) thay vì O(n³))
+  - Hiệu quả tính toán O(n²) thay vì O(n³)
   - Cấu trúc ma trận đặc biệt
   - Hỗ trợ tính toán song song
   - Cho phép thao tác reflection đột ngột (khác với rotation liên tục)
@@ -465,15 +471,20 @@ Phép biến đổi được sử dụng để tính tích lũy ma trận Househ
 - **Hạn chế về bộ nhớ**:
   - Mô hình phi tuyến có sức mạnh biểu diễn cao nhưng bộ nhớ hạn chế
   - Kích thước trạng thái ẩn cố định
+
 - **Giải pháp softmax**:
   - Xem như phương pháp kernel ánh xạ sang không gian vô hạn chiều
   - Tương đương RNN với chiều ẩn vô hạn
   - Cải thiện đáng kể khả năng lưu trữ bộ nhớ
 
+![](https://pbs.twimg.com/media/GzkhiUBaEAAX_on?format=jpg&name=large)
+![](https://pbs.twimg.com/media/GzkiQCybQAAkoBF?format=jpg&name=large)
+
 ## Mở Rộng Lý Thuyết
 - **Khai triển Taylor**:
   - Softmax vô hạn có thể biểu diễn qua khai triển Taylor
   - Các mô hình như Tensor Power Linear Attention sử dụng khai triển Taylor cụt
+
 - **Kết nối kernel**:
   - Mối quan hệ giữa attention và linear attention qua hàm kernel
   - Hàm kích hoạt exponential giúp phân tách tốt hơn
@@ -482,19 +493,22 @@ Phép biến đổi được sử dụng để tính tích lũy ma trận Househ
 - **Kết hợp ưu điểm**:
   - Kết hợp softmax (bộ nhớ lớn) với delta product (sức mạnh biểu diễn)
   - Lấy cảm hứng từ Forgetting Transformers
+
 - **Khác biệt với DeltaNet**:
   - Chỉ sử dụng một ma trận Householder
-  - Tập trung vào khả năng theo dõi trạng thái
+  - `Tập trung vào khả năng theo dõi trạng thái`
 
 ## Kết Quả Thực Nghiệm
 - **Benchmark chung**:
   - PaTH và PaTH-Fox vượt trội RoPE và Fox
   - Hiệu quả trên các tác vụ common sense reasoning
+
 - **Khả năng ngoại suy**:
   - RoPE: Hiệu suất giảm khi vượt quá độ dài huấn luyện 4K
   - Fox: Có thể ngoại suy nhưng hiệu suất dao động
   - PaTH: Cải thiện đáng kể khả năng ngoại suy
   - PaTH-Fox: Hiệu suất ổn định nhất, không bùng nổ ở đoạn giữa
+
 - **Tác vụ theo dõi biến**:
   - PaTH và PaTH-Fox thể hiện ưu thế rõ rệt
 
