@@ -28,11 +28,10 @@ Trước khi hiểu cơ chế RoPE, chúng ta cần ôn lại về ma trận qua
 ## RoPE là mã hoá vị trí tương đối
 RoPE hoạt động trên các cặp chiều độc lập. Nếu input có chiều d, chúng ta có d/2 cặp kênh, mỗi cặp có góc quay khác nhau, có thể biểu diễn dưới dạng ma trận khối đường chéo. Các khối này độc lập với nhau và bảo toàn các tính chất của ma trận quay.
 
-![](https://pbs.twimg.com/media/GzjucILbkAQZIiI?format=jpg&name=large)
-
 Chúng ta có thể biểu diễn cơ chế RoPE dưới dạng ma trận, sử dụng position ID tuyệt đối làm số mũ cho ma trận quay. Mặc dù trông giống mã hóa tuyệt đối, nhưng thực chất nó mã hóa thông tin vị trí tương đối. Khi tính tích vô hướng giữa query và key, chúng ta có thể thấy rõ sự phụ thuộc vào hiệu vị trí tương đối giữa query và key. Mặc dù sử dụng position ID tuyệt đối, nhưng kết quả cuối cùng phụ thuộc vào sự khác biệt vị trí tương đối.
 
-![](https://pbs.twimg.com/media/Gzjp9EnaoAA8JfK?format=jpg&name=large)
+|![](https://pbs.twimg.com/media/GzjucILbkAQZIiI?format=jpg&name=large)|![](https://pbs.twimg.com/media/Gzjp9EnaoAA8JfK?format=jpg&name=large)|
+|-|-|
 
 NOTE: lý do chỉ dùng d/2 cặp kênh là để giữ cấu trúc đường chéo khối và nhờ đó có được các thuộc tính tốt và nhất là tính chất không phụ thuộc vào vị trị tuyệt đối $(R^i)^\top R^j = R^{\,j-i}$
 
@@ -201,7 +200,8 @@ Ngoài các thách thức về nội suy, transformer còn đối mặt với nh
 
 Như đã chỉ ra trong bài báo "Illusion of State in State Space Models", cả transformer và state space model đều thuộc lớp TC0, điều này giới hạn khả năng xử lý các tác vụ suy luận phức tạp. Đây là lý do tại sao các kỹ thuật như chain-of-thought prompting được sử dụng để tăng cường năng lực của chúng.
 
-![](https://pbs.twimg.com/media/GzkNdIjbsAAmqOW?format=jpg&name=large)
+|![](https://pbs.twimg.com/media/GzkNdIjbsAAmqOW?format=jpg&name=large)|![](https://pbs.twimg.com/media/GzkYTUua8AA5Fa1?format=jpg&name=large)|
+|-|-|
 
 ## Thông tin vị trí trong RoPE
 Một câu hỏi quan trọng đặt ra: Vì RoPE chỉ áp dụng cho truy vấn (query) và khóa (key), liệu thông tin vị trí tuyệt đối có truyền qua giá trị (value) không?
@@ -245,23 +245,32 @@ Chúng ta có thể sử dụng ma trận Householder để mã hóa thao tác h
   - Áp dụng phép biến đổi tuyến tính này giữ nguyên các vector trực giao khác
 - Tích lũy các ma trận Householder cho phép mô hình hóa thành phần hoán đổi
 
+|![](https://pbs.twimg.com/media/GzkYfmebkAEED-m?format=jpg&name=large)|![](https://pbs.twimg.com/media/GzkY9K-aIAAkZ5Z?format=jpg&name=large|
+|-|-|
+
 ## Chain-of-Thought Có Giúp RoPE Xử Lý Hoán Đổi?
 - Chain-of-thought có thể nâng cao khả năng biểu đạt của transformer
 - Khi mô hình đủ lớn, có thể giải quyết các vấn đề trong lớp P
 - Tuy nhiên tốc độ suy luận chậm hơn do cần chuỗi suy nghĩ dài
 - Các giá trị riêng âm cũng có thể mã hóa hoán đổi (như trong Delta Product)
 
+|![](https://pbs.twimg.com/media/GzkaNl5aUAAThly?format=png&name=large)|![](https://pbs.twimg.com/media/Gzka9bJaYAAjtIz?format=png&name=large)|
+|-|-|
+
 ## Biến Đổi Householder Tổng Quát
 - Phiên bản gốc: β=2 (phản xạ cơ bản)
 - Khi β=0: phép biến đổi đồng nhất (không làm gì)
 - Khi β=1: phép chiếu
 - Khi β=2: phép phản xạ
-- Đã được sử dụng trong các mô hình như Data Night và Data Product
+- Đã được sử dụng trong các mô hình như DeltaNet và Delta Product
 
 ## Ứng Dụng Trong PaTH
 - Sử dụng tích lũy ma trận Householder làm mã hóa vị trí
 - Giải quyết bài toán hoán đổi 5 phần tử (NC1 hoàn chỉnh)
 - PaTH được chứng minh là NC1 hoàn chỉnh trong điều kiện nhẹ
+
+|![](https://pbs.twimg.com/media/GzkbK7qaAAEz6BH?format=jpg&name=large)|![](https://pbs.twimg.com/media/GzkbdyQbcAAXn7d?format=jpg&name=large)|
+|-|-|
 
 ## Đánh Giá Trên Tác Vụ Tổng Hợp
 1. Tác vụ Multiquery:
@@ -280,19 +289,18 @@ Chúng ta có thể sử dụng ma trận Householder để mã hóa thao tác h
    - PaTH chỉ cần số lớp logarit trong khi các phương pháp khác cần tuyến tính
    - A5 là nhóm thay phiên, tương tự bài toán hoán đổi
 
-## Đánh Giá Trên Tác Vụ Tổng Hợp và Ứng Dụng Thực Tế
-Đầu tiên chúng ta có một số benchmark tổng hợp, sau đó nếu muốn áp dụng PaTH vào thực tế, tôi đưa ra một số khuyến nghị:
-
-### Phương Pháp Chưng Cất (Distillation)
+## Phương Pháp Chưng Cất (Distillation)
 - Hiện có nhiều mô hình được huấn luyện với RoPE
 - Chúng ta có thể bắt đầu từ các checkpoint này và thay thế các lớp attention từ RoPE sang PaTH
 - Quá trình gồm 2 giai đoạn:
+
   1. Giai đoạn 1: 
      - Lấy input/output chuẩn từ mô hình giáo viên (RoPE)
      - Thay thế toàn bộ RoPE bằng PaTH trong mô hình học sinh
      - Khởi tạo trọng số học sinh từ mô hình giáo viên
      - Tính toán loss L2 khoảng cách giữa output của học sinh và giáo viên
      - Tối thiểu hóa sai số bình phương trung bình
+
   2. Giai đoạn 2:
      - Tối thiểu hóa divergence KL của phân phối đầu ra
      - Đây chính là phương pháp knowledge distillation

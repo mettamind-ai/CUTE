@@ -27,8 +27,8 @@ def init_linear(linears):
         torch.nn.init.uniform_(linear.weight, -bound, bound)
 
 class Rotary(nn.Module):
-    ''' SmallThinker mở rộng ngữ cảnh: 4B→32K, 21B→16K, điều chỉnh base RoPE từ 1e5 → 1.5e6
-    FoX (fogetting transformer) dùng 5e5
+    ''' SmallThinker mở rộng ngữ cảnh: 4B→32K, 21B→16K, điều chỉnh base RoPE từ 1e5 → 15e5
+    FoX (fogetting transformer) dùng 5e5 => Sử dụng 1e5 để phù hợp hơn với model nhỏ (~1b)
     '''
     def __init__(self, head_dim: int, ctxlen: int):
         super().__init__()
