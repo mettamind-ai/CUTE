@@ -23,9 +23,9 @@
 - [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
 - [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
 - [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flash/Dyna-Mask; Sparse Attn; 8,4-bit Mixed; FoX/PaTH ...)
-- [ ] `HNet dyna chunking` (có thể không tăng tốc nhưng giúp cải thiện perf / loại bỏ tknz và sparse attn?)
+- [ ] `Better Tknz  ~1.3x`
 
-🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCE !!! 🌸
+🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCTION !!! 🌸
 
 ## [Kết quả thử nghiệm](/.save/EXPER.md)
 - Muon is good! vram = 1/4 + loss giảm sâu hơn adam
@@ -41,36 +41,31 @@
 - [Dùng GPU xử lý data](https://github.com/ServiceNow/Fast-LLM/blob/main/fast_llm/csrc/data.cpp)
 - [ ] llm-scored data select giống seed coder https://www.alphaxiv.org/abs/2506.03524
 
-## Tiny Monster Models
+## Tiny Monster LLMs
 - `SyMaTo` (`Sy`llable + `Ma`rk + `To`ne) để tiền xử lý
-- `4k BPE vocab` + `Stochastok` (random phân giã) + `HNet` (dồn LCE computing cho HNet)
+- `16k tokenmonster vocab` + **selected meaningful tokens** + `Stochastok` (random phân giã)
 - Bài toán bộ gõ thông minh:
-  - `auto/smart-edit`
-  - `auto/smart-complete` + 
-  - `sửa lỗi chính tả` + 
-  - `convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
+  - `auto/smart-edit/smart-complete/sửa lỗi chính tả/convert gõ không dấu => có dấu` (tự động điền Mark + Tone)
+  - tiny agents làm những task đơn nhiệm trong 1 quy trình nhỏ, mỗi task là 1 adaptor trên 1 based LLM chung
 
 ---
+
 # TODO
+
+- [ ] Thử thay hoặc kết hợp MTP với TOP (Token Order Prediction)
+  - https://github.com/zaydzuhri/token-order-prediction
+  - Related https://www.alphaxiv.org/abs/2404.07965
+
+- Better tokenization
+  - STOCHASTOK 2506.01687 `p = 0.1` phân ra ngẫu nhiêu tokens trong batch để tăng tính robustness
+  - OT, VEGAD https://github.com/mettamind-ai/CUTE/blob/research/.save/TKNZ.md
 
 - PLE (Per-Layer Embedding) linh hoạt
   - [x] concat với value giúp giảm 1/2 value (loss giữ nguyên)
-  - [ ] concat `embedding` với `x (hidden)` rồi mới `up_proj` giúp tăng khả năng học?
-  - [ ] khi dùng với `hnet`, thống kê `bi-gram` hay được dùng nhất để làm `capped-PLE`
-
-- HNet để cải thiện token embedding / abstract representation
-  - [ ] tknz nhẹ với 4k or 8k vocab (pre-processing)
-  - [ ] dùng 1 tầng encode và decoder để không tốn computing / vram
 
 - MoA: Mixture Of Anthing (Expert, Depth, Các cơ chế học khác nhau ...)
   - MPAS alike https://www.alphaxiv.org/abs/2506.22389
   - LoRA + Sparse https://www.alphaxiv.org/abs/2508.02668
-
-- `zoomout` = loại bớt token khỏi context
-  - Dùng `Linear + Sigmoid` để làm hàm chọn tokens nên giữ lại (zoomout by selection)
-  - Giảm params tương ứng với `# selected tokens` để giữ nguyên hiệu quả huấn luyện toàn mạng
-    - Cách dễ nhất: phối 4 layers bình thường với 2 layers cho 1/2 selected tokens
-  - `hnet` cũng là `zoomout` với cơ chế selected boundaries + tích luỹ (encode) và dàn trải lại (decode) thông tin
 
 - Sửa Cute-based Flash Attn
   - [ ] Hỗ trợ `FoX` + load tối thiểu repeated `k`
