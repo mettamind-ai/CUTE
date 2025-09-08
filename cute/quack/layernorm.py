@@ -10,7 +10,9 @@ import cutlass
 import cutlass.cute as cute
 from cutlass.cute.runtime import from_dlpack
 import quack.utils as utils
-from quack.reduction_base import ReductionBase, torch2cute_dtype_map
+from quack.reduce import row_reduce
+from quack.reduction_base import ReductionBase
+from quack.cute_dsl_utils import torch2cute_dtype_map
 
 
 class LayerNorm(ReductionBase):
@@ -190,7 +192,7 @@ class LayerNorm(ReductionBase):
         cute.autovec_copy(tXsX, tXrX)
         x = tXrX.load().to(cute.Float32)
         threads_per_row = tv_layout.shape[0][0]
-        sum_x = utils.row_reduce(
+        sum_x = row_reduce(
             x,
             cute.ReductionOp.ADD,
             threads_per_row,
@@ -207,7 +209,7 @@ class LayerNorm(ReductionBase):
             cute.copy(copy_atom_load_X, tXgX, tXrX, pred=tXpX)
             x = tXrX.load().to(cute.Float32)
 
-        sum_sq_x_sub_mean = utils.row_reduce(
+        sum_sq_x_sub_mean = row_reduce(
             (x - mean) * (x - mean),
             cute.ReductionOp.ADD,
             threads_per_row,

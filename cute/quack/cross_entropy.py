@@ -3,15 +3,18 @@
 import math
 from typing import Optional, Type
 
+import torch
+
 import cuda.bindings.driver as cuda
 
 import cutlass
 import cutlass.cute as cute
+from cutlass.cute.runtime import from_dlpack
 
 import quack.utils as utils
-import torch
-from cutlass.cute.runtime import from_dlpack
-from quack.reduction_base import ReductionBase, torch2cute_dtype_map
+from quack.reduce import row_reduce, online_softmax_reduce
+from quack.reduction_base import ReductionBase
+from quack.cute_dsl_utils import torch2cute_dtype_map
 
 
 class CrossEntropy(ReductionBase):
@@ -161,16 +164,14 @@ class CrossEntropy(ReductionBase):
 
         threads_per_row = tv_layout.shape[0][0]
         if cutlass.const_expr(not self.online_softmax):
-            max_x = utils.row_reduce(
+            max_x = row_reduce(
                 x,
                 cute.ReductionOp.MAX,
                 threads_per_row,
                 reduction_buffer[None, None, 0],
                 mbar_ptr + 0 if cutlass.const_expr(self.cluster_n > 1) else None,
                 init_val=-cutlass.Float32.inf,
-                hook_fn=(
-                    cute.arch.cluster_wait if cutlass.const_expr(self.cluster_n > 1) else None
-                ),
+                hook_fn=cute.arch.cluster_wait if cutlass.const_expr(self.cluster_n > 1) else None,
             )
             if cutlass.const_expr(self.reload_from == "smem"):
                 cute.autovec_copy(tXsX, tXrX)
@@ -181,7 +182,7 @@ class CrossEntropy(ReductionBase):
             # exp_x = utils.exp2f((x - max_x) * log2_e)
             # This would use ffma instead of fadd then fmul
             exp_x = utils.exp2f(x * log2_e - (max_x * log2_e))
-            denom = utils.row_reduce(
+            denom = row_reduce(
                 exp_x,
                 cute.ReductionOp.ADD,
                 threads_per_row,
@@ -190,14 +191,12 @@ class CrossEntropy(ReductionBase):
                 init_val=0.0,
             )
         else:
-            max_x, denom, _ = utils.online_softmax_reduce(
+            max_x, denom, _ = online_softmax_reduce(
                 x,
                 threads_per_row,
                 reduction_buffer[None, None, 0],
                 mbar_ptr,
-                hook_fn=(
-                    cute.arch.cluster_wait if cutlass.const_expr(self.cluster_n > 1) else None
-                ),
+                hook_fn=cute.arch.cluster_wait if cutlass.const_expr(self.cluster_n > 1) else None,
             )
 
         if (
@@ -213,11 +212,13 @@ class CrossEntropy(ReductionBase):
                 mLSE[row] = lse
 
 
+@torch.library.custom_op("quack::_cross_entropy", mutates_args={"loss", "lse"})
 def _cross_entropy(
     x: torch.Tensor,
     target: torch.Tensor,
-    return_lse: bool = False,
-) -> torch.Tensor:
+    loss: torch.Tensor,
+    lse: torch.Tensor | None,
+) -> None:
     """Cross entropy forward pass.
 
     Args:
@@ -231,16 +232,9 @@ def _cross_entropy(
     assert target.dim() == 1, "Target must be 1D"
     assert x.shape[0] == target.shape[0], "Batch dimensions must match"
     assert x.is_cuda and target.is_cuda, "Tensors must be on CUDA device"
-    assert x.dtype in [
-        torch.float16,
-        torch.bfloat16,
-        torch.float32,
-    ], "Unsupported input dtype"
+    assert x.dtype in [torch.float16, torch.bfloat16, torch.float32], "Unsupported input dtype"
     assert target.dtype in [torch.int32, torch.int64], "Target must be int32 or int64"
-    M, N = x.shape
-    device = x.device
-    loss = torch.empty(M, device=device, dtype=torch.float32)
-    lse = torch.empty(M, device=device, dtype=torch.float32) if return_lse else None
+    N = x.size(1)
     dtype = torch2cute_dtype_map[x.dtype]
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
@@ -266,10 +260,22 @@ def _cross_entropy(
     _cross_entropy.compile_cache[compile_key](
         x_tensor, target_tensor, loss_tensor, lse_tensor, stream
     )
-    return loss if not return_lse else (loss, lse)
 
 
 _cross_entropy.compile_cache = {}
+
+
+def cross_entropy_fwd(
+    x: torch.Tensor,
+    target: torch.Tensor,
+    return_lse: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor]:
+    M = x.size(0)
+    device = x.device
+    loss = torch.empty(M, device=device, dtype=torch.float32)
+    lse = torch.empty(M, device=device, dtype=torch.float32) if return_lse else None
+    _cross_entropy(x, target, loss, lse)
+    return loss if not return_lse else (loss, lse)
 
 
 class CrossEntropyBackward:
@@ -323,33 +329,19 @@ class CrossEntropyBackward:
         tiler_mn, tv_layout = self._get_tv_layout()
         num_threads = cute.size(tv_layout, mode=[0])
 
-        mDLoss = cute.make_tensor(
-            mDLoss.iterator,
-            cute.append(mDLoss.layout, cute.make_layout((self.N,), stride=(0,))),
-        )
-        mTarget = cute.make_tensor(
-            mTarget.iterator,
-            cute.append(mTarget.layout, cute.make_layout((self.N,), stride=(0,))),
-        )
-        mLSE = cute.make_tensor(
-            mLSE.iterator,
-            cute.append(mLSE.layout, cute.make_layout((self.N,), stride=(0,))),
-        )
+        # (M,) -> (M, N) with stride 0 in the N dimension
+        mDLoss, mTarget, mLSE = [
+            cute.make_tensor(
+                X.iterator, cute.append(X.layout, cute.make_layout((self.N,), stride=(0,)))
+            )
+            for X in (mDLoss, mTarget, mLSE)
+        ]
 
         smem_size = cute.size_in_bytes(
             mX.element_type, cute.make_ordered_layout(tiler_mn, order=(1, 0))
         )
 
-        self.kernel(
-            mX,
-            mTarget,
-            mDLoss,
-            mdX,
-            mLSE,
-            mX.shape,
-            tv_layout,
-            tiler_mn,
-        ).launch(
+        self.kernel(mX, mTarget, mDLoss, mdX, mLSE, mX.shape, tv_layout, tiler_mn).launch(
             grid=[
                 cute.ceil_div(mX.shape[0], tiler_mn[0]),
                 cute.ceil_div(mX.shape[1], tiler_mn[1]),
@@ -465,8 +457,8 @@ def _cross_entropy_backward(
     target: torch.Tensor,
     dloss: torch.Tensor,
     lse: torch.Tensor,
-    inplace_backward: bool = False,
-) -> torch.Tensor:
+    dx: torch.Tensor,
+) -> None:
     """Cross entropy backward pass.
     Args:
         x: Input logits tensor of shape (M, N)
@@ -486,15 +478,10 @@ def _cross_entropy_backward(
     assert (
         x.is_cuda and target.is_cuda and dloss.is_cuda and lse.is_cuda
     ), "Tensors must be on CUDA device"
-    assert x.dtype in [
-        torch.float16,
-        torch.bfloat16,
-        torch.float32,
-    ], "Unsupported input dtype"
+    assert x.dtype in [torch.float16, torch.bfloat16, torch.float32], "Unsupported input dtype"
     assert target.dtype in [torch.int32, torch.int64], "Target must be int32 or int64"
 
-    M, N = x.shape
-    dx = torch.empty_like(x) if not inplace_backward else x
+    N = x.size(1)
     dtype = torch2cute_dtype_map[x.dtype]
 
     convert_from_dlpack = lambda tensor: (
@@ -526,16 +513,43 @@ def _cross_entropy_backward(
     _cross_entropy_backward.compile_cache[compile_key](
         x_tensor, target_tensor, dloss_tensor, dx_tensor, lse_tensor, stream
     )
-    return dx
 
 
 _cross_entropy_backward.compile_cache = {}
 
 
+@torch.library.custom_op("quack::_cross_entropy_bwd_no_inplace", mutates_args={"dx"})
+def _cross_entropy_bwd_no_inplace(
+    x: torch.Tensor,
+    target: torch.Tensor,
+    dloss: torch.Tensor,
+    lse: torch.Tensor,
+    dx: torch.Tensor,
+) -> None:
+    _cross_entropy_backward(x, target, dloss, lse, dx)
+
+
+def cross_entropy_bwd(
+    x: torch.Tensor,
+    target: torch.Tensor,
+    dloss: torch.Tensor,
+    lse: torch.Tensor,
+    inplace_backward: bool = False,
+) -> None:
+    if inplace_backward and not torch.compiler.is_compiling():
+        dx = x
+        _cross_entropy_backward(x=x, target=target, dloss=dloss, lse=lse, dx=x)
+    else:
+        dx = torch.empty_like(x)
+        _cross_entropy_bwd_no_inplace(x=x, target=target, dloss=dloss, lse=lse, dx=dx)
+
+    return dx
+
+
 class CrossEntropyFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, target, inplace_backward=False):
-        loss, lse = _cross_entropy(x, target, return_lse=True)
+        loss, lse = cross_entropy_fwd(x, target, return_lse=True)
         ctx.save_for_backward(x, target, lse)
         ctx.inplace_backward = inplace_backward
         return loss
@@ -543,7 +557,7 @@ class CrossEntropyFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dloss):
         x, target, lse = ctx.saved_tensors
-        dx = _cross_entropy_backward(x, target, dloss, lse, inplace_backward=ctx.inplace_backward)
+        dx = cross_entropy_bwd(x, target, dloss, lse, inplace_backward=ctx.inplace_backward)
         return dx, None, None
 
 

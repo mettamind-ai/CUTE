@@ -9,7 +9,9 @@ import cutlass.cute as cute
 from cutlass.cute.runtime import from_dlpack
 
 import quack.utils as utils
-from quack.reduction_base import ReductionBase, torch2cute_dtype_map
+from quack.reduce import row_reduce, online_softmax_reduce
+from quack.reduction_base import ReductionBase
+from quack.cute_dsl_utils import torch2cute_dtype_map
 
 
 class Softmax(ReductionBase):
@@ -147,7 +149,7 @@ class Softmax(ReductionBase):
         x = tXrX.load().to(cute.Float32)
         threads_per_row = tv_layout.shape[0][0]
         if cutlass.const_expr(not self.online_softmax):
-            max_x = utils.row_reduce(
+            max_x = row_reduce(
                 x,
                 cute.ReductionOp.MAX,
                 threads_per_row,
@@ -158,7 +160,7 @@ class Softmax(ReductionBase):
             )
             log2_e = math.log2(math.e)
             exp_x = cute.math.exp2((x - max_x) * log2_e, fastmath=True)
-            denom = utils.row_reduce(
+            denom = row_reduce(
                 exp_x,
                 cute.ReductionOp.ADD,
                 threads_per_row,
@@ -167,7 +169,7 @@ class Softmax(ReductionBase):
                 init_val=0.0,
             )
         else:
-            max_x, denom, exp_x = utils.online_softmax_reduce(
+            max_x, denom, exp_x = online_softmax_reduce(
                 x,
                 threads_per_row,
                 reduction_buffer[None, None, 0],
@@ -186,7 +188,8 @@ class Softmax(ReductionBase):
             cute.copy(copy_atom_store_O, tXrO, tXgO, pred=tOpO)
 
 
-def _softmax_fwd(x: torch.Tensor) -> torch.Tensor:
+@torch.library.custom_op("quack::_softmax_fwd", mutates_args={"out"})
+def _softmax_fwd(x: torch.Tensor, out: torch.Tensor) -> None:
     """Softmax forward pass.
     Args:
         x: Input tensor of shape (M, N)
@@ -196,8 +199,7 @@ def _softmax_fwd(x: torch.Tensor) -> torch.Tensor:
     assert x.dim() == 2, "Input must be 2D"
     assert x.is_cuda, "Tensor must be on CUDA device"
     assert x.dtype in [torch.float16, torch.bfloat16, torch.float32], "Unsupported dtype"
-    M, N = x.shape
-    out = torch.empty_like(x)
+    N = x.size(1)
     dtype = torch2cute_dtype_map[x.dtype]
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
@@ -213,10 +215,15 @@ def _softmax_fwd(x: torch.Tensor) -> torch.Tensor:
             softmax_op, x_tensor, out_tensor, current_stream
         )
     _softmax_fwd.compile_cache[compile_key](x_tensor, out_tensor, current_stream)
-    return out
 
 
 _softmax_fwd.compile_cache = {}
+
+
+def softmax_fwd(x: torch.Tensor) -> torch.Tensor:
+    out = torch.empty_like(x)
+    _softmax_fwd(x, out)
+    return out
 
 
 class SoftmaxBackward(ReductionBase):
@@ -372,7 +379,7 @@ class SoftmaxBackward(ReductionBase):
 
         # Compute dot product: dot = Σⱼ dy_j × y_j
         threads_per_row = tv_layout.shape[0][0]
-        dot = utils.row_reduce(
+        dot = row_reduce(
             dy * y,
             cute.ReductionOp.ADD,
             threads_per_row,
@@ -394,7 +401,8 @@ class SoftmaxBackward(ReductionBase):
             cute.copy(copy_atom_store, tdXrdX, tdXgdX, pred=tdXpdX)
 
 
-def _softmax_backward(dy: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+@torch.library.custom_op("quack::_softmax_backward", mutates_args={"dx"})
+def _softmax_backward(dy: torch.Tensor, y: torch.Tensor, dx: torch.Tensor) -> None:
     """Softmax backward pass.
     Args:
         dy: Upstream gradients tensor of shape (M, N)
@@ -409,8 +417,7 @@ def _softmax_backward(dy: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     assert dy.dtype in [torch.float16, torch.bfloat16, torch.float32], "Unsupported dtype"
     assert y.dtype == dy.dtype, "dy and y must have same dtype"
 
-    M, N = dy.shape
-    dx = torch.empty_like(dy)
+    N = dy.size(1)
     dtype = torch2cute_dtype_map[dy.dtype]
     convert_from_dlpack = lambda tensor: (
         from_dlpack(tensor.detach(), assumed_align=16).mark_compact_shape_dynamic(
@@ -427,23 +434,28 @@ def _softmax_backward(dy: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
             softmax_backward_op, dy_tensor, y_tensor, dx_tensor, current_stream
         )
     _softmax_backward.compile_cache[compile_key](dy_tensor, y_tensor, dx_tensor, current_stream)
-    return dx
 
 
 _softmax_backward.compile_cache = {}
 
 
+def softmax_bwd(dy: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    dx = torch.empty_like(dy)
+    _softmax_backward(dy, y, dx)
+    return dx
+
+
 class SoftmaxFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x):
-        y = _softmax_fwd(x)
+        y = softmax_fwd(x)
         ctx.save_for_backward(y)
         return y
 
     @staticmethod
     def backward(ctx, dy):
         (y,) = ctx.saved_tensors
-        dx = _softmax_backward(dy, y)
+        dx = softmax_bwd(dy, y)
         return dx
 
 
