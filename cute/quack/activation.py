@@ -30,6 +30,7 @@ def relu(x: Float32, *, loc=None, ip=None) -> Float32:
     return cute.arch.fmax(x, Float32(0.0))
 
 
+@cute.jit
 @dsl_user_op
 def drelu(x: Float32, dout: Float32, *, loc=None, ip=None) -> Tuple[Float32, Float32]:
     x_pos = cutlass.Boolean(x > 0)
@@ -41,6 +42,7 @@ def relu_sq(x: Float32, *, loc=None, ip=None) -> Float32:
     return cute.arch.fmax(x, Float32(0.0)) * x
 
 
+@cute.jit
 @dsl_user_op
 def drelu_sq(x: Float32, dout: Float32, *, loc=None, ip=None) -> Tuple[Float32, Float32]:
     """
@@ -103,18 +105,18 @@ def dgelu_tanh_approx(x: Float32, dout: Float32, *, loc=None, ip=None) -> Tuple[
 
 
 @dsl_user_op
-def silu(y: Float32, *, loc=None, ip=None) -> Float32:
+def silu(x: Float32, *, loc=None, ip=None) -> Float32:
     """
-    silu(y) = y * sigmoid(y) = y * (1 + tanh(y / 2)) / 2 = (0.5 * y) * tanh(0.5 * y) + (0.5 * y)
-    This compiles down to 3 SASS instructions: FMUL to get 0.5 * y, MUFU.TANH, and FFMA.
+    silu(x) = x * sigmoid(x) = x * (1 + tanh(x / 2)) / 2 = (0.5 * x) * tanh(0.5 * x) + (0.5 * x)
+    This compiles down to 3 SASS instructions: FMUL to get 0.5 * x, MUFU.TANH, and FFMA.
     """
-    y_half = 0.5 * y
-    return y_half * tanh(y_half) + y_half
+    x_half = 0.5 * x
+    return x_half * tanh(x_half) + x_half
 
 
 @dsl_user_op
 def swiglu(x: Float32, y: Float32, *, loc=None, ip=None) -> Float32:
-    return x * silu(y)
+    return silu(x) * y
 
 
 @dsl_user_op
@@ -122,65 +124,165 @@ def dswiglu(
     x: Float32, y: Float32, dout: Float32, *, loc=None, ip=None
 ) -> Tuple[Float32, Float32, Float32]:
     """
-    SwiGLU backward pass: computes gradients w.r.t. x (up projection) and y (gate)
-    Given: swiglu_out = x * silu(y), and dout = grad w.r.t. swiglu_out
-    Returns: (dx, dy, swiglu_out) where dx = dout * silu(y), dy = dout * x * d_silu(y)
+    SwiGLU backward pass: computes gradients w.r.t. x (gate) and y (up projection)
+    Given: swiglu_out = silu(x) * y, and dout = grad w.r.t. swiglu_out
+    Returns: (dx, dy, swiglu_out) where dx = dout * y * d_silu(x), dy = dout * silu(x)
 
-    d_silu(y) = sigmoid(y) * (1 + y * (1 - sigmoid(y)))
+    d_silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
 
     This has been optimized to use fewer instructions (i.e. we expand things out
     to use FFMA instead of FADD and FMUL).
     """
-    # Compute sigmoid(y) using tanh: sigmoid(y) = 0.5 * (1 + tanh(0.5 * y))
-    y_half = 0.5 * y  # FMUL
-    sigmoid_y = 0.5 + 0.5 * tanh(y_half)  # MUFU.TANH, then FFMA
-    silu_y = y * sigmoid_y  # FMUL
-    silu_y_dout = silu_y * dout  # FMUL
-    #   d_silu(y) * dout
-    # = sigmoid_y * (1 + y * (1 - sigmoid_y)) * dout
-    # = (sigmoid_y + sigmoid_y * y * (1 - sigmoid_y)) * dout
-    # = (sigmoid_y + silu_y * (1 - sigmoid_y)) * dout
-    # = (sigmoid_y + silu_y - silu_y * sigmoid_y) * dout
-    # = (sigmoid_y - silu_y * sigmoid_y) * dout + silu_y * dout
-    d_silu_y_dout = (sigmoid_y - silu_y * sigmoid_y) * dout + silu_y_dout  # FFMA, FFMA
-    dx = silu_y_dout
-    dy = d_silu_y_dout * x  # FMUL
-    swiglu_out = x * silu_y  # FMUL
+    # Compute sigmoid(x) using tanh: sigmoid(x) = 0.5 * (1 + tanh(0.5 * x))
+    x_half = 0.5 * x  # FMUL
+    sigmoid_x = 0.5 + 0.5 * tanh(x_half)  # MUFU.TANH, then FFMA
+    silu_x = x * sigmoid_x  # FMUL
+    silu_x_dout = silu_x * dout  # FMUL
+    #   d_silu(x) * dout
+    # = sigmoid_x * (1 + x * (1 - sigmoid_x)) * dout
+    # = (sigmoid_x + sigmoid_x * x * (1 - sigmoid_x)) * dout
+    # = (sigmoid_x + silu_x * (1 - sigmoid_x)) * dout
+    # = (sigmoid_x + silu_x - silu_x * sigmoid_x) * dout
+    # = (sigmoid_x - silu_x * sigmoid_x) * dout + silu_x * dout
+    d_silu_x_dout = (sigmoid_x - silu_x * sigmoid_x) * dout + silu_x_dout  # FFMA, FFMA
+    dx = d_silu_x_dout * y  # FMUL
+    dy = silu_x_dout
+    swiglu_out = silu_x * y  # FMUL
     # Overall it's 1 MUFU.TANH, 5 FMUL, 3 FFMA
     return dx, dy, swiglu_out
 
 
 @dsl_user_op
-def swiglu_oai(x: Float32, y: Float32, alpha: float = 1.072, *, loc=None, ip=None) -> Float32:
-    """The swiglu variant used in gpt-oss, which has a scaling factor on y and bias of 1 to x.
+def swiglu_oai(x: Float32, y: Float32, alpha: float = 1.702, *, loc=None, ip=None) -> Float32:
+    """The swiglu variant used in gpt-oss, which has a scaling factor on x and bias of 1 to y.
     https://github.com/openai/gpt-oss/blob/7be9334950053a888e24887a57dac797a17d6e00/gpt_oss/torch/model.py#L249
-    (x + 1) * y * sigmoid(alpha * y)
+    x * sigmoid(alpha * x) * (y + 1)
     Compile down to FMUL, FMUL, TANH, FFMA, FFMA
     """
-    # Compute sigmoid(alpha * y) using tanh: sigmoid(z) = 0.5 * (1 + tanh(z/2))
-    y_half = 0.5 * y
-    silu_y = y_half * tanh(alpha * y_half) + y_half
-    return x * silu_y + silu_y
+    # Compute sigmoid(alpha * x) using tanh: sigmoid(z) = 0.5 * (1 + tanh(z/2))
+    x_half = 0.5 * x
+    silu_x = x_half * tanh(alpha * x_half) + x_half
+    return silu_x * y + silu_x
 
 
 @dsl_user_op
 def dswiglu_oai(
-    x: Float32, y: Float32, dout: Float32, alpha: float = 1.072, *, loc=None, ip=None
+    x: Float32, y: Float32, dout: Float32, alpha: float = 1.702, *, loc=None, ip=None
 ) -> Tuple[Float32, Float32, Float32]:
     """
     Swiglu OAI backward pass: computes gradients w.r.t. x and y
-    Given: silu_oai_out = (x + 1) * y * sigmoid(alpha * y), and dout = grad w.r.t. silu_oai_out
-    Returns: (dx, dy, silu_oai_out)
-    It's the same as dswiglu, dx formula stays the same, for dy we just replace x by x + 1
+    Given: swiglu_oai_out = x * sigmoid(alpha * x) * (y + 1), and dout = grad w.r.t. swiglu_oai_out
+    Returns: (dx, dy, swiglu_oai_out)
+
+    Derivative of x * sigmoid(alpha * x) w.r.t. x:
+    d/dx[x * sigmoid(alpha * x)] = sigmoid(alpha * x) + alpha * x * sigmoid(alpha * x) * (1 - sigmoid(alpha * x))
     """
-    # Compute sigmoid(alpha * y) using tanh: sigmoid(z) = 0.5 * (1 + tanh(z/2))
-    alpha_y_half = (0.5 * alpha) * y  # FMUL
-    sigmoid_alpha_y = 0.5 + 0.5 * tanh(alpha_y_half)  # MUFU.TANH, then FFMA
-    silu_y = y * sigmoid_alpha_y  # FMUL
-    silu_y_dout = silu_y * dout  # FMUL
-    d_silu_y_dout = (sigmoid_alpha_y - silu_y * sigmoid_alpha_y) * dout + silu_y_dout  # FFMA, FFMA
-    dx = silu_y_dout
-    dy = d_silu_y_dout * x + d_silu_y_dout  # FFMA, instead of multiply by x + 1
-    swiglu_out = x * silu_y + silu_y  # FFMA, instead of multiply by x + 1
-    # Overall it's 1 MUFU.TANH, 3 FMUL, 5 FFMA
+    # Compute sigmoid(alpha * x) using tanh: sigmoid(z) = 0.5 * (1 + tanh(z/2))
+    alpha_x_half = (0.5 * alpha) * x  # FMUL
+    sigmoid_alpha_x = 0.5 + 0.5 * tanh(alpha_x_half)  # MUFU.TANH, then FFMA
+    silu_x = x * sigmoid_alpha_x  # FMUL
+    silu_x_dout = silu_x * dout  # FMUL
+    # FFMA, FFMA, FMUL
+    d_silu_x_dout = (sigmoid_alpha_x + alpha * (silu_x - silu_x * sigmoid_alpha_x)) * dout
+    dx = d_silu_x_dout * y + d_silu_x_dout  # FFMA, instead of multiply by y + 1
+    dy = silu_x_dout
+    swiglu_out = silu_x * y + silu_x  # FFMA, instead of multiply by y + 1
+    # Overall it's 1 MUFU.TANH, 4 FMUL, 5 FFMA
     return dx, dy, swiglu_out
+
+
+@dsl_user_op
+def glu(x: Float32, y: Float32, *, loc=None, ip=None) -> Float32:
+    """GLU: Gated Linear Unit
+    glu(x, y) = sigmoid(x) * y
+    Using tanh to compute sigmoid: sigmoid(x) = 0.5 * (1 + tanh(x/2))
+    """
+    x_half = 0.5 * x  # FMUL
+    sigmoid_x = 0.5 + 0.5 * tanh(x_half)  # MUFU.TANH, then FFMA
+    return sigmoid_x * y  # FMUL
+
+
+@dsl_user_op
+def dglu(
+    x: Float32, y: Float32, dout: Float32, *, loc=None, ip=None
+) -> Tuple[Float32, Float32, Float32]:
+    """
+    GLU backward pass: computes gradients w.r.t. x (gate) and y (up projection)
+    Given: glu_out = sigmoid(x) * y, and dout = grad w.r.t. glu_out
+    Returns: (dx, dy, glu_out) where:
+    - dx = dout * y * sigmoid(x) * (1 - sigmoid(x))
+    - dy = dout * sigmoid(x)
+    - glu_out = sigmoid(x) * y
+    """
+    # Compute sigmoid(x) using tanh: sigmoid(x) = 0.5 * (1 + tanh(x/2))
+    x_half = 0.5 * x  # FMUL
+    sigmoid_x = 0.5 + 0.5 * tanh(x_half)  # MUFU.TANH, then FFMA
+    sigmoid_x_dout = sigmoid_x * dout  # FMUL
+    glu_out = sigmoid_x * y  # FMUL
+    # dx = y * sigmoid(x) * (1 - sigmoid(x)) * dout
+    #    = y * (1 - sigmoid(x)) * sigmoid_x_dout
+    #    = (y - y * sigmoid(x)) * sigmoid_x_dout
+    #    = (y - glu_out) * sigmoid_x_dout
+    dx = (y - glu_out) * sigmoid_x_dout  # FADD, FMUL
+    dy = sigmoid_x_dout
+    # Total: 1 MUFU.TANH, 4 FMUL, 1 FADD, 1 FFMA
+    return dx, dy, glu_out
+
+
+@dsl_user_op
+def reglu(x: Float32, y: Float32, *, loc=None, ip=None) -> Float32:
+    """ReGLU: ReLU Gated Linear Unit
+    reglu(x, y) = relu(x) * y = max(x, 0) * y
+    """
+    return cute.arch.fmax(x, Float32(0.0)) * y
+
+
+@cute.jit
+@dsl_user_op
+def dreglu(
+    x: Float32, y: Float32, dout: Float32, *, loc=None, ip=None
+) -> Tuple[Float32, Float32, Float32]:
+    """
+    ReGLU backward pass: computes gradients w.r.t. x (gate) and y (up projection)
+    Given: reglu_out = relu(x) * y, and dout = grad w.r.t. reglu_out
+    Returns: (dx, dy, reglu_out) where:
+    - dx = dout * y if x > 0, else 0
+    - dy = dout * relu(x)
+    - reglu_out = relu(x) * y
+    """
+    x_pos = cutlass.Boolean(x > 0)
+    relu_x = cute.arch.fmax(x, Float32(0.0))
+    dx = (dout * y) if x_pos else Float32(0.0)
+    dy = dout * relu_x
+    reglu_out = relu_x * y
+    return dx, dy, reglu_out
+
+
+@dsl_user_op
+def geglu(x: Float32, y: Float32, *, loc=None, ip=None) -> Float32:
+    """GeGLU: GELU Gated Linear Unit
+    geglu(x, y) = gelu(x) * y
+    Uses the tanh approximation of GELU
+    """
+    return gelu_tanh_approx(x) * y
+
+
+@dsl_user_op
+def dgeglu(
+    x: Float32, y: Float32, dout: Float32, *, loc=None, ip=None
+) -> Tuple[Float32, Float32, Float32]:
+    """
+    GeGLU backward pass: computes gradients w.r.t. x (gate) and y (up projection)
+    Given: geglu_out = gelu(x) * y, and dout = grad w.r.t. geglu_out
+    Returns: (dx, dy, geglu_out) where:
+    - dx = dout * y * d_gelu(x)
+    - dy = dout * gelu(x)
+    - geglu_out = gelu(x) * y
+    """
+    # Reuse dgelu_tanh_approx to compute d_gelu(x) * dout and gelu(x)
+    dgelu_x_dout, gelu_x = dgelu_tanh_approx(x, dout)
+    # Compute gradients for geglu
+    dx = dgelu_x_dout * y
+    dy = gelu_x * dout
+    geglu_out = gelu_x * y
+    return dx, dy, geglu_out
