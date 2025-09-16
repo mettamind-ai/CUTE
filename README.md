@@ -22,7 +22,7 @@
 - [x] `OhMaiHead    ~1.3x` (Giảm vram và tăng tốc LCE khi finetune huge vocab models)
 - [x] `Small batch  ~1.2x` (chỉ activation checkpoint với lite ops)
 - [ ] `MoA          ~1.3x` (Mixture of Anything (Depth/Expert/Cơ chế); quy chiếu MoA về Sparse)
-- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flash/Dyna-Mask; Sparse Attn; 8,4-bit Mixed; FoX/PaTH ...)
+- [ ] `Modded Attn  ~1.3x` (Giảm IO khi không dùng RoPE; Flash/Dyna-Mask; Sparse Attn; FoX/PaTH ...)
 - [ ] `Better Tknz  ~1.3x`
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCTION !!! 🌸
