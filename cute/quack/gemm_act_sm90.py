@@ -19,6 +19,8 @@ import quack.activation
 
 
 class GemmActSm90(GemmSm90):
+    num_epi_tensormaps: int = 1
+
     @dataclass
     class EpilogueArguments(ArgumentsBase):
         mPostAct: cute.Tensor
@@ -41,7 +43,7 @@ class GemmActSm90(GemmSm90):
         self.postact_dtype = args.mPostAct.element_type
         self.postact_layout = cutlass.utils.LayoutEnum.from_tensor(args.mPostAct)
 
-        self.tile_shape_postact_mn = self.tile_shape_mnk[:2]
+        self.cta_tile_shape_postact_mn = self.cta_tile_shape_mnk[:2]
         self.epi_tile_postact = self.epi_tile
         postact_major_mode_size = (
             self.epi_tile_postact[1]
@@ -63,7 +65,7 @@ class GemmActSm90(GemmSm90):
             args.mPostAct,
             epi_postact_smem_layout_staged,
             self.epi_tile_postact,
-            store_or_load="store",
+            op_type="store",
         )
         return GemmActSm90.EpilogueParams(
             tma_atom_postact,
@@ -74,10 +76,28 @@ class GemmActSm90(GemmSm90):
             args.beta,
         )
 
+    def epi_get_tma_atoms(
+        self, params: EpilogueParams, *, loc=None, ip=None
+    ) -> list[cute.CopyAtom]:
+        return [params.tma_atom_postact]
+
+    def epi_get_tensormap_update_shapes_orders(
+        self,
+        params: EpilogueParams,
+        cu_seqlens_m: cute.Tensor,
+        batch_idx: Int32,
+        *,
+        loc=None,
+        ip=None,
+    ) -> tuple[list[Int32], list[int]]:
+        shapes = [cu_seqlens_m[batch_idx + 1]]
+        orders = [0 if const_expr(self.postact_layout.is_m_major_c()) else 1]
+        return shapes, orders
+
     @staticmethod
     def epi_smem_bytes_per_stage(
         args: EpilogueArguments,
-        tile_shape_mnk: Tuple[int, int, int],
+        cta_tile_shape_mnk: Tuple[int, int, int],
         epi_tile: Tuple[int, int],
     ) -> int:
         postact_dtype = args.mPostAct.element_type
@@ -108,7 +128,9 @@ class GemmActSm90(GemmSm90):
         self,
         params: EpilogueParams,
         epi_smem_tensors: Tuple[cute.Tensor, ...],
+        tma_desc_epi_ptrs: list[Optional[cute.Pointer]],
         epi_pipeline: cutlass.pipeline.PipelineAsync,
+        epi_store_pipeline: cutlass.pipeline.PipelineAsync,
         epi_read_state: cutlass.pipeline.PipelineState,
         epi_producer_state: cutlass.pipeline.PipelineState,
         tiled_mma: cute.TiledMma,
@@ -133,7 +155,6 @@ class GemmActSm90(GemmSm90):
     ) -> Tuple[cutlass.pipeline.PipelineState, cutlass.pipeline.PipelineState]:
         has_C = const_expr(tRS_rC is not None)
         has_D = const_expr(copy_D is not None)
-        assert cu_seqlens_m is None, "GemmActSm90 doesn't support varlen_m for now"
 
         tma_atom_postact = params.tma_atom_postact
         mPostAct_mnl = params.mPostAct_mnl
@@ -148,16 +169,17 @@ class GemmActSm90(GemmSm90):
         bSG_sPostAct, bSG_gPostAct = self.epilog_gmem_copy_and_partition(
             tma_atom_postact,
             mPostAct_mnl,
-            self.tile_shape_postact_mn,
+            self.cta_tile_shape_postact_mn,
             self.epi_tile_postact,
             sPostAct,
             tile_coord_mnkl,
             cu_seqlens_m,
         )
+        (tma_desc_postact_ptr,) = tma_desc_epi_ptrs
 
         # We iterate over epi tiles in the N dimension first before the M dimension
         epi_tile_shape = cute.zipped_divide(
-            cute.make_layout(self.tile_shape_mnk[:2]), self.epi_tile
+            cute.make_layout(self.cta_tile_shape_mnk[:2]), self.epi_tile
         ).shape[1]
         epi_tile_layout = cute.make_layout(epi_tile_shape, stride=(epi_tile_shape[1], 1))
         epi_tile_num = cute.size(epi_tile_shape)
@@ -214,9 +236,10 @@ class GemmActSm90(GemmSm90):
                     tma_atom_postact,
                     bSG_sPostAct[None, epi_buffer],
                     bSG_gPostAct[None, gmem_coord],
+                    tma_desc_ptr=tma_desc_postact_ptr,
                 )
-                cute.arch.cp_async_bulk_commit_group()
-                cute.arch.cp_async_bulk_wait_group(self.epi_stage - 1, read=True)
+                epi_store_pipeline.producer_commit()
+                epi_store_pipeline.producer_acquire()
             epilogue_barrier.arrive_and_wait()
 
         return epi_read_state, epi_producer_state
@@ -261,11 +284,12 @@ act_fn_map = {
 
 
 def gemm_act_sm90(
-    A: Tensor,  # (l, m, k)
+    A: Tensor,  # (l, m, k) or (total_m, k) if varlen_m or (whatever, k) if gather_A with varlen_m
     B: Tensor,  # (l, n, k)
-    D: Optional[Tensor],  # (l, m, n)
-    C: Optional[Tensor],  # (l, m, n)
-    PostAct: Tensor,  # (l, m, n)
+    D: Optional[Tensor],  # (l, m, n) or (total_m, n) if varlen_m
+    C: Optional[Tensor],  # (l, m, n) or (total_m, n) if varlen_m
+    PostAct: Tensor,  # (l, m, n) or (total_m, n) if varlen_m
+    tile_count_semaphore: Optional[Tensor],  # (1,)
     activation: Optional[str],
     tile_M: int,
     tile_N: int,
@@ -273,15 +297,25 @@ def gemm_act_sm90(
     cluster_N: int,
     pingpong: bool = False,
     persistent: bool = True,
-    alpha: float = 1.0,
-    beta: float = 1.0,
+    cu_seqlens_m: Optional[Tensor] = None,  # (l+1,) cumulative sum of m values for variable length
+    A_idx: Optional[Tensor] = None,  # (total_m,) if gather_A with varlen_m
 ) -> None:
-    tile_count_semaphore = None
+    if cu_seqlens_m is not None:
+        assert persistent, "varlen_m requires persistent=True"
+        assert A.stride(-1) == 1, "varlen_m requires A to be k-major"
+        if D is not None:
+            assert D.stride(-1) == 1, "varlen_m requires D to be n-major"
+        assert PostAct.stride(-1) == 1, "varlen_m requires PostAct to be n-major"
+    gather_A = A_idx is not None
+    if gather_A:
+        assert cu_seqlens_m is not None, "gather_A requires varlen (cu_seqlens_m must be specified)"
+        assert cluster_N == 1, "gather_A requires cluster_N=1"
     assert activation in act_fn_map, f"Unsupported activation {activation}"
+
     L, M, K, N, tensor_infos = GemmWrapperBase.validate_and_prepare_tensors(
-        A, B, D, C, additional_tensors={"PostAct": PostAct}
+        A, B, D, C, additional_tensors={"PostAct": PostAct}, cu_seqlens_m=cu_seqlens_m, A_idx=A_idx
     )
-    GemmWrapperBase.permute_tensors(tensor_infos)
+    GemmWrapperBase.permute_tensors(tensor_infos, varlen_m=cu_seqlens_m is not None)
     GemmWrapperBase.extract_dtypes(tensor_infos)
     major_configs = {
         "A": ("m", "k", "l"),
@@ -293,7 +327,7 @@ def gemm_act_sm90(
     GemmWrapperBase.determine_major_orders(tensor_infos, major_configs)
 
     acc_dtype = cutlass.Float32
-    tile_shape_mnk = (tile_M, tile_N, 64)  # TODO: adjust for fp8
+    tile_shape_mn = (tile_M, tile_N)
     cluster_shape_mnk = (cluster_M, cluster_N, 1)
     if not GemmActSm90.is_valid_dtypes(
         tensor_infos["A"].dtype,
@@ -308,26 +342,34 @@ def gemm_act_sm90(
     max_active_clusters = get_max_active_clusters(cluster_M * cluster_N) if persistent else 0
     GemmWrapperBase.create_cute_tensors(tensor_infos, major_configs)
     act_fn = act_fn_map[activation]
-    epi_args = GemmActSm90.EpilogueArguments(
-        tensor_infos["PostAct"].cute_tensor,
-        act_fn,
-        alpha=Float32(alpha) if alpha != 1.0 else None,
-        beta=Float32(beta) if beta != 1.0 else None,
-    )
+    epi_args = GemmActSm90.EpilogueArguments(tensor_infos["PostAct"].cute_tensor, act_fn)
     scheduler_args = GemmWrapperBase.create_scheduler_args(
         max_active_clusters, tile_count_semaphore
     )
+
+    # Create varlen arguments if needed (assumes persistent=True when varlen_m)
+    varlen_args = GemmWrapperBase.create_varlen_args(
+        cu_seqlens_m,
+        None,  # cu_seqlens_k
+        A_idx,
+        max_active_clusters,
+        cluster_shape_mnk,
+        tensor_infos,
+        GemmActSm90.num_epi_tensormaps,
+        pingpong,
+    )
+
     current_stream = cutlass_torch.current_stream()
     compile_key = GemmWrapperBase.get_compile_key(
         tensor_infos,
         activation,
-        tile_shape_mnk,
+        tile_shape_mn,
         cluster_shape_mnk,
         pingpong,
         persistent,
         tile_count_semaphore is not None,
-        alpha != 1.0,
-        beta != 1.0,
+        cu_seqlens_m is not None,
+        A_idx is not None,
         key_tensor_names=("A", "B", "D", "PostAct", "C"),
     )
     cache = gemm_act_sm90.compile_cache
@@ -335,10 +377,11 @@ def gemm_act_sm90(
         gemm = GemmActSm90(
             acc_dtype,
             tensor_infos["A"].dtype,
-            tile_shape_mnk,
+            tile_shape_mn,
             cluster_shape_mnk,
             pingpong=pingpong,
             is_persistent=persistent,
+            gather_A=gather_A,
         )
         cache[compile_key] = cute.compile(
             gemm,
@@ -348,8 +391,7 @@ def gemm_act_sm90(
             tensor_infos["C"].cute_tensor,
             epi_args,
             scheduler_args,
-            None,  # varlen_args
-            None,  # mAIdx
+            varlen_args,
             current_stream,
         )
     cache[compile_key](
@@ -359,8 +401,7 @@ def gemm_act_sm90(
         tensor_infos["C"].cute_tensor,
         epi_args,
         scheduler_args,
-        None,
-        None,
+        varlen_args,
         current_stream,
     )
 

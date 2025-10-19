@@ -8,9 +8,10 @@ from quack.rmsnorm import rmsnorm, rmsnorm_ref, _rmsnorm_fwd, rmsnorm_fwd, rmsno
 torch._dynamo.config.cache_size_limit = 1024
 torch._dynamo.config.accumulated_cache_size_limit = 1024
 
+
 @pytest.mark.parametrize("eps", [1e-5, 1e-6])
 # @pytest.mark.parametrize("eps", [1e-5])
-@pytest.mark.parametrize("weight_dtype", [torch.bfloat16, torch.float16, torch.float32])
+@pytest.mark.parametrize("weight_dtype", [torch.bfloat16, torch.float16, torch.float32, None])
 # @pytest.mark.parametrize("weight_dtype", [torch.bfloat16])
 @pytest.mark.parametrize("input_dtype", [torch.bfloat16, torch.float16, torch.float32])
 # @pytest.mark.parametrize("input_dtype", [torch.float32])
@@ -51,9 +52,12 @@ def test_rmsnorm_forward_backward(M, N, input_dtype, weight_dtype, eps, use_comp
         atol = 1e-4
     torch.random.manual_seed(0)
     x = torch.randn(M, N, device=device, dtype=input_dtype, requires_grad=True)
-    weight = torch.randn(N, device=device, dtype=weight_dtype, requires_grad=True)
+    if weight_dtype is not None:
+        weight = torch.randn(N, device=device, dtype=weight_dtype, requires_grad=True)
+    else:
+        weight = None
     x_ref = x.detach().clone().requires_grad_()
-    weight_ref = weight.detach().clone().requires_grad_()
+    weight_ref = weight.detach().clone().requires_grad_() if weight is not None else None
     function = torch.compile(rmsnorm, fullgraph=True) if use_compile else rmsnorm
     out = function(x, weight, eps=eps)
     out_ref = rmsnorm_ref(x_ref, weight_ref, eps=eps)
@@ -70,11 +74,12 @@ def test_rmsnorm_forward_backward(M, N, input_dtype, weight_dtype, eps, use_comp
     out_ref.backward(grad_out)
     out.backward(grad_out)
     torch.testing.assert_close(x.grad, x_ref.grad, atol=atol, rtol=1e-3)
-    if weight_dtype == torch.float32:
-        weight_atol = 1e-4
-    else:
-        weight_atol = 2 * (weight_ref.grad + 0.3 - 0.3 - weight_ref.grad).abs().max()
-    torch.testing.assert_close(weight.grad, weight_ref.grad, atol=weight_atol, rtol=1e-3)
+    if weight_dtype is not None:
+        if weight_dtype == torch.float32:
+            weight_atol = 1e-4
+        else:
+            weight_atol = 2 * (weight_ref.grad + 0.3 - 0.3 - weight_ref.grad).abs().max()
+        torch.testing.assert_close(weight.grad, weight_ref.grad, atol=weight_atol, rtol=1e-3)
 
 
 @pytest.mark.parametrize("use_compile", [False, True])
@@ -231,6 +236,7 @@ def test_rmsnorm_compile_cache():
     out4 = rmsnorm_fwd(x4, weight4, eps=eps)
     assert len(_rmsnorm_fwd.compile_cache) == 3
 
+
 @pytest.mark.parametrize("use_compile", [False, True])
 def test_rmsnorm_with_bias(use_compile):
     """Test RMSNorm with bias parameter - both forward and backward."""
@@ -266,6 +272,7 @@ def test_rmsnorm_with_bias(use_compile):
     torch.testing.assert_close(weight.grad, weight_ref.grad, atol=1e-4, rtol=1e-3)
     torch.testing.assert_close(bias.grad, bias_ref.grad, atol=1e-4, rtol=1e-3)
 
+
 @pytest.mark.parametrize("use_compile", [False, True])
 def test_rmsnorm_with_residual(use_compile):
     """Test RMSNorm with residual connection - both forward and backward."""
@@ -300,6 +307,7 @@ def test_rmsnorm_with_residual(use_compile):
     torch.testing.assert_close(x.grad, x_ref.grad, atol=1e-2, rtol=1e-3)
     torch.testing.assert_close(weight.grad, weight_ref.grad, atol=1e-2, rtol=1e-3)
     torch.testing.assert_close(residual.grad, residual_ref.grad, atol=1e-2, rtol=1e-3)
+
 
 def test_amp_bf16_training():
     """
@@ -340,20 +348,20 @@ def test_rmsnorm_prenorm_false(use_compile):
 
     function = torch.compile(rmsnorm, fullgraph=True) if use_compile else rmsnorm
     out = function(x, weight, residual=residual, eps=eps, prenorm=False)
-    
+
     assert isinstance(out, torch.Tensor)
     assert out.shape == x.shape
     assert out.dtype == input_dtype
 
     out_ref, residual_out_ref = rmsnorm_ref(x_ref, weight_ref, residual=residual_ref, eps=eps)
-    
+
     torch.testing.assert_close(out, out_ref, atol=1e-2, rtol=1e-3)
 
     grad_out = torch.randn_like(out)
     torch.cuda.synchronize()
     out_ref.backward(grad_out)
     out.backward(grad_out)
-    
+
     torch.testing.assert_close(x.grad, x_ref.grad, atol=1e-2, rtol=1e-3)
     torch.testing.assert_close(weight.grad, weight_ref.grad, atol=1e-2, rtol=1e-3)
     assert residual.grad is None

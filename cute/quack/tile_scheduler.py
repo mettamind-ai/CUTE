@@ -135,7 +135,7 @@ class TileScheduler:
         ip=None,
     ):
         self._current_work_linear_idx = current_work_linear_idx
-        self._num_tiles_executed = num_tiles_executed
+        self.num_tiles_executed = num_tiles_executed
         self._tile_count = tile_count
         self._scheduler_pipeline = scheduler_pipeline
         self._pipeline_state = pipeline_state
@@ -251,7 +251,7 @@ class TileScheduler:
         )
         tile_coord_mnkl = (pid_m, pid_n, None, batch_idx)
         if const_expr(not params.is_persistent):
-            is_valid = self._num_tiles_executed == 0
+            is_valid = self.num_tiles_executed == 0
         else:
             is_valid = self._current_work_linear_idx < cute.size(params.problem_shape_ncluster_mnl)
         return cutlass.utils.WorkTileInfo(tile_coord_mnkl, is_valid)
@@ -262,8 +262,8 @@ class TileScheduler:
     @cute.jit
     def fetch_next_work(self, is_scheduler_warp: bool | Boolean = False, *, loc=None, ip=None):
         """is_scheduler_warp should only be true for one warp in the whole cluster"""
-        if const_expr(self.params.tile_count_semaphore is not None):
-            params = self.params
+        params = self.params
+        if const_expr(params.is_persistent and params.tile_count_semaphore is not None):
             current_work_linear_idx = self._current_work_linear_idx
             if is_scheduler_warp:
                 if cute.arch.lane_idx() == 0:
@@ -287,6 +287,7 @@ class TileScheduler:
     ):
         tidx = cute.arch.thread_idx()[0]
         bidx = cute.arch.block_idx()[0]
+        bidz = cute.arch.block_idx()[2]
         params = self.params
         if const_expr(params.is_persistent):
             num_persistent_clusters = cute.arch.grid_dim()[2]
@@ -300,7 +301,7 @@ class TileScheduler:
                     self._scheduler_pipeline.producer_acquire(self._pipeline_state)
                     lane_idx = cute.arch.lane_idx()
                     if lane_idx < cute.size(params.cluster_shape_mn):
-                        # cute.printf("Producer bidx = {}, tidx = {}, after empty wait, idx = {}", bidx, tidx, current_work_linear_idx)
+                        # cute.printf("Producer bidx = {}, bidz = {}, tidx = {}, after empty wait, idx = {}", bidx, bidz, tidx, current_work_linear_idx)
                         if const_expr(cute.size(params.cluster_shape_mn) == 1):
                             self._tile_count[self._pipeline_state.index] = current_work_linear_idx
                             self._scheduler_pipeline.producer_commit(self._pipeline_state)
@@ -318,35 +319,38 @@ class TileScheduler:
                                 mbar_ptr=mbar_ptr,
                                 peer_cta_rank_in_cluster=peer_cta_rank_in_cluster,
                             )
-                        # cute.printf("Producer bidx = {}, tidx = {}, after full arrive", bidx, tidx)
+                        # cute.printf("Producer bidx = {}, bidz = {}, tidx = {}, after full arrive", bidx, bidz, tidx)
                 else:
-                    # if tidx % 64 == 0: cute.printf("bidx = {},tidx = {}, before full wait, idx = {}", bidx, tidx, current_work_linear_idx)
+                    # if tidx % 32 == 0: cute.printf("bidx = {}, bidz = {}, tidx = {}, before full wait, idx = {}", bidx, bidz, tidx, current_work_linear_idx)
                     self._scheduler_pipeline.consumer_wait(self._pipeline_state)
-                    # if tidx % 64 == 0: cute.printf("bidx = {}, tidx = {}, after full wait, idx = {}", bidx, tidx, current_work_linear_idx)
+                    # if tidx % 32 == 0: cute.printf("bidx = {}, bidz = {}, tidx = {}, after full wait, idx = {}", bidx, bidz, tidx, current_work_linear_idx)
                     current_work_linear_idx = self._tile_count[self._pipeline_state.index]
-                    # if tidx % 64 == 0: cute.printf("bidx = {}, tidx = {}, after smem read, idx = {}", bidx, tidx, current_work_linear_idx)
+                    # if tidx % 32 == 0: cute.printf("bidx = {}, bidz = {}, tidx = {}, after smem read, idx = {}", bidx, bidz, tidx, current_work_linear_idx)
+                    # Need this fence since the STAS from the producer is using the async proxy.
+                    # Without this, we get race condition / deadlock.
+                    if const_expr(cute.size(params.cluster_shape_mn) > 1):
+                        cute.arch.fence_proxy(
+                            cute.arch.ProxyKind.async_shared, space=cute.arch.SharedSpace.shared_cta
+                        )
                     cute.arch.sync_warp()
                     with cute.arch.elect_one():
-                        # if tidx % 64 == 0: cute.printf("bidx = {}, tidx = {}, before empty arrive", bidx, tidx)
+                        # if tidx % 32 == 0: cute.printf("bidx = {}, bidz = {}, tidx = {}, before empty arrive", bidx, bidz, tidx)
                         self._scheduler_pipeline.consumer_release(self._pipeline_state)
-                        # if tidx % 64 == 0: cute.printf("bidx = {}, tidx = {}, after empty arrive", bidx, tidx)
+                        # if tidx == 320: cute.printf("bidx = {}, bidz = {}, tidx = {}, idx = {}, after empty arrive", bidx, bidz, tidx, current_work_linear_idx)
+                    # if tidx == 320: cute.printf("bidx = {}, bidz = {}, tidx = {}, idx = {}, after empty arrive", bidx, bidz, tidx, current_work_linear_idx)
                 self._current_work_linear_idx = current_work_linear_idx
                 self._pipeline_state.advance()
-        self._num_tiles_executed += Int32(advance_count)
+        self.num_tiles_executed += Int32(advance_count)
 
     def producer_tail(self):
         if const_expr(self.params.is_persistent and self.params.tile_count_semaphore is not None):
             self._scheduler_pipeline.producer_tail(self._pipeline_state)
 
-    @property
-    def num_tiles_executed(self) -> Int32:
-        return self._num_tiles_executed
-
     def __extract_mlir_values__(self):
         values, self._values_pos = [], []
         for obj in [
             self._current_work_linear_idx,
-            self._num_tiles_executed,
+            self.num_tiles_executed,
             self._tile_count,
             self._scheduler_pipeline,
             self._pipeline_state,
@@ -362,7 +366,7 @@ class TileScheduler:
         for obj, n_items in zip(
             [
                 self._current_work_linear_idx,
-                self._num_tiles_executed,
+                self.num_tiles_executed,
                 self._tile_count,
                 self._scheduler_pipeline,
                 self._pipeline_state,
@@ -552,7 +556,7 @@ class TriangularTileScheduler(TileScheduler):
         pid_n = cid_n * params.cluster_shape_mn[1] + bidx_in_cluster[1]
         tile_coord_mnkl = (pid_m, pid_n, None, bidz)
         if const_expr(not params.is_persistent):
-            is_valid = self._num_tiles_executed == 0
+            is_valid = self.num_tiles_executed == 0
         else:
             is_valid = (
                 self._current_work_linear_idx
@@ -574,7 +578,7 @@ class VarlenMTileSchedulerArguments(ParamsBase):
     cu_seqlens_m: cute.Tensor
     raster_order: cutlass.Constexpr[RasterOrderOption]
     group_size: Int32
-    tile_shape_mnk: cutlass.Constexpr[cute.Shape]
+    tile_shape_mn: cutlass.Constexpr[cute.Shape]
     cluster_shape_mnk: cutlass.Constexpr[cute.Shape]
     tile_count_semaphore: Optional[cute.Pointer] = None
     is_persistent: cutlass.Constexpr[bool] = False
@@ -603,7 +607,6 @@ class VarlenMTileScheduler(TileScheduler):
         ) -> "VarlenMTileScheduler.Params":
             assert args.cluster_shape_mnk[2] == 1
             cluster_shape_mn = const_expr(cute.select(args.cluster_shape_mnk, mode=[0, 1]))
-            tile_shape_mn = const_expr(cute.select(args.tile_shape_mnk, mode=[0, 1]))
             # problem_shape_ntile_mnl[0] will be None for VarlenM
             problem_shape_ntile_mn = cute.select(args.problem_shape_ntile_mnl, mode=[0, 1])
             problem_shape_ncluster_mn = (
@@ -651,7 +654,7 @@ class VarlenMTileScheduler(TileScheduler):
                 FastDivmod.create(num_clusters_in_group)
                 if num_clusters_in_group is not None
                 else None,
-                tile_shape_mn,
+                args.tile_shape_mn,
                 args.tile_count_semaphore if const_expr(args.is_persistent) else None,
                 cluster_shape_mn,
                 args.is_persistent,
@@ -672,7 +675,7 @@ class VarlenMTileScheduler(TileScheduler):
         ip=None,
     ):
         self._current_work_linear_idx = current_work_linear_idx
-        self._num_tiles_executed = num_tiles_executed
+        self.num_tiles_executed = num_tiles_executed
         self._current_batch_idx = current_batch_idx
         self._num_work_idx_before_cur_batch = num_work_idx_before_cur_batch
         self._tile_count = tile_count
@@ -869,25 +872,25 @@ class VarlenMTileScheduler(TileScheduler):
         pid_n = cid_n * params.cluster_shape_mn[1] + bidx_in_cluster[1]
         tile_coord_mnkl = (pid_m, pid_n, None, batch_idx)
         if const_expr(not params.is_persistent):
-            is_valid = self._num_tiles_executed == 0 and batch_idx < num_batch
+            is_valid = self.num_tiles_executed == 0 and batch_idx < num_batch
         else:
             is_valid = batch_idx < num_batch
         return cutlass.utils.WorkTileInfo(tile_coord_mnkl, is_valid)
 
     @cute.jit
-    def fetch_next_work(self, is_scheduler_warp: bool | Boolean, *, loc=None, ip=None):
+    def fetch_next_work(self, is_scheduler_warp: bool | Boolean = False, *, loc=None, ip=None):
         """is_scheduler_warp should only be true for one warp in the whole cluster"""
         if const_expr(self.params.tile_count_semaphore is not None):
             params = self.params
             current_work_linear_idx = self._current_work_linear_idx
             if is_scheduler_warp:
                 if cute.arch.lane_idx() == 0:
-                    # cute.printf("before atomicadd, tidx = {}, idx = {}", cute.arch.thread_idx()[0], current_work_linear_idx)
+                    # cute.printf("before atomicadd, tidx = {}, bidz = {}, idx = {}", cute.arch.thread_idx()[0], cute.arch.block_idx()[2], current_work_linear_idx)
                     num_persistent_clusters = cute.arch.grid_dim()[2]
                     current_work_linear_idx = num_persistent_clusters + utils.atomic_add_i32(
                         1, params.tile_count_semaphore
                     )
-                    # cute.printf("after atomicadd, tidx = {}, idx = {}", cute.arch.thread_idx()[0], current_work_linear_idx)
+                    # cute.printf("after atomicadd, tidx = {}, bidz = {}, idx = {}", cute.arch.thread_idx()[0], cute.arch.block_idx()[2], current_work_linear_idx)
                 # lane 0 already has the right tile_idx, just need to broadcast
                 current_work_linear_idx = cute.arch.shuffle_sync(current_work_linear_idx, 0)
             self._current_work_linear_idx = current_work_linear_idx
@@ -896,7 +899,7 @@ class VarlenMTileScheduler(TileScheduler):
         values, self._values_pos = [], []
         for obj in [
             self._current_work_linear_idx,
-            self._num_tiles_executed,
+            self.num_tiles_executed,
             self._current_batch_idx,
             self._num_work_idx_before_cur_batch,
             self._tile_count,
@@ -914,7 +917,7 @@ class VarlenMTileScheduler(TileScheduler):
         for obj, n_items in zip(
             [
                 self._current_work_linear_idx,
-                self._num_tiles_executed,
+                self.num_tiles_executed,
                 self._current_batch_idx,
                 self._num_work_idx_before_cur_batch,
                 self._tile_count,
