@@ -1,0 +1,1 @@
+pip install torch pytorch-lightning==1.9.5 deepspeed

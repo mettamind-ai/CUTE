@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>TokenMonster Test</title>
+  <style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f1f1f1;
+}
+
+#container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+#loadingBox {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  font-size: 20px;
+}
+
+#tab {
+  margin-left: 20px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+.m {
+  text-decoration:none;
+  color:black;
+  font-size:10pt;
+  margin-bottom:20px;
+}
+
+#inputText {
+  width: 100%;
+  height: 180px;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+  background-color: #f9f9f9;
+}
+
+#output {
+  width: 100%;
+  padding: 12px;
+  margin-top: 16px;
+  background-color: #f9f9f9;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.token {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  position: relative;
+  cursor: zoom-in;
+  font-size: 1em;
+  line-height: 1.17;
+}
+
+.tooltip {
+    position: absolute;
+    z-index: 20;
+    margin-top: 1em;
+    padding: 0.6em;
+    padding-top: 0.5em;
+    padding-bottom: 0.4em;
+    border-radius: .3em;
+    background-color: rgba(0,0,0,0.7); /* set background color with transparency */
+    color: white;
+    font-size: .8em;
+    line-height: 1;
+    min-width: 50px; /* You can set the width according to your needs */
+    display: none;
+    pointer-events: none;
+    text-align: center;
+}
+
+#dti {
+  background-color: rgba(0,0,0,1);
+  padding:2px;
+  padding-bottom:2px;
+  padding-top:2px;
+  margin:2px;
+  display: inline-block;
+  color: white;
+}
+
+.token[data-tooltip]:hover::after span {
+    display: block;
+    background-color: rgba(0,0,0,.9);
+}
+
+.token-0 {
+  background-color: #90caf9;
+}
+.token-1 {
+  background-color: #ffe082;
+}
+.token-2 {
+  background-color: #a5d6a7;
+}
+.token-3 {
+  background-color: #ff9ea9;
+}
+
+
+/* Improve the CSS for the dropdown boxes */
+.select-wrapper {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 16px;
+  width:280px;
+}
+
+.select-wrapper select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: transparent;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 16px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.select-wrapper::after {
+  content: '\25BC';
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Apply the improved CSS classes to the dropdown boxes */
+
+.output-container {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .output-box {
+      width: 48%;
+    }
+
+    .token-count {
+      margin-top: 16px;
+    }
+  </style>
+  <script src="tokenmonster.js"></script> <!-- tokenmonster Encoder -->
+  <script>
+    // Load token data from the URL
+    async function loadTokenData(tokenDataUrl) {
+      const tokenMonster = new TokenMonster();
+      try {
+        // Load token data from the URL
+        await tokenMonster.load(tokenDataUrl);
+        return tokenMonster;
+      } catch (error) {
+        console.error('Error loading token data:', error);
+        throw error;
+      }
+    }
+
+    // Function to tokenize the text and apply background colors to tokens
+    async function processInput(tokenizers, encoderNum) {
+      const inputText = document.getElementById('inputText').value;
+      const outputDiv = document.getElementById(`output-encoder-type-${encoderNum}`);
+      const tokenCountDiv = document.getElementById(`token-count-encoder-type-${encoderNum}`);
+      const encoderType = document.getElementById(`encoder-type-${encoderNum}`).value;
+      const showmarks = document.getElementById(`marks-${encoderNum}`);
+      const uniquecolors = document.getElementById(`uniquecolors`);
+      const tokenizer = tokenizers[encoderType];
+
+      try {
+        // Tokenize the input text
+        let tokens = [];
+        tokens = tokenizer.tokenize(inputText);
+
+        // Generate HTML with token boundaries highlighted
+        let outputHTML = '';
+        let tokenCount = 0;
+
+        let decoder = tokenizer.Decoder()
+        let tokenStrDecoded = "";
+        let style = "";
+        let reset = false;
+
+        for (const tokenId of tokens) {
+            // Detokenize each token individually
+            if (showmarks.checked) {
+              tokenStrDecoded = tokenizer.id2display[tokenId];
+            } else {
+              tokenStrDecoded = decoder.detokenize([tokenId]);
+            }
+
+            if (uniquecolors.checked) {
+              const len = tokenizer.id2word.length;
+              const hue = (((tokenId * tokenId * 11400714819323198485) % len) * 360) / len;
+              const sat = 108 - ((((tokenId * len * 11400714819323198485) % len) * 80) / len);
+              const lit = 90 - ((((tokenId * tokenId * len * 982451653) % len) * 20) / len);
+              style = ` style="background-color:hsl(${hue},${sat}%,${lit}%);"`;
+            }
+
+            if (tokenStrDecoded.length > 0) {
+                reset = false;
+                let encodedToken = tokenizer.id2string[tokenId];
+                let tooltipText = `ID: ${tokenId}`;
+                
+                let htmlTokenStr = tokenStrDecoded.replace(/[&<>"'\t\n ]/g, match => {
+                    if (match === '\n') {
+                        const temp = `</span><br><span class="token token-${tokenCount}" data-tooltip-id="${tooltipText}" data-tooltip-encoded="${encodedToken}"${style}>`;
+                        reset = true;
+                        return temp
+                    }
+                    return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;', '\t': '<span id="tab"></span>', ' ': '&nbsp;'})[match];
+                });
+
+                
+                outputHTML += `<span class="token token-${tokenCount}" data-tooltip-id="${tooltipText}" data-tooltip-encoded="${encodedToken}"${style}>${htmlTokenStr}</span>`;
+                if (reset && tokenCount !== 0) {
+                  tokenCount = 0;
+                } else {
+                  tokenCount++;
+                  if (tokenCount === 4) {
+                      tokenCount = 0;
+                  }
+                }
+            }
+        }
+
+  
+
+        // Update the output div with the generated HTML
+        outputDiv.innerHTML = outputHTML;
+        addTooltipToTokens(outputDiv);
+
+        // Update the token count div
+        let avg = inputText.length / tokens.length;
+        let avgFormatted = avg.toFixed(2);
+        tokenCountDiv.innerText = `Characters: ${inputText.length}, Tokens: ${tokens.length}, Chr/Tok: ${avgFormatted}`;
+      } catch (error) {
+        console.error('Error tokenizing input:', error);
+      }
+    }
+
+function addTooltipToTokens() {
+  // Remove any existing tooltip elements
+  let existingTooltip = document.querySelector('.tooltip');
+  if (existingTooltip) existingTooltip.remove();
+
+  let tooltip = document.createElement('div');
+  tooltip.className = 'tooltip';
+  document.body.appendChild(tooltip);
+
+  let tokenElements = document.querySelectorAll('.token');
+  tokenElements.forEach(tokenElement => {
+    tokenElement.addEventListener('mouseenter', function(e) {
+      tooltip.style.display = 'block';
+      tooltip.innerHTML = `<div>${this.getAttribute('data-tooltip-id')}</div><div id="dti">${this.getAttribute('data-tooltip-encoded')}</div>`;
+    });
+    tokenElement.addEventListener('mousemove', function(e) {
+      tooltip.style.left = e.pageX + 'px';
+      tooltip.style.top = e.pageY + 'px';
+    });
+    tokenElement.addEventListener('mouseleave', function() {
+      tooltip.style.display = 'none';
+    });
+  });
+}
+
+    // Entry point
+    async function initialize() {
+      const loadingMessageElement = document.getElementById('loadingBox');
+      loadingMessageElement.style.display = 'block';
+
+      // Load token data
+      const tokenizers = {};
+
+      // Get unique encoder types from select boxes
+      const selectElements = Array.from(document.querySelectorAll('select'));
+      const encoderTypes = Array.from(new Set(
+        selectElements.flatMap(select => Array.from(select.options).map(option => option.value + '.vocab'))
+      ));
+
+      // Load token data for each unique encoder type
+      await Promise.all(
+        encoderTypes.map(
+          encoderType => loadTokenData(encoderType).then(data => tokenizers[encoderType.slice(0, -6)] = data)
+        )
+      );
+
+      loadingMessageElement.style.display = 'none';
+
+      // Attach event handlers
+      document.getElementById('inputText').addEventListener('input', () => {
+        processInput(tokenizers, '1');
+        processInput(tokenizers, '2');
+      });
+      document.getElementById('marks-1').addEventListener('change', () => {
+        processInput(tokenizers, '1');
+      });
+      document.getElementById('encoder-type-1').addEventListener('change', () => {
+        processInput(tokenizers, '1');
+      });
+      document.getElementById('marks-2').addEventListener('change', () => {
+        processInput(tokenizers, '2');
+      });
+      document.getElementById('uniquecolors').addEventListener('change', () => {
+        processInput(tokenizers, '1');
+      });
+      document.getElementById('uniquecolors').addEventListener('change', () => {
+        processInput(tokenizers, '2');
+      });
+      document.getElementById('encoder-type-2').addEventListener('change', () => {
+        processInput(tokenizers, '2');
+      });
+
+      processInput(tokenizers, '1');
+      processInput(tokenizers, '2');
+    }
+
+    // Initialize the page
+    window.onload = initialize;
+  </script>
+</head>
+<body>
+  <div id="loadingBox">Loading...</div>
+  <div id="container">
+    <h1>TokenMonster Test</h1>
+    <div align="center" class="m">(<a href="https://platform.openai.com/tokenizer" target="_blank" class="m">compare with OpenAI tokenizer</a>)</div>
+    <textarea id="inputText" rows="5" cols="50"># Write anything here and you can see how it would be tokenized by TokenMonster.
+# It's fun!
+
+    class Decoder:
+      def __init__(self, parent):
+          self.parent = parent
+          self.remainder = b''
+          self.capcodeDecoder = capcode.Decoder
+      def detokenize(self, tokens):
+          if self.parent.charset == 0: # binary
+              return self.parent.detokenize_bytes(tokens)
+          decoded = self.remainder + b''.join(self.parent.id2word[id] for id in tokens if id in self.parent.id2word)
+          if self.parent.charset == 1: # UTF-8
+              invalidBytes = incomplete_utf8_bytes(decoded)
+              decodedString = decoded[:len(decoded)-invalidBytes]
+              decodedString = decoded.decode('utf-8')
+          else:                        # UTF-16
+              invalidBytes = incomplete_utf16_bytes(decoded)
+              decodedString = decoded[:len(decoded)-invalidBytes]
+              decodedString = decoded.decode('utf-16-le')
+          self.remainder = decoded[len(decoded)-invalidBytes:]
+          if self.parent.capcode:
+              decodedString = self.capcodeDecoder.decode(decodedString)
+          return decodedString
+      </textarea>
+      <div style="margin:10px 0;"><input type="checkbox" id="uniquecolors"><label for="uniquecolors">use a unique color for each token ID</label></div>
+    <div class="output-container">
+      <div class="output-box">
+        <div class="select-wrapper">
+          <select id="encoder-type-1">
+            <option value="test">test</option>
+          </select>
+          
+        </div>
+        <span><input type="checkbox" id="marks-1"><label for="marks-1">show capcode</label></span>
+        <div id="output-encoder-type-1"></div>
+        <div id="token-count-encoder-type-1" class="token-count"></div>
+      </div>
+      <div class="output-box">
+        <div class="select-wrapper">
+          <select id="encoder-type-2">
+            <option value="test">test</option>
+          </select>
+        </div>
+        <span><input type="checkbox" id="marks-2"><label for="marks-2">show capcode</label></span>
+        <div id="output-encoder-type-2"></div>
+        <div id="token-count-encoder-type-2" class="token-count"></div>
+      </div>
+      
+    </div>
+  </div>
+</body>
+</html>
