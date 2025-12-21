@@ -9,6 +9,7 @@ import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from torch.utils.cpp_extension import load
+from optimus import FusedCE
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -360,21 +361,16 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     y2, _ = model.mtp_head(y1, v_first_mtp)
     yn = model.ln_out(y2)
 
-    # Compute logits - ignore first token of each sequence in batch
-    xn_flat = xn.reshape(B * T, C)
-    yn_flat = yn.reshape(B * T, C)
+    # Ignore first token of each sequence
     target2 = target.clone()
-    target2[:, 0] = ignore  # ignore t=0 for all batch items
+    target2[:, 0] = ignore
     target_flat = target2.reshape(B * T)
 
-    # Use head for logits, standard cross entropy
-    logits_ntp = model.head(xn_flat)
-    logits_mtp = model.head(yn_flat)
+    # Use FusedCE with head weights
+    mtp_loss = FusedCE.apply(yn.reshape(B * T, C), model.head.weight, target_flat, n_ignore, ignore, 0.2)
+    ntp_loss = FusedCE.apply(xn.reshape(B * T, C), model.head.weight, target_flat, n_ignore, ignore, 0.8)
 
-    ntp_loss = F.cross_entropy(logits_ntp, target_flat, ignore_index=ignore, reduction='mean')
-    mtp_loss = F.cross_entropy(logits_mtp, target_flat, ignore_index=ignore, reduction='mean')
-
-    return 0.8 * ntp_loss + 0.2 * mtp_loss
+    return mtp_loss + ntp_loss
 
 
 ########################

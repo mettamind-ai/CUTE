@@ -7,10 +7,10 @@ torch.manual_seed(1981)
 
 CTXLEN = 1024
 VOCAB_SIZE = 64 * 1024
-DIM = 512
-N_LAYERS = 12
-WARMUP = 3
-STEPS = 10
+DIM = 256
+N_LAYERS = 8
+WARMUP = 2
+STEPS = 5
 
 def benchmark_winrwkv():
     from winrwkv import WinRWKV, fused_loss_fn as rwkv_loss_fn

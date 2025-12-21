@@ -10,7 +10,7 @@
 import os, math, torch, torch.nn.functional as F, time
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
+from optimus import FusedCE, convert_int8_mixed_precision
 from flash.attn import flash_attn_varlen_func
 from einops import repeat, rearrange
 
@@ -142,8 +142,8 @@ class WinGPT(nn.Module):
         self.embeds    = nn.Embedding(vocab_size, dim)
         self.mtp_head  = GptBlock(dim, head_dim, vocab_size, -2, n_layers)
         self.mtp_proj  = nn.Linear(2*dim, dim, bias=False)
-        self.unembeds  = OhMaiHead(dim, vocab_size, bias=False)
-        with torch.no_grad(): init_linear([ self.mtp_proj ])
+        self.unembeds  = nn.Linear(dim, vocab_size, bias=False)
+        with torch.no_grad(): init_linear([ self.mtp_proj, self.unembeds ])
 
     def forward(self, input_seq, cu_seqlens, max_seqlen):
         x = self.embeds(input_seq) * self.emb_scale # large residuals https://www.alphaxiv.org/abs/2312.16903
@@ -152,9 +152,7 @@ class WinGPT(nn.Module):
 
 
 def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, ignore=-100, cu_steps=1):
-    target = model.unembeds.activate(target)
     xn = model(input_seq, cu_seqlens, max_seqlen)
-    model.unembeds.update_new_tokens_weight()
 
     def prepare():
         zeros = torch.zeros_like(xn[:1])
@@ -169,8 +167,8 @@ def fused_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen, n_ignore=1, 
     yn = norm(y2)
     target[0] = ignore
 
-    mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2 / cu_steps)
-    ntp_loss = FusedCE.apply(xn, model.unembeds.active_weight, target, n_ignore, ignore, 0.8 / cu_steps)
+    mtp_loss = FusedCE.apply(yn, model.unembeds.weight, target, n_ignore, ignore, 0.2 / cu_steps)
+    ntp_loss = FusedCE.apply(xn, model.unembeds.weight, target, n_ignore, ignore, 0.8 / cu_steps)
     return mtp_loss + ntp_loss
 
 
@@ -223,5 +221,3 @@ if __name__ == "__main__":
         loss_model.backward()
         optim.step(); aptim.step()
     optim.reset_momentum()
-
-    model.unembeds.update_async_weight()
