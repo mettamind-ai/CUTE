@@ -196,8 +196,145 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
     return emb_params, other_params, n_params, ms_per_step, tokens_per_sec, peak_mem, gpu_util
 
 
+def benchmark_rwkv_original(dim, n_layers, gpu_mon):
+    """Benchmark original WinRWKV (single sequence, no varlen)"""
+    from winrwkv import WinRWKV, fused_loss_fn
+    
+    model = WinRWKV(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    emb_params, other_params, n_params = count_params(model)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    model.train()
+    
+    # Warmup - single sequence (batch=1)
+    for _ in range(WARMUP):
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (1, CTXLEN), dtype=torch.long).cuda()
+        target = torch.full((1, CTXLEN), -100, dtype=torch.long).cuda()
+        target[:, :-1] = input_ids[:, 1:]
+        optimizer.zero_grad()
+        loss = fused_loss_fn(model, input_ids, target)
+        loss.backward()
+        optimizer.step()
+    
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    gpu_mon.start()
+    
+    # Benchmark
+    start = time.perf_counter()
+    for step in range(STEPS):
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (1, CTXLEN), dtype=torch.long).cuda()
+        target = torch.full((1, CTXLEN), -100, dtype=torch.long).cuda()
+        target[:, :-1] = input_ids[:, 1:]
+        optimizer.zero_grad()
+        loss = fused_loss_fn(model, input_ids, target)
+        loss.backward()
+        optimizer.step()
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - start
+    gpu_util = gpu_mon.stop()
+    
+    peak_mem = torch.cuda.max_memory_allocated() / (1024**2)
+    tokens_per_sec = (STEPS * CTXLEN) / elapsed
+    ms_per_step = (elapsed / STEPS) * 1000
+    
+    del model, optimizer
+    torch.cuda.empty_cache()
+    
+    return emb_params, other_params, n_params, ms_per_step, tokens_per_sec, peak_mem, gpu_util
+
+
+def benchmark_rwkv_varlen_single(dim, n_layers, gpu_mon):
+    """Benchmark WinRWKV varlen with single sequence (fair comparison)"""
+    from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen
+    
+    model = WinRWKVVarlen(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    emb_params, other_params, n_params = count_params(model)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    model.train()
+    
+    # Warmup - single sequence (varlen format)
+    for _ in range(WARMUP):
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
+        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
+        target[:-1] = input_ids[1:]
+        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
+        optimizer.zero_grad()
+        loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
+        loss.backward()
+        optimizer.step()
+    
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    gpu_mon.start()
+    
+    # Benchmark
+    start = time.perf_counter()
+    for step in range(STEPS):
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
+        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
+        target[:-1] = input_ids[1:]
+        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
+        optimizer.zero_grad()
+        loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
+        loss.backward()
+        optimizer.step()
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - start
+    gpu_util = gpu_mon.stop()
+    
+    peak_mem = torch.cuda.max_memory_allocated() / (1024**2)
+    tokens_per_sec = (STEPS * CTXLEN) / elapsed
+    ms_per_step = (elapsed / STEPS) * 1000
+    
+    del model, optimizer
+    torch.cuda.empty_cache()
+    
+    return emb_params, other_params, n_params, ms_per_step, tokens_per_sec, peak_mem, gpu_util
+
+
+def compare_rwkv_kernels():
+    """Compare RWKV original vs varlen kernel performance"""
+    print(f"\n{'='*70}")
+    print("RWKV KERNEL COMPARISON: Original vs Varlen (single sequence)")
+    print(f"Config: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen, vocab {VOCAB_SIZE}")
+    print(f"{'='*70}\n")
+    
+    gpu_mon = GPUMonitor()
+    results = []
+    
+    for name, (dim, n_layers) in CONFIGS.items():
+        print(f"Config {name} (dim={dim}, layers={n_layers})...")
+        
+        # Original kernel
+        _, _, _, orig_ms, orig_tps, orig_mem, orig_gpu = benchmark_rwkv_original(dim, n_layers, gpu_mon)
+        
+        # Varlen kernel (single seq)
+        _, _, _, var_ms, var_tps, var_mem, var_gpu = benchmark_rwkv_varlen_single(dim, n_layers, gpu_mon)
+        
+        speedup = orig_ms / var_ms
+        print(f"  Original: {orig_ms:.1f}ms, Varlen: {var_ms:.1f}ms, Speedup: {speedup:.2f}x")
+        
+        results.append((name, dim, n_layers, orig_ms, orig_tps, orig_gpu, var_ms, var_tps, var_gpu, speedup))
+    
+    # Summary
+    print(f"\n{'='*90}")
+    print("RWKV KERNEL COMPARISON RESULTS")
+    print(f"{'='*90}")
+    print(f"{'Size':<6} {'Orig ms':>10} {'Orig tok/s':>12} {'GPU%':>6} | {'Varlen ms':>10} {'Varlen tok/s':>12} {'GPU%':>6} | {'Speedup':>8}")
+    print(f"{'-'*90}")
+    for name, _, _, oms, otps, ogpu, vms, vtps, vgpu, sp in results:
+        print(f"{name:<6} {oms:>10.1f} {otps:>12.0f} {ogpu:>5}% | {vms:>10.1f} {vtps:>12.0f} {vgpu:>5}% | {sp:>7.2f}x")
+
+
 if __name__ == "__main__":
-    print(f"Benchmark: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen, vocab {VOCAB_SIZE}, {NUM_SEQS} seqs/batch\n")
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "compare":
+        # Compare RWKV original vs varlen kernel
+        compare_rwkv_kernels()
+    else:
+        # Default: benchmark WinGPT vs WinRWKV varlen
+        print(f"Benchmark: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen, vocab {VOCAB_SIZE}, {NUM_SEQS} seqs/batch\n")
     
     gpu_mon = GPUMonitor()
     results = []
