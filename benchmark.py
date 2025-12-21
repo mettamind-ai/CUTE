@@ -9,6 +9,7 @@ CTXLEN = 8192
 VOCAB_SIZE = 16 * 1024
 WARMUP = 2
 STEPS = 5
+NUM_SEQS = 16  # Number of packed sequences per batch
 
 # Model size configs: (dim, n_layers)
 # dim must be divisible by 64 (HEAD_SIZE)
@@ -19,6 +20,55 @@ CONFIGS = {
     "XL":  (512, 12),  # ~110M
     "XXL": (640, 12),  # ~150M
 }
+
+
+def generate_packed_data(total_len, num_seqs, vocab_size, device='cuda'):
+    """Generate packed sequences with random lengths (aligned to 16).
+    
+    Returns:
+        input_ids: (total_len,) packed tokens
+        target: (total_len,) targets with -100 at sequence boundaries
+        cu_seqlens: (num_seqs+1,) cumulative sequence lengths
+        max_seqlen: maximum sequence length
+    """
+    # Generate random lengths (aligned to 16, min 16)
+    min_len = 16
+    avg_len = total_len // num_seqs
+    lengths = []
+    remaining = total_len
+    
+    for i in range(num_seqs - 1):
+        # Random length around average, aligned to 16
+        max_possible = remaining - (num_seqs - i - 1) * min_len
+        length = min(max_possible, max(min_len, ((avg_len + torch.randint(-avg_len//2, avg_len//2, (1,)).item()) // 16) * 16))
+        lengths.append(length)
+        remaining -= length
+    lengths.append(remaining)  # Last sequence gets the rest
+    
+    # Ensure all lengths are valid
+    lengths = [max(min_len, (l // 16) * 16) for l in lengths]
+    
+    # Adjust to match total_len exactly
+    diff = total_len - sum(lengths)
+    if diff != 0:
+        lengths[-1] += diff
+    
+    # Generate cu_seqlens
+    cu_seqlens = torch.zeros(num_seqs + 1, dtype=torch.int32, device=device)
+    cu_seqlens[1:] = torch.tensor(lengths, dtype=torch.int32, device=device).cumsum(0)
+    max_seqlen = max(lengths)
+    
+    # Generate tokens (avoid 0 which is EOT)
+    input_ids = torch.randint(5, vocab_size // 4, (total_len,), dtype=torch.long, device=device)
+    
+    # Generate targets: shift by 1, -100 at sequence boundaries
+    target = torch.full((total_len,), -100, dtype=torch.long, device=device)
+    for i in range(num_seqs):
+        start, end = cu_seqlens[i].item(), cu_seqlens[i+1].item()
+        if end - start > 1:
+            target[start:end-1] = input_ids[start+1:end]
+    
+    return input_ids, target, cu_seqlens, max_seqlen
 
 class GPUMonitor:
     def __init__(self):
@@ -64,12 +114,9 @@ def benchmark_winrwkv(dim, n_layers, gpu_mon):
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()
     
-    # Warmup - single sequence (varlen format)
+    # Warmup - packed sequences
     for _ in range(WARMUP):
-        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
-        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
-        target[:-1] = input_ids[1:]
-        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
+        input_ids, target, cu_seqlens, _ = generate_packed_data(CTXLEN, NUM_SEQS, VOCAB_SIZE)
         optimizer.zero_grad()
         loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
         loss.backward()
@@ -82,10 +129,7 @@ def benchmark_winrwkv(dim, n_layers, gpu_mon):
     # Benchmark
     start = time.perf_counter()
     for step in range(STEPS):
-        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
-        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
-        target[:-1] = input_ids[1:]
-        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
+        input_ids, target, cu_seqlens, _ = generate_packed_data(CTXLEN, NUM_SEQS, VOCAB_SIZE)
         optimizer.zero_grad()
         loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
         loss.backward()
@@ -105,7 +149,7 @@ def benchmark_winrwkv(dim, n_layers, gpu_mon):
 
 
 def benchmark_wingpt(dim, n_layers, gpu_mon):
-    from wingpt import WinGPT, fused_loss_fn as gpt_loss_fn, get_cu_max_seqlens_from
+    from wingpt import WinGPT, fused_loss_fn as gpt_loss_fn
     from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
     
     model = WinGPT(VOCAB_SIZE, n_layers, dim, CTXLEN, head_dim=64).cuda()
@@ -118,13 +162,11 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
     optim = Muon(mpara)
     model.train()
     
-    # Warmup
+    # Warmup - packed sequences (same data format as RWKV)
     for _ in range(WARMUP):
-        input_seq = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
-        target = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq, eot=0)
+        input_ids, target, cu_seqlens, max_seqlen = generate_packed_data(CTXLEN, NUM_SEQS, VOCAB_SIZE)
         optim.zero_grad(); aptim.zero_grad()
-        loss = gpt_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss = gpt_loss_fn(model, input_ids, target, cu_seqlens, max_seqlen)
         loss.backward()
         optim.step(); aptim.step()
     
@@ -135,11 +177,9 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
     # Benchmark
     start = time.perf_counter()
     for step in range(STEPS):
-        input_seq = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
-        target = F.pad(input_seq[1:], (1, 0), mode='constant', value=-100)
-        cu_seqlens, max_seqlen = get_cu_max_seqlens_from(input_seq, eot=0)
+        input_ids, target, cu_seqlens, max_seqlen = generate_packed_data(CTXLEN, NUM_SEQS, VOCAB_SIZE)
         optim.zero_grad(); aptim.zero_grad()
-        loss = gpt_loss_fn(model, input_seq, target, cu_seqlens, max_seqlen)
+        loss = gpt_loss_fn(model, input_ids, target, cu_seqlens, max_seqlen)
         loss.backward()
         optim.step(); aptim.step()
     torch.cuda.synchronize()
@@ -157,7 +197,7 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
 
 
 if __name__ == "__main__":
-    print(f"Benchmark: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen, vocab {VOCAB_SIZE}\n")
+    print(f"Benchmark: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen, vocab {VOCAB_SIZE}, {NUM_SEQS} seqs/batch\n")
     
     gpu_mon = GPUMonitor()
     results = []
