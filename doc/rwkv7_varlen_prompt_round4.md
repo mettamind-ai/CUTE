@@ -185,17 +185,13 @@ Please provide:
 
 1. **Code review verdict** - Are the fixes correct and complete?
 
-2. **Complete Python test file** - A comprehensive `test_wkv7_varlen_extended.py` that includes:
-   - All existing tests (keep them)
+2. **Additional test functions** - Provide new test functions to add to the existing `test_wkv7_varlen.py`:
    - All missing test cases from round 3
    - Ref-Aligned backward comparison for multi-seq cases
    - Proper tolerances and assertions
    - Clear pass/fail output
-
-The test file should be self-contained and runnable with:
-```bash
-python3 test_wkv7_varlen_extended.py
-```
+   
+   Just provide the new functions to append, not a complete file.
 
 Focus on catching real bugs, not just coverage. Prioritize tests that would catch:
 - Off-by-one in p0 calculation
