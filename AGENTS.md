@@ -32,19 +32,29 @@ wsl python3 benchmark.py rwkv
 wsl python3 benchmark.py gpt
 ```
 
-Config mặc định trong `benchmark.py`:
-- 8 layers, 256 dim, 1024 ctxlen
-- 5 steps benchmark, 2 warmup
+**Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`
 
-### Kết quả (RTX 3080)
+### Model Configs
+
+| Name | dim | layers | RWKV params | GPT params |
+|------|-----|--------|-------------|------------|
+| S    | 128 | 6      | 18M         | 20M        |
+| M    | 256 | 6      | 40M         | 41M        |
+| L    | 384 | 12     | 75M         | 76M        |
+| XL   | 512 | 12     | 111M        | 109M       |
+| XXL  | 640 | 12     | 152M        | 144M       |
+
+### Benchmark (RTX 3050 Ti)
 
 | Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
 |------|---------|------------|--------|-----------|---------|
-| 60M  | 239     | 4,278      | 918    | 1,116     | 3.83x   |
-| 110M | 301     | 3,405      | 481    | 2,131     | 1.60x   |
-| 160M | 324     | 3,163      | 633    | 1,617     | 1.96x   |
+| S    | 105     | 9,739      | 150    | 6,811     | 1.43x   |
+| M    | 114     | 8,957      | 151    | 6,792     | 1.32x   |
+| L    | 194     | 5,286      | 298    | 3,440     | 1.54x   |
+| XL   | 242     | 4,228      | 409    | 2,502     | 1.69x   |
+| XXL  | 315     | 3,251      | 577    | 1,773     | 1.83x   |
 
-**RWKV nhanh hơn 1.6-3.8x** tùy model size.
+**RWKV nhanh hơn 1.32-1.83x**. Speedup tốt nhất khi dim là power of 2 (128, 256, 512).
 
 ## Dependencies
 

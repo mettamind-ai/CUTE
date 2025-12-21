@@ -10,12 +10,14 @@ VOCAB_SIZE = 64 * 1024
 WARMUP = 2
 STEPS = 5
 
-# Model size configs: (dim, n_layers, ~params)
+# Model size configs: (dim, n_layers)
 # dim must be divisible by 64 (HEAD_SIZE)
 CONFIGS = {
-    "60M":  (384, 12),  # ~60M  
-    "110M": (512, 12),  # ~110M
-    "160M": (640, 12),  # ~160M
+    "S":   (128, 6),   # ~18-20M
+    "M":   (256, 6),   # ~40M
+    "L":   (384, 12),  # ~75M  
+    "XL":  (512, 12),  # ~110M
+    "XXL": (640, 12),  # ~150M
 }
 
 def benchmark_winrwkv(dim, n_layers):
