@@ -53,6 +53,18 @@ python3 benchmark.py
 
 **RWKV nhanh hơn 1.42-1.65x** với vocab=4k. GPU utilization 94-100%.
 
+### Benchmark (vocab=4k, seq=8k, RTX 3050 Ti)
+
+| Size | RWKV ms | RWKV tok/s | RWKV GPU% | GPT ms | GPT tok/s | GPT GPU% | Speedup |
+|------|---------|------------|-----------|--------|-----------|----------|---------|
+| S    | 286     | 28,604     | 100%      | 460    | 17,806    | 100%     | 1.61x   |
+| M    | 356     | 23,012     | 100%      | 600    | 13,661    | 100%     | 1.68x   |
+| L    | 880     | 9,314      | 100%      | 1421   | 5,765     | 100%     | 1.62x   |
+| XL   | 1161    | 7,054      | 100%      | 1821   | 4,499     | 100%     | 1.57x   |
+| XXL  | 1526    | 5,368      | 100%      | 2313   | 3,541     | 100%     | 1.52x   |
+
+**RWKV nhanh hơn 1.52-1.68x** với vocab=4k, seq=8k. GPU utilization 100%.
+
 ### Model Configs (vocab=16k)
 
 | Size | dim | L  | RWKV (emb+other) | GPT (emb+other)  |
@@ -74,6 +86,18 @@ python3 benchmark.py
 | XXL  | 896     | 4,569      | 100%      | 1221   | 3,354     | 100%     | 1.36x   |
 
 **RWKV nhanh hơn 1.31-1.85x** với vocab=16k. GPU utilization 96-100%.
+
+### Benchmark (vocab=16k, seq=8k, RTX 3050 Ti)
+
+| Size | RWKV ms | RWKV tok/s | RWKV GPU% | GPT ms | GPT tok/s | GPT GPU% | Speedup |
+|------|---------|------------|-----------|--------|-----------|----------|---------|
+| S    | 306     | 26,732     | 100%      | 657    | 12,466    | 100%     | 2.14x   |
+| M    | 471     | 17,388     | 100%      | 765    | 10,715    | 100%     | 1.62x   |
+| L    | 1141    | 7,182      | 100%      | 1812   | 4,521     | 100%     | 1.59x   |
+| XL   | 1466    | 5,586      | 100%      | 2142   | 3,825     | 100%     | 1.46x   |
+| XXL  | 1689    | 4,850      | 100%      | 2416   | 3,391     | 100%     | 1.43x   |
+
+**RWKV nhanh hơn 1.43-2.14x** với vocab=16k, seq=8k. GPU utilization 100%.
 
 ### Params difference
 
