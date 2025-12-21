@@ -395,6 +395,7 @@ void forward_varlen(
     int num_seqs = cu_seqlens.size(0) - 1;
     
     TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
+    TORCH_CHECK(total_tokens > 0, "total_tokens must be > 0 (no zero-length sequences allowed)");
     
     cuda_forward_varlen(
         total_tokens, H, num_seqs,
@@ -438,6 +439,7 @@ void backward_varlen(
     int num_seqs = cu_seqlens.size(0) - 1;
     
     TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
+    TORCH_CHECK(total_tokens > 0, "total_tokens must be > 0 (no zero-length sequences allowed)");
     
     cuda_backward_varlen(
         total_tokens, H, num_seqs,

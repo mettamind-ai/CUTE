@@ -7,6 +7,7 @@ Based on your previous review (round 3), I've applied the following fixes to `wk
 1. **Fixed p0 calculation** - Changed from hard-coded `>>4<<4` to generic `((p_end + 1) & ~(CHUNK - 1)) - 1`
 2. **Added static_assert** - Both forward and backward kernels now have `static_assert((CHUNK & (CHUNK - 1)) == 0, "CHUNK must be power of 2")`
 3. **Added TORCH_CHECK validations** - Full input validation in PyTorch bindings (dtype, CUDA, contiguous checks)
+4. **Added zero-length sequence rejection** - `TORCH_CHECK(total_tokens > 0, ...)` to reject empty inputs
 
 **Goal**: 
 1. Review the code changes for correctness
@@ -167,16 +168,12 @@ You identified these gaps in round 3:
 2. **Backward test for total_tokens not multiple of 16**
    - Tests "last partial chunk exists but has no checkpoint writes" path
 
-3. **Zero-length sequences inside cu_seqlens**
-   - Example: `[10, 0, 3, 0, 25]`
-   - Ensures early returns don't break synchronization
-
-4. **Stress numeric extremes of w_input**
+3. **Stress numeric extremes of w_input**
    - Very negative (w≈1)
    - Around 0 (w≈exp(-1))
    - Moderately positive (w tiny)
 
-5. **Ref-Aligned backward test** (prefix no-op padding)
+4. **Ref-Aligned backward test** (prefix no-op padding)
    - Emulate varlen's global checkpoint schedule in original kernel
    - Use no-op tokens: `w_input=-100`, `a=b=k=v=0`
 
