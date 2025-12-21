@@ -6,7 +6,7 @@ torch.set_default_dtype(torch.bfloat16)
 torch.manual_seed(1981)
 
 CTXLEN = 1024
-VOCAB_SIZE = 4 * 1024
+VOCAB_SIZE = 8 * 1024
 WARMUP = 2
 STEPS = 5
 

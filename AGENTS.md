@@ -22,19 +22,14 @@ RWKV7 implementation với:
 ## Benchmark
 
 ```bash
-# Chạy cả hai
 wsl python3 benchmark.py
-
-# Chỉ RWKV
-wsl python3 benchmark.py rwkv
-
-# Chỉ GPT
-wsl python3 benchmark.py gpt
 ```
 
-**Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`, `vocab = 16k`
+**Training config**: batch=1, seq_len=1024, random tokens, 5 steps (2 warmup), AdamW + Muon optimizer
 
-### Model Configs
+**Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`
+
+### Model Configs (vocab=16k)
 
 | Size | dim | L  | RWKV (emb+other) | GPT (total)     |
 |------|-----|----|------------------|-----------------|
@@ -77,6 +72,34 @@ wsl python3 benchmark.py gpt
 | XXL  | 211     | 4,851      | 405    | 2,530     | 1.92x   |
 
 **RWKV nhanh hơn 1.67-2.08x** với vocab 4k.
+
+### Model Configs (vocab=8k)
+
+| Size | dim | L  | RWKV (emb+other) | GPT (emb+other)  |
+|------|-----|----|------------------|------------------|
+| S    | 128 |  6 |  2M +  2M =  4M  |  2M +  3M =  5M  |
+| M    | 256 |  6 |  4M +  6M = 10M  |  4M +  8M = 12M  |
+| L    | 384 | 12 |  6M + 25M = 31M  |  6M + 26M = 32M  |
+| XL   | 512 | 12 |  8M + 44M = 52M  |  8M + 41M = 50M  |
+| XXL  | 640 | 12 | 10M + 68M = 79M  | 10M + 60M = 71M  |
+
+### Benchmark (vocab=8k, RTX 3050 Ti)
+
+| Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
+|------|---------|------------|--------|-----------|---------|
+| S    | 63      | 16,346     | 118    | 8,690     | 1.88x   |
+| M    | 70      | 14,540     | 125    | 8,215     | 1.77x   |
+| L    | 127     | 8,054      | 222    | 4,609     | 1.75x   |
+| XL   | 160     | 6,381      | 302    | 3,386     | 1.88x   |
+| XXL  | 211     | 4,862      | 402    | 2,550     | 1.91x   |
+
+**RWKV nhanh hơn 1.75-1.91x** với vocab 8k.
+
+### Params difference
+
+RWKV < GPT khi dim nhỏ (S, M, L), RWKV > GPT khi dim lớn (XL, XXL).
+
+**Nguyên nhân**: GPT dùng GTA (Group Tied Attention) với `q_proj` expand 4x dim, trong khi RWKV có nhiều learnable mixing params (`g1, g2, w1, w2, a1, a2, v1, v2`...) scale theo dim. Crossover point ~dim=450.
 
 ## Dependencies
 
