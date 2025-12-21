@@ -56,16 +56,56 @@ class WindBacksteppingVarlen(torch.autograd.Function):
 
 
 def RUN_CUDA_RWKV7_VARLEN(q, w, k, v, a, b, cu_seqlens):
-    """Run RWKV7 varlen kernel on packed sequences.
-    
-    Args:
-        q, w, k, v, a, b: (total_tokens, dim) packed tensors
-        cu_seqlens: (num_seqs + 1,) cumulative sequence lengths
-    """
+    """Run RWKV7 varlen kernel on packed sequences."""
     total_tokens, HC = q.shape
     H = HC // HEAD_SIZE
     q, w, k, v, a, b = [i.view(total_tokens, H, HEAD_SIZE) for i in [q, w, k, v, a, b]]
     return WindBacksteppingVarlen.apply(w, q, k, v, a, b, cu_seqlens).view(total_tokens, HC)
+
+
+def varlen_timeshift(x: Tensor, starts: Tensor) -> Tensor:
+    """Vectorized time-shift for packed sequences.
+    
+    CRITICAL: Phải vectorize thay vì dùng Python loop!
+    
+    Code cũ (CHẬM - gây ~768 GPU→CPU syncs/step với 16 seqs × 6 layers):
+        for i in range(num_seqs):
+            start, end = cu_seqlens[i].item(), cu_seqlens[i+1].item()  # .item() = SYNC!
+            xx[start+1:end] = x[start:end-1] - x[start+1:end]
+    
+    Mỗi .item() buộc GPU dừng pipeline, copy 1 int về CPU, đợi CPU xong mới tiếp tục.
+    Sync latency ~10-50μs × 768 = ~20-40ms overhead, gần bằng cả forward pass!
+    
+    Code mới (NHANH - 0 syncs, chỉ ~0.13ms compute):
+        xx[1:] = x[:-1] - x[1:]  # global shift
+        xx[starts] = 0           # fix sequence boundaries
+    
+    Args:
+        x: (T, C) packed sequences
+        starts: (num_seqs,) sequence start indices (precomputed, on GPU)
+    
+    Returns:
+        xx: (T, C) where xx[t] = x[t-1] - x[t] if not start, else 0
+    """
+    T = x.size(0)
+    if T == 0:
+        return x.new_empty(x.shape)
+    
+    xx = torch.empty_like(x)
+    if T > 1:
+        xx[1:] = x[:-1]
+        xx[1:] -= x[1:]  # in-place subtract, autograd safe
+    xx[starts] = 0  # zero out sequence starts (constant write, no grad issues)
+    return xx
+
+
+def precompute_starts(cu_seqlens: Tensor, total_tokens: int) -> Tensor:
+    """Precompute sequence start indices from cu_seqlens.
+    
+    Gọi 1 lần per batch, pass xuống tất cả layers để tránh recompute.
+    """
+    starts = cu_seqlens[:-1].to(torch.long)
+    return starts[starts < total_tokens]
 
 
 def norm(x: Tensor):
@@ -148,25 +188,19 @@ class RWKV_Tmix_Varlen(nn.Module):
             self.value.weight.data.uniform_(-0.5 / (C ** 0.5), 0.5 / (C ** 0.5))
             self.output.weight.data.zero_()
 
-    def forward(self, x, v_first, cu_seqlens):
+    def forward(self, x, v_first, cu_seqlens, starts):
         """
         Args:
             x: (total_tokens, C) packed sequences
             v_first: (total_tokens, C) or None
-            cu_seqlens: (num_seqs + 1,) cumulative lengths
+            cu_seqlens: (num_seqs + 1,) cumulative lengths for kernel
+            starts: (num_seqs,) precomputed sequence start indices for time-shift
         """
         T, C = x.size()
         H = self.n_head
-        num_seqs = cu_seqlens.size(0) - 1
         
-        # Time shift per sequence (varlen-aware)
-        xx = torch.zeros_like(x)
-        for i in range(num_seqs):
-            start, end = cu_seqlens[i].item(), cu_seqlens[i + 1].item()
-            if end > start:
-                xx[start + 1:end] = x[start:end - 1] - x[start + 1:end]
-                # First token of each seq: xx = 0 - x = -x (but we want 0)
-                # Actually time_shift = prev - curr, first token has no prev so use 0
+        # Vectorized time shift - no Python loops, no .item() syncs
+        xx = varlen_timeshift(x, starts)
         
         xr = x + xx * self.x_r.squeeze(0)
         xw = x + xx * self.x_w.squeeze(0)
@@ -220,16 +254,14 @@ class RWKV_CMix_Varlen(nn.Module):
             self.key.weight.data.uniform_(-0.5 / (dim ** 0.5), 0.5 / (dim ** 0.5))
             self.value.weight.data.zero_()
 
-    def forward(self, x, cu_seqlens):
-        T, C = x.size()
-        num_seqs = cu_seqlens.size(0) - 1
-        
-        # Time shift per sequence
-        xx = torch.zeros_like(x)
-        for i in range(num_seqs):
-            start, end = cu_seqlens[i].item(), cu_seqlens[i + 1].item()
-            if end > start:
-                xx[start + 1:end] = x[start:end - 1] - x[start + 1:end]
+    def forward(self, x, starts):
+        """
+        Args:
+            x: (total_tokens, C) packed sequences
+            starts: (num_seqs,) precomputed sequence start indices
+        """
+        # Vectorized time shift - no Python loops, no .item() syncs
+        xx = varlen_timeshift(x, starts)
         
         k = x + xx * self.x_k.squeeze(0)
         k = self.key(k)
@@ -251,13 +283,13 @@ class RwkvBlockVarlen(nn.Module):
         self.att = RWKV_Tmix_Varlen(dim, layer_id, n_layers)
         self.ffn = RWKV_CMix_Varlen(dim, layer_id, n_layers)
 
-    def forward(self, x, v_first, cu_seqlens):
+    def forward(self, x, v_first, cu_seqlens, starts):
         if self.layer_id == 0:
             x = self.ln0(x)
 
-        x_att, v_first = self.att(self.ln1(x), v_first, cu_seqlens)
+        x_att, v_first = self.att(self.ln1(x), v_first, cu_seqlens, starts)
         x = x + x_att
-        x = x + self.ffn(self.ln2(x), cu_seqlens)
+        x = x + self.ffn(self.ln2(x), starts)
         return x, v_first
 
 
@@ -346,11 +378,14 @@ class WinRWKVVarlen(nn.Module):
         """
         total_tokens = input_ids.shape[0]
         
+        # Precompute starts once for vectorized time-shift (no .item() syncs)
+        starts = precompute_starts(cu_seqlens, total_tokens)
+        
         x = self.emb(input_ids)  # (total_tokens, dim)
         v_first = None
 
         for blk in self.blocks:
-            x, v_first = checkpoint(blk, x, v_first, cu_seqlens, use_reentrant=False)
+            x, v_first = checkpoint(blk, x, v_first, cu_seqlens, starts, use_reentrant=False)
 
         x = self.ln_out(x)
         if return_logits:
@@ -363,12 +398,11 @@ def fused_loss_fn_varlen(model, input_ids, target, cu_seqlens, n_ignore=1, ignor
     xn = model(input_ids, cu_seqlens, return_logits=False)
     T, C = xn.shape
     
-    # Ignore first token of each sequence
+    # Ignore first token of each sequence - vectorized, no .item() syncs
     target_masked = target.clone()
-    num_seqs = cu_seqlens.size(0) - 1
-    for i in range(num_seqs):
-        start = cu_seqlens[i].item()
-        target_masked[start] = ignore
+    starts = cu_seqlens[:-1].to(torch.long)
+    starts = starts[starts < T]
+    target_masked[starts] = ignore
     
     # Use FusedCE
     loss = FusedCE.apply(xn, model.head.weight, target_masked, n_ignore, ignore, 1.0)

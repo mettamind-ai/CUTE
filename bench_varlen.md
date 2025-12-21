@@ -1,42 +1,42 @@
 # RWKV7 Varlen Kernel Benchmark
 
-Benchmark so sánh original kernel (với padding) vs varlen kernel (packed sequences).
+Benchmark so sánh WinRWKV (original) vs WinRWKV (varlen) trên cùng số tokens.
 
 **Hardware**: RTX 3050 Ti  
-**Config**: H=4 heads, C=64 (HEAD_SIZE), warmup=3, iterations=10
+**Model**: dim=256, layers=6, vocab=4k
 
-## Context Length 4096
+## End-to-End Training Benchmark
 
-| Num Seqs | Orig ms | Varlen ms | Speedup | Tokens | Padded | Waste% |
-|----------|---------|-----------|---------|--------|--------|--------|
-| 5        | 9.25    | 9.02      | 1.03x   | 4096   | 10800  | 62.1%  |
-| 10       | 4.65    | 4.05      | 1.15x   | 4096   | 14880  | 72.5%  |
-| 20       | 2.68    | 2.19      | 1.22x   | 4096   | 12160  | 66.3%  |
-| 30       | 4.14    | 2.47      | 1.68x   | 4096   | 18240  | 77.5%  |
-| 40       | 5.05    | 2.28      | 2.21x   | 4096   | 23040  | 82.2%  |
-| 50       | 3.78    | 1.56      | 2.42x   | 4096   | 16000  | 74.4%  |
+### Context Length 4096
 
-## Context Length 8192
+| AvgSeqLen | NumSeqs | Orig ms | Varlen ms | Speedup |
+|-----------|---------|---------|-----------|---------|
+| 128       | 31      | 195.3   | 100.1     | 1.95x   |
+| 256       | 17      | 186.5   | 101.7     | 1.84x   |
+| 512       | 9       | 188.0   | 105.3     | 1.78x   |
+| 1024      | 4       | 185.5   | 114.7     | 1.62x   |
+| full      | 1       | 193.4   | 188.9     | 1.02x   |
 
-| Num Seqs | Orig ms | Varlen ms | Speedup | Tokens | Padded | Waste% |
-|----------|---------|-----------|---------|--------|--------|--------|
-| 5        | 12.26   | 11.54     | 1.06x   | 8192   | 21600  | 62.1%  |
-| 10       | 9.48    | 8.13      | 1.17x   | 8192   | 29760  | 72.5%  |
-| 20       | 5.70    | 4.25      | 1.34x   | 8192   | 24640  | 66.8%  |
-| 30       | 8.69    | 4.65      | 1.87x   | 8192   | 36960  | 77.8%  |
-| 40       | 10.27   | 4.28      | 2.40x   | 8192   | 46080  | 82.2%  |
-| 50       | 7.62    | 3.12      | 2.44x   | 8192   | 32000  | 74.4%  |
+### Context Length 8192
+
+| AvgSeqLen | NumSeqs | Orig ms | Varlen ms | Speedup |
+|-----------|---------|---------|-----------|---------|
+| 128       | 60      | 389.4   | 193.3     | 2.01x   |
+| 256       | 31      | 409.1   | 196.3     | 2.08x   |
+| 512       | 17      | 431.5   | 220.2     | 1.96x   |
+| 1024      | 9       | 435.1   | 257.8     | 1.69x   |
+| full      | 1       | 434.8   | 400.3     | 1.09x   |
 
 ## Kết luận
 
-- **Varlen nhanh hơn 1.03x - 2.44x** tùy thuộc vào số sequences
-- Speedup tăng khi số sequences tăng (nhiều padding waste hơn)
-- Với 40-50 sequences, varlen nhanh hơn **~2.4x**
-- Waste% = (Padded - Tokens) / Padded, cho thấy lượng compute lãng phí khi dùng padding
+- Varlen nhanh hơn **1.62x - 2.08x** với packed sequences
+- Single sequence (full): ~1.02-1.09x (baseline, gần như tương đương)
+- Speedup đến từ việc kernel xử lý nhiều sequences ngắn hiệu quả hơn
 
 ## Files
 
 - `wkv7_varlen.cu` - Varlen kernel implementation
 - `wkv7.cu` - Original kernel (không sửa đổi)
+- `winrwkv_varlen.py` - WinRWKV model với varlen kernel
 - `test_wkv7_varlen.py` - Test suite
 - `bench_varlen.py` - Benchmark script
