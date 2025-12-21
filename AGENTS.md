@@ -21,79 +21,59 @@ RWKV7 implementation với:
 
 ## Benchmark
 
+**Note**: Chạy trong WSL/Linux, không dùng PowerShell.
+
 ```bash
-wsl python3 benchmark.py
+python3 benchmark.py
 ```
 
 **Training config**: batch=1, seq_len=4096, random tokens, 5 steps (2 warmup), AdamW + Muon optimizer
 
 **Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`
 
-### Model Configs (vocab=16k)
-
-| Size | dim | L  | RWKV (emb+other) | GPT (total)     |
-|------|-----|----|------------------|-----------------|
-| S    | 128 |  6 |  4M +  2M =  6M  |  4M +  3M = 7M  |
-| M    | 256 |  6 |  8M +  6M = 15M  |  8M +  8M = 16M |
-| L    | 384 | 12 | 13M + 25M = 38M  | 13M + 26M = 38M |
-| XL   | 512 | 12 | 17M + 44M = 61M  | 17M + 41M = 58M |
-| XXL  | 640 | 12 | 21M + 68M = 89M  | 21M + 60M = 81M |
-
-### Benchmark (RTX 3050 Ti)
-
-| Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
-|------|---------|------------|--------|-----------|---------|
-| S    | 62      | 16,375     | 115    | 8,889     | 1.84x   |
-| M    | 65      | 15,693     | 140    | 7,337     | 2.14x   |
-| L    | 133     | 7,704      | 220    | 4,657     | 1.65x   |
-| XL   | 157     | 6,507      | 310    | 3,298     | 1.97x   |
-| XXL  | 222     | 4,614      | 448    | 2,288     | 2.02x   |
-
-**RWKV nhanh hơn 1.65-2.14x**. Speedup tốt nhất khi dim là power of 2 (128, 256, 512).
-
 ### Model Configs (vocab=4k)
-
-| Size | dim | L  | RWKV (emb+other) | GPT (total)    |
-|------|-----|----|------------------|----------------|
-| S    | 128 |  6 | 1M +  2M =  3M   | 1M +  3M =  4M |
-| M    | 256 |  6 | 2M +  6M =  8M   | 2M +  8M = 10M |
-| L    | 384 | 12 | 3M + 25M = 28M   | 3M + 26M = 29M |
-| XL   | 512 | 12 | 4M + 44M = 48M   | 4M + 41M = 46M |
-| XXL  | 640 | 12 | 5M + 68M = 73M   | 5M + 60M = 66M |
-
-### Benchmark (vocab=4k, RTX 3050 Ti)
-
-| Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
-|------|---------|------------|--------|-----------|---------|
-| S    | 66      | 15,622     | 136    | 7,527     | 2.08x   |
-| M    | 64      | 16,014     | 107    | 9,617     | 1.67x   |
-| L    | 127     | 8,073      | 216    | 4,751     | 1.70x   |
-| XL   | 159     | 6,449      | 294    | 3,489     | 1.85x   |
-| XXL  | 211     | 4,851      | 405    | 2,530     | 1.92x   |
-
-**RWKV nhanh hơn 1.67-2.08x** với vocab 4k.
-
-### Model Configs (vocab=8k)
 
 | Size | dim | L  | RWKV (emb+other) | GPT (emb+other)  |
 |------|-----|----|------------------|------------------|
-| S    | 128 |  6 |  2M +  2M =  4M  |  2M +  3M =  5M  |
-| M    | 256 |  6 |  4M +  6M = 10M  |  4M +  8M = 12M  |
-| L    | 384 | 12 |  6M + 25M = 31M  |  6M + 26M = 32M  |
-| XL   | 512 | 12 |  8M + 44M = 52M  |  8M + 41M = 50M  |
-| XXL  | 640 | 12 | 10M + 68M = 79M  | 10M + 60M = 71M  |
+| S    | 128 |  6 |  1M +  2M =  3M  |  1M +  3M =  4M  |
+| M    | 256 |  6 |  2M +  6M =  8M  |  2M +  8M = 10M  |
+| L    | 384 | 12 |  3M + 25M = 28M  |  3M + 26M = 29M  |
+| XL   | 512 | 12 |  4M + 44M = 48M  |  4M + 41M = 46M  |
+| XXL  | 640 | 12 |  5M + 68M = 73M  |  5M + 60M = 66M  |
 
-### Benchmark (vocab=8k, seq=4k, RTX 3050 Ti)
+### Benchmark (vocab=4k, seq=4k, RTX 3050 Ti)
 
-| Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
-|------|---------|------------|--------|-----------|---------|
-| S    | 156     | 26,322     | 217    | 18,855    | 1.40x   |
-| M    | 190     | 21,601     | 287    | 14,264    | 1.51x   |
-| L    | 459     | 8,934      | 673    | 6,087     | 1.47x   |
-| XL   | 576     | 7,116      | 843    | 4,858     | 1.46x   |
-| XXL  | 731     | 5,604      | 1082   | 3,786     | 1.48x   |
+| Size | RWKV ms | RWKV tok/s | RWKV GPU% | GPT ms | GPT tok/s | GPT GPU% | Speedup |
+|------|---------|------------|-----------|--------|-----------|----------|---------|
+| S    | 151     | 27,133     | 94%       | 249    | 16,485    | 100%     | 1.65x   |
+| M    | 198     | 20,661     | 99%       | 326    | 12,565    | 99%      | 1.64x   |
+| L    | 496     | 8,264      | 100%      | 732    | 5,598     | 100%     | 1.48x   |
+| XL   | 646     | 6,344      | 100%      | 918    | 4,460     | 100%     | 1.42x   |
+| XXL  | 807     | 5,074      | 100%      | 1205   | 3,398     | 100%     | 1.49x   |
 
-**RWKV nhanh hơn 1.40-1.51x** với seq_len=4k (speedup giảm so với seq_len ngắn do Flash Attention hiệu quả hơn ở long context).
+**RWKV nhanh hơn 1.42-1.65x** với vocab=4k. GPU utilization 94-100%.
+
+### Model Configs (vocab=16k)
+
+| Size | dim | L  | RWKV (emb+other) | GPT (emb+other)  |
+|------|-----|----|------------------|------------------|
+| S    | 128 |  6 |  4M +  2M =  6M  |  4M +  3M =  7M  |
+| M    | 256 |  6 |  8M +  6M = 15M  |  8M +  8M = 16M  |
+| L    | 384 | 12 | 13M + 25M = 38M  | 13M + 26M = 38M  |
+| XL   | 512 | 12 | 17M + 44M = 61M  | 17M + 41M = 58M  |
+| XXL  | 640 | 12 | 21M + 68M = 89M  | 21M + 60M = 81M  |
+
+### Benchmark (vocab=16k, seq=4k, RTX 3050 Ti)
+
+| Size | RWKV ms | RWKV tok/s | RWKV GPU% | GPT ms | GPT tok/s | GPT GPU% | Speedup |
+|------|---------|------------|-----------|--------|-----------|----------|---------|
+| S    | 158     | 25,867     | 96%       | 293    | 14,000    | 100%     | 1.85x   |
+| M    | 258     | 15,895     | 100%      | 351    | 11,666    | 100%     | 1.36x   |
+| L    | 558     | 7,344      | 100%      | 808    | 5,071     | 100%     | 1.45x   |
+| XL   | 758     | 5,404      | 100%      | 993    | 4,125     | 100%     | 1.31x   |
+| XXL  | 896     | 4,569      | 100%      | 1221   | 3,354     | 100%     | 1.36x   |
+
+**RWKV nhanh hơn 1.31-1.85x** với vocab=16k. GPU utilization 96-100%.
 
 ### Params difference
 
