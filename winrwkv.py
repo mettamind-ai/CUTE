@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 ''' RWKV7 for the WIN
-- Áp dụng RWKV7 time mixing từ tools/rwkv7
-- parallel transformer x = x + tmix(norm(x)) + cmix(norm(x))
+- Cấu trúc model giống hệt tools/rwkv7 để tương thích checkpoint
+- Sequential block: x = x + att(ln1(x)); x = x + ffn(ln2(x))
+- MTP (Multi-Token Prediction) từ WinGPT
 - Các kỹ thuật tối ưu khác trong `optimus.py`
 '''
 import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from torch.utils.cpp_extension import load
-from optimus import FusedCE, convert_int8_mixed_precision, OhMaiHead
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
@@ -201,14 +201,24 @@ class RwkvBlock(nn.Module):
     def __init__(self, dim, layer_id, n_layers):
         super().__init__()
         self.layer_id = layer_id
+
+        self.ln1 = nn.LayerNorm(dim)
+        self.ln2 = nn.LayerNorm(dim)
+
+        if layer_id == 0:
+            self.ln0 = nn.LayerNorm(dim)
+
         self.att = RWKV_Tmix(dim, layer_id, n_layers)
         self.ffn = RWKV_CMix(dim, layer_id, n_layers)
 
     def forward(self, x, v_first):
-        xn = norm(x)
-        x_att, v_first = self.att(xn, v_first)
-        x_ffn = self.ffn(xn)
-        return x + x_att + x_ffn, v_first  # parallel
+        if self.layer_id == 0:
+            x = self.ln0(x)
+
+        x_att, v_first = self.att(self.ln1(x), v_first)
+        x = x + x_att
+        x = x + self.ffn(self.ln2(x))
+        return x, v_first
 
 
 class WinRWKV(nn.Module):
@@ -217,13 +227,16 @@ class WinRWKV(nn.Module):
         self.n_layers = n_layers
         self.dim = dim
         self.ctxlen = ctxlen
-        self.emb_scale = math.sqrt(dim)
+        self.vocab_size = vocab_size
 
-        self.embeds = nn.Embedding(vocab_size, dim)
+        self.emb = nn.Embedding(vocab_size, dim)
         self.blocks = nn.ModuleList([RwkvBlock(dim, i, n_layers) for i in range(n_layers)])
-        self.mtp_head = RwkvBlock(dim, n_layers, n_layers + 1)  # extra block for MTP
+        self.ln_out = nn.LayerNorm(dim)
+        self.head = nn.Linear(dim, vocab_size, bias=False)
+
+        # MTP components
+        self.mtp_head = RwkvBlock(dim, n_layers, n_layers + 1)
         self.mtp_proj = nn.Linear(2 * dim, dim, bias=False)
-        self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
 
         self._init_weights()
 
@@ -237,7 +250,7 @@ class WinRWKV(nn.Module):
             shape = p.shape
             n_params += p.numel()
 
-            # ln_x.weight special init: blocks.0.att.ln_x.weight
+            # ln_x.weight special init
             if 'ln_x.weight' in n:
                 parts = n.split('.')
                 layer_id = int(parts[1]) if parts[0] == 'blocks' else self.n_layers
@@ -245,10 +258,21 @@ class WinRWKV(nn.Module):
                 p.data.fill_(layer_scale ** 0.7)
 
             # emb init
-            elif n == "embeds.weight":
+            elif n == "emb.weight":
                 scale = 1e-4
                 nn.init.uniform_(p, -scale, scale)
                 print(f"{n}: uniform({-scale}, {scale})")
+
+            # head init (orthogonal like rwkv7)
+            elif n == "head.weight":
+                if self.vocab_size > self.dim:
+                    scale = 0.5 * math.sqrt(self.vocab_size / self.dim)
+                else:
+                    scale = 0.5
+                p_float = p.data.float()
+                nn.init.orthogonal_(p_float, gain=scale)
+                p.data.copy_(p_float.to(p.dtype))
+                print(f"{n}: orthogonal(gain={scale:.4f})")
 
             # mtp_proj init
             elif n == "mtp_proj.weight":
@@ -264,26 +288,24 @@ class WinRWKV(nn.Module):
         if input_seq.dim() == 1:
             input_seq = input_seq.unsqueeze(0)
 
-        x = self.embeds(input_seq) * self.emb_scale
+        x = self.emb(input_seq)
         v_first = torch.empty_like(x)
 
         for blk in self.blocks:
             x, v_first = checkpoint(blk, x, v_first, use_reentrant=False)
 
-        return norm(x)
+        x = self.ln_out(x)
+        return x
 
 
 def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
-    target = model.unembeds.activate(target)
     xn = model(input_seq)
-    model.unembeds.update_new_tokens_weight()
-
     B, T, C = xn.shape
 
     def prepare_mtp():
         zeros = torch.zeros_like(xn[:, :1])
         xx = torch.cat([zeros, xn[:, :-1]], dim=1)  # xn shift right
-        x0 = norm(model.embeds(input_seq)) * model.emb_scale
+        x0 = model.ln_out(model.emb(input_seq))
         y0 = torch.cat([xx, x0], dim=-1)
         y1 = model.mtp_proj(y0.view(B * T, 2 * C)).view(B, T, C)
         return y1
@@ -291,25 +313,28 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     y1 = checkpoint(prepare_mtp, use_reentrant=False)
     v_first_mtp = torch.empty_like(y1)
     y2, _ = model.mtp_head(y1, v_first_mtp)
-    yn = norm(y2)
+    yn = model.ln_out(y2)
 
-    # Flatten for FusedCE: (B, T, C) -> (B*T, C), target (B, T) -> (B*T,)
+    # Compute logits
     xn_flat = xn.view(B * T, C)
     yn_flat = yn.view(B * T, C)
-    target_flat = target.view(B * T)
+    target_flat = target.view(B * T).clone()
     target_flat[0] = ignore
 
-    mtp_loss = FusedCE.apply(yn_flat, model.unembeds.active_weight, target_flat, n_ignore, ignore, 0.2)
-    ntp_loss = FusedCE.apply(xn_flat, model.unembeds.active_weight, target_flat, n_ignore, ignore, 0.8)
-    return mtp_loss + ntp_loss
+    # Use head for logits, standard cross entropy
+    logits_ntp = model.head(xn_flat)
+    logits_mtp = model.head(yn_flat)
+
+    ntp_loss = F.cross_entropy(logits_ntp, target_flat, ignore_index=ignore, reduction='mean')
+    mtp_loss = F.cross_entropy(logits_mtp, target_flat, ignore_index=ignore, reduction='mean')
+
+    return 0.8 * ntp_loss + 0.2 * mtp_loss
 
 
 ########################
 ##  TESTING  TESTING  ##
 ########################
 if __name__ == "__main__":
-    from optimus import Muon1GPU as Muon
-
     ctxlen = 1024
     vocab_size = 64 * 1024
     dim, n_layers = 256, 8
@@ -317,14 +342,8 @@ if __name__ == "__main__":
 
     torch.manual_seed(1981)
     model = WinRWKV(vocab_size, n_layers, dim, ctxlen).cuda()
-    convert_int8_mixed_precision(model)
 
-    apara = {n: p for n, p in model.named_parameters() if "proj" not in n and p.requires_grad}
-    mpara = [p for n, p in model.named_parameters() if "proj" in n and p.requires_grad]
-    print("\nAdam params:", [n for n in apara.keys()])
-
-    aptim = torch.optim.AdamW(apara.values())
-    optim = Muon(mpara)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")
@@ -334,16 +353,11 @@ if __name__ == "__main__":
         input_seq = torch.randint(5, vocab_size // 4, (1, ctxlen), dtype=torch.long).cuda()
         target = F.pad(input_seq[:, 1:], (0, 1), mode='constant', value=-100)
 
-        optim.zero_grad()
-        aptim.zero_grad()
+        optimizer.zero_grad()
 
         loss = fused_loss_fn(model, input_seq, target)
         current_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)
         print(f"step {step}, loss {loss.item():.4f}, Peak VRAM: {current_memory:.2f} MB")
 
         loss.backward()
-        optim.step()
-        aptim.step()
-
-    optim.reset_momentum()
-    model.unembeds.update_async_weight()
+        optimizer.step()
