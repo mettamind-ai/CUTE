@@ -117,6 +117,24 @@ RWKV < GPT khi dim nhỏ (S, M, L), RWKV > GPT khi dim lớn (XL, XXL).
 - `optimus.py` - Utilities: FusedCE, Muon optimizer, int8 mixed precision
 - `wkv7.cu` - RWKV7 CUDA kernel
 - `wkv7_varlen.cu` - RWKV7 varlen kernel (packed sequences, xem [bench_varlen.md](bench_varlen.md))
+- `winrwkv_varlen.py` - WinRWKV với varlen kernel, **1.6-2x faster** end-to-end
 - `tools/rwkv7/` - Reference RWKV7 implementation
 - `tools/racoon/` - Alternative RWKV7 implementation
 - `flash/` - Flash attention build
+
+## Varlen Time-shift Optimization
+
+**CRITICAL**: Với varlen (packed sequences), time-shift PHẢI vectorize:
+
+```python
+# CHẬM (~768 GPU→CPU syncs/step với 16 seqs × 6 layers):
+for i in range(num_seqs):
+    start, end = cu_seqlens[i].item(), cu_seqlens[i+1].item()  # .item() = SYNC!
+    xx[start:end] = ...
+
+# NHANH (0 syncs, ~0.13ms compute):
+xx[1:] = x[:-1] - x[1:]  # global shift
+xx[starts] = 0           # fix sequence boundaries
+```
+
+Mỗi `.item()` gây GPU→CPU sync (~10-50μs). 768 syncs = ~20-40ms overhead, gần bằng cả forward pass. Vectorize giúp tăng tốc **1.6-2x** end-to-end.
