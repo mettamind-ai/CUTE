@@ -57,19 +57,21 @@ def count_params(model):
     return emb, total - emb, total
 
 def benchmark_winrwkv(dim, n_layers, gpu_mon):
-    from winrwkv import WinRWKV, fused_loss_fn as rwkv_loss_fn
+    from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen
     
-    model = WinRWKV(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    model = WinRWKVVarlen(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
     emb_params, other_params, n_params = count_params(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()
     
-    # Warmup
+    # Warmup - single sequence (varlen format)
     for _ in range(WARMUP):
-        input_seq = torch.randint(5, VOCAB_SIZE//4, (1, CTXLEN), dtype=torch.long).cuda()
-        target = F.pad(input_seq[:, 1:], (0, 1), mode='constant', value=-100)
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
+        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
+        target[:-1] = input_ids[1:]
+        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
         optimizer.zero_grad()
-        loss = rwkv_loss_fn(model, input_seq, target)
+        loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
         loss.backward()
         optimizer.step()
     
@@ -80,10 +82,12 @@ def benchmark_winrwkv(dim, n_layers, gpu_mon):
     # Benchmark
     start = time.perf_counter()
     for step in range(STEPS):
-        input_seq = torch.randint(5, VOCAB_SIZE//4, (1, CTXLEN), dtype=torch.long).cuda()
-        target = F.pad(input_seq[:, 1:], (0, 1), mode='constant', value=-100)
+        input_ids = torch.randint(5, VOCAB_SIZE//4, (CTXLEN,), dtype=torch.long).cuda()
+        target = torch.full((CTXLEN,), -100, dtype=torch.long).cuda()
+        target[:-1] = input_ids[1:]
+        cu_seqlens = torch.tensor([0, CTXLEN], dtype=torch.int32).cuda()
         optimizer.zero_grad()
-        loss = rwkv_loss_fn(model, input_seq, target)
+        loss = fused_loss_fn_varlen(model, input_ids, target, cu_seqlens)
         loss.backward()
         optimizer.step()
     torch.cuda.synchronize()
