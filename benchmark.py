@@ -7,19 +7,22 @@ torch.manual_seed(1981)
 
 CTXLEN = 1024
 VOCAB_SIZE = 64 * 1024
-DIM = 256
-N_LAYERS = 8
 WARMUP = 2
 STEPS = 5
 
-def benchmark_winrwkv():
+# Model size configs: (dim, n_layers, ~params)
+# dim must be divisible by 64 (HEAD_SIZE)
+CONFIGS = {
+    "60M":  (384, 12),  # ~60M  
+    "110M": (512, 12),  # ~110M
+    "160M": (640, 12),  # ~160M
+}
+
+def benchmark_winrwkv(dim, n_layers):
     from winrwkv import WinRWKV, fused_loss_fn as rwkv_loss_fn
     
-    print(f"\n{'='*60}")
-    print(f"WinRWKV: layers={N_LAYERS}, dim={DIM}, ctxlen={CTXLEN}")
-    print(f"{'='*60}")
-    
-    model = WinRWKV(VOCAB_SIZE, N_LAYERS, DIM, CTXLEN).cuda()
+    model = WinRWKV(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    n_params = sum(p.numel() for p in model.parameters())
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()
     
@@ -51,29 +54,18 @@ def benchmark_winrwkv():
     tokens_per_sec = (STEPS * CTXLEN) / elapsed
     ms_per_step = (elapsed / STEPS) * 1000
     
-    print(f"Time: {elapsed:.2f}s ({ms_per_step:.1f}ms/step)")
-    print(f"Throughput: {tokens_per_sec:.0f} tokens/sec")
-    print(f"Peak VRAM: {peak_mem:.0f} MB")
-    print(f"Final loss: {loss.item():.4f}")
-    
     del model, optimizer
     torch.cuda.empty_cache()
     
-    return ms_per_step, tokens_per_sec, peak_mem
+    return n_params, ms_per_step, tokens_per_sec, peak_mem
 
 
-def benchmark_wingpt():
+def benchmark_wingpt(dim, n_layers):
     from wingpt import WinGPT, fused_loss_fn as gpt_loss_fn, get_cu_max_seqlens_from
-    from optimus import Muon1GPU as Muon
+    from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
     
-    print(f"\n{'='*60}")
-    print(f"WinGPT: layers={N_LAYERS}, dim={DIM}, ctxlen={CTXLEN}")
-    print(f"{'='*60}")
-    
-    model = WinGPT(VOCAB_SIZE, N_LAYERS, DIM, CTXLEN, head_dim=64).cuda()
-    
-    # Muon for proj layers, Adam for others
-    from optimus import convert_int8_mixed_precision
+    model = WinGPT(VOCAB_SIZE, n_layers, dim, CTXLEN, head_dim=64).cuda()
+    n_params = sum(p.numel() for p in model.parameters())
     convert_int8_mixed_precision(model)
     
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
@@ -112,37 +104,42 @@ def benchmark_wingpt():
     tokens_per_sec = (STEPS * CTXLEN) / elapsed
     ms_per_step = (elapsed / STEPS) * 1000
     
-    print(f"Time: {elapsed:.2f}s ({ms_per_step:.1f}ms/step)")
-    print(f"Throughput: {tokens_per_sec:.0f} tokens/sec")
-    print(f"Peak VRAM: {peak_mem:.0f} MB")
-    print(f"Final loss: {loss.item():.4f}")
-    
     del model, optim, aptim
     torch.cuda.empty_cache()
     
-    return ms_per_step, tokens_per_sec, peak_mem
+    return n_params, ms_per_step, tokens_per_sec, peak_mem
 
 
 if __name__ == "__main__":
-    print(f"Benchmark config: {N_LAYERS} layers, {DIM} dim, {CTXLEN} ctxlen, {STEPS} steps")
+    print(f"Benchmark: {STEPS} steps, {WARMUP} warmup, {CTXLEN} ctxlen\n")
     
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "rwkv":
-            benchmark_winrwkv()
-        elif sys.argv[1] == "gpt":
-            benchmark_wingpt()
-    else:
-        # Run both sequentially
-        rwkv_ms, rwkv_tps, rwkv_mem = benchmark_winrwkv()
-        gpt_ms, gpt_tps, gpt_mem = benchmark_wingpt()
-        
+    results = []
+    
+    for name, (dim, n_layers) in CONFIGS.items():
         print(f"\n{'='*60}")
-        print("COMPARISON")
+        print(f"Config: {name} (dim={dim}, layers={n_layers})")
         print(f"{'='*60}")
-        print(f"{'Model':<12} {'ms/step':>10} {'tok/sec':>12} {'VRAM MB':>10}")
-        print(f"{'-'*44}")
-        print(f"{'WinRWKV':<12} {rwkv_ms:>10.1f} {rwkv_tps:>12.0f} {rwkv_mem:>10.0f}")
-        print(f"{'WinGPT':<12} {gpt_ms:>10.1f} {gpt_tps:>12.0f} {gpt_mem:>10.0f}")
-        print(f"{'-'*44}")
-        speedup = gpt_ms / rwkv_ms if rwkv_ms > 0 else 0
-        print(f"RWKV vs GPT speedup: {speedup:.2f}x")
+        
+        # RWKV
+        print(f"\nBenchmarking WinRWKV...")
+        rwkv_params, rwkv_ms, rwkv_tps, rwkv_mem = benchmark_winrwkv(dim, n_layers)
+        print(f"  Params: {rwkv_params/1e6:.1f}M, {rwkv_ms:.1f}ms/step, {rwkv_tps:.0f} tok/s, {rwkv_mem:.0f}MB")
+        
+        # GPT
+        print(f"Benchmarking WinGPT...")
+        gpt_params, gpt_ms, gpt_tps, gpt_mem = benchmark_wingpt(dim, n_layers)
+        print(f"  Params: {gpt_params/1e6:.1f}M, {gpt_ms:.1f}ms/step, {gpt_tps:.0f} tok/s, {gpt_mem:.0f}MB")
+        
+        speedup = gpt_ms / rwkv_ms
+        print(f"  RWKV speedup: {speedup:.2f}x")
+        
+        results.append((name, rwkv_params, rwkv_ms, rwkv_tps, rwkv_mem, gpt_params, gpt_ms, gpt_tps, gpt_mem, speedup))
+    
+    # Summary table
+    print(f"\n{'='*80}")
+    print("SUMMARY")
+    print(f"{'='*80}")
+    print(f"{'Size':<6} {'RWKV ms':>10} {'RWKV tok/s':>12} {'RWKV MB':>10} | {'GPT ms':>10} {'GPT tok/s':>12} {'GPT MB':>10} | {'Speedup':>8}")
+    print(f"{'-'*80}")
+    for name, rp, rms, rtps, rmem, gp, gms, gtps, gmem, sp in results:
+        print(f"{name:<6} {rms:>10.1f} {rtps:>12.0f} {rmem:>10.0f} | {gms:>10.1f} {gtps:>12.0f} {gmem:>10.0f} | {sp:>7.2f}x")
