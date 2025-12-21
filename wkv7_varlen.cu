@@ -51,6 +51,7 @@ __global__ void forward_kernel_varlen(
 ) {
     constexpr int C = _C_;
     constexpr int CHUNK = _CHUNK_LEN_;
+    static_assert((CHUNK & (CHUNK - 1)) == 0, "CHUNK must be power of 2");
     
     // Decode block index to (seq, head)
     int block_id = blockIdx.x;
@@ -164,7 +165,8 @@ __global__ void backward_kernel_varlen(
     // ========== PRELUDE: Tail Forward Replay to build S_end ==========
     // Find nearest chunk checkpoint <= p_end
     // p0 = floor((p_end + 1) / CHUNK) * CHUNK - 1
-    int p0 = (((p_end + 1) >> 4) << 4) - 1;  // bit trick for CHUNK=16
+    static_assert((CHUNK & (CHUNK - 1)) == 0, "CHUNK must be power of 2");
+    int p0 = ((p_end + 1) & ~(CHUNK - 1)) - 1;  // works for any power-of-2 CHUNK
     
     // stateT[r] = S_current[r, i] (column i of state matrix)
     float stateT[C] = {0};
