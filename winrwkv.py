@@ -242,7 +242,7 @@ class WinRWKV(nn.Module):
 
     def _init_weights(self):
         print("\n" + "#" * 76)
-        print("# Init model weight")
+        print("# Init model weight (matching tools/rwkv7)")
         print("#" * 76 + "\n")
 
         n_params = 0
@@ -250,21 +250,28 @@ class WinRWKV(nn.Module):
             shape = p.shape
             n_params += p.numel()
 
-            # ln_x.weight special init
-            if 'ln_x.weight' in n:
-                parts = n.split('.')
-                layer_id = int(parts[1]) if parts[0] == 'blocks' else self.n_layers
-                layer_scale = (1 + layer_id) / self.n_layers
-                p.data.fill_(layer_scale ** 0.7)
+            scale = 1.0
+
+            # Skip non-weight params and special params (keep default from __init__)
+            if "ln_" in n or ".ln" in n or "time_" in n or "_mask" in n or "pos_emb" in n or '.mask.' in n or n.endswith('_w') or n.endswith('_w1') or n.endswith('_w2') or n.endswith('_bias') or (".weight" not in n):
+                if 'ln_x.weight' in n:
+                    parts = n.split('.')
+                    layer_id = int(parts[1]) if parts[0] == 'blocks' else self.n_layers
+                    layer_scale = (1 + layer_id) / self.n_layers
+                    p.data.fill_(layer_scale ** 0.7)
+                    print(f"{n}: fill({layer_scale ** 0.7:.4f})")
+                # else: keep default
+                continue
 
             # emb init
-            elif n == "emb.weight":
+            if n == "emb.weight":
                 scale = 1e-4
                 nn.init.uniform_(p, -scale, scale)
                 print(f"{n}: uniform({-scale}, {scale})")
+                continue
 
-            # head init (orthogonal like rwkv7)
-            elif n == "head.weight":
+            # head init
+            if n == "head.weight":
                 if self.vocab_size > self.dim:
                     scale = 0.5 * math.sqrt(self.vocab_size / self.dim)
                 else:
@@ -273,13 +280,42 @@ class WinRWKV(nn.Module):
                 nn.init.orthogonal_(p_float, gain=scale)
                 p.data.copy_(p_float.to(p.dtype))
                 print(f"{n}: orthogonal(gain={scale:.4f})")
+                continue
 
-            # mtp_proj init
-            elif n == "mtp_proj.weight":
+            # mtp_proj init (WinGPT style)
+            if n == "mtp_proj.weight":
                 std = 0.632 * (p.size(-1) ** -0.5)
                 bound = (3 ** 0.5) * std
                 nn.init.uniform_(p, -bound, bound)
                 print(f"{n}: uniform({-bound:.4f}, {bound:.4f})")
+                continue
+
+            # For remaining .weight params, apply generate_init_weight logic
+            assert n.endswith('.weight'), f"Unexpected param: {n}"
+
+            # Zero init patterns
+            zero_patterns = [".att.output.", ".ffn.value.", ".ffn.receptance.", ".ffnPre.value.", ".ffnPre.receptance.", "head_q.", '.oo.', '.rr.']
+            for kk in zero_patterns:
+                if kk in n:
+                    scale = 0
+                    break
+
+            # Scale 0.1 patterns
+            if ".att.key." in n:
+                scale = 0.1
+            if ".att.gate." in n:
+                scale = 0.1
+
+            # Apply init based on scale
+            if len(shape) >= 2:
+                p_float = p.data.float()
+                if scale == 0:
+                    nn.init.zeros_(p_float)
+                    print(f"{n}: zeros")
+                else:
+                    nn.init.orthogonal_(p_float, gain=scale)
+                    print(f"{n}: orthogonal(gain={scale})")
+                p.data.copy_(p_float.to(p.dtype))
 
         print(f'\nTotal params: {n_params:,}')
 
