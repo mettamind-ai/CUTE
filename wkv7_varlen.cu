@@ -364,15 +364,37 @@ void cuda_backward_varlen(
 
 // ========== PyTorch Bindings ==========
 
+#define CHECK_CUDA(x) TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")
+#define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
+#define CHECK_DTYPE_BF16(x) TORCH_CHECK(x.dtype() == torch::kBFloat16, #x " must be bfloat16")
+#define CHECK_DTYPE_INT32(x) TORCH_CHECK(x.dtype() == torch::kInt32, #x " must be int32")
+#define CHECK_DTYPE_FP32(x) TORCH_CHECK(x.dtype() == torch::kFloat32, #x " must be float32")
+
 void forward_varlen(
     torch::Tensor& w, torch::Tensor& q, torch::Tensor& k, 
     torch::Tensor& v, torch::Tensor& a, torch::Tensor& b,
     torch::Tensor& cu_seqlens,
     torch::Tensor& y, torch::Tensor& s_chunk, torch::Tensor& sa
 ) {
+    // Input validation
+    CHECK_CUDA(w); CHECK_CUDA(q); CHECK_CUDA(k); CHECK_CUDA(v); CHECK_CUDA(a); CHECK_CUDA(b);
+    CHECK_CUDA(cu_seqlens); CHECK_CUDA(y); CHECK_CUDA(s_chunk); CHECK_CUDA(sa);
+    
+    CHECK_CONTIGUOUS(w); CHECK_CONTIGUOUS(q); CHECK_CONTIGUOUS(k);
+    CHECK_CONTIGUOUS(v); CHECK_CONTIGUOUS(a); CHECK_CONTIGUOUS(b);
+    CHECK_CONTIGUOUS(cu_seqlens); CHECK_CONTIGUOUS(y); CHECK_CONTIGUOUS(s_chunk); CHECK_CONTIGUOUS(sa);
+    
+    CHECK_DTYPE_BF16(w); CHECK_DTYPE_BF16(q); CHECK_DTYPE_BF16(k);
+    CHECK_DTYPE_BF16(v); CHECK_DTYPE_BF16(a); CHECK_DTYPE_BF16(b);
+    CHECK_DTYPE_BF16(y);
+    CHECK_DTYPE_INT32(cu_seqlens);
+    CHECK_DTYPE_FP32(s_chunk); CHECK_DTYPE_FP32(sa);
+    
     int total_tokens = w.size(0);
     int H = w.size(1);
     int num_seqs = cu_seqlens.size(0) - 1;
+    
+    TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
     
     cuda_forward_varlen(
         total_tokens, H, num_seqs,
@@ -391,9 +413,31 @@ void backward_varlen(
     torch::Tensor& dw, torch::Tensor& dq, torch::Tensor& dk,
     torch::Tensor& dv, torch::Tensor& da, torch::Tensor& db
 ) {
+    // Input validation
+    CHECK_CUDA(w); CHECK_CUDA(q); CHECK_CUDA(k); CHECK_CUDA(v); CHECK_CUDA(a); CHECK_CUDA(b);
+    CHECK_CUDA(dy); CHECK_CUDA(cu_seqlens); CHECK_CUDA(s_chunk); CHECK_CUDA(sa);
+    CHECK_CUDA(dw); CHECK_CUDA(dq); CHECK_CUDA(dk); CHECK_CUDA(dv); CHECK_CUDA(da); CHECK_CUDA(db);
+    
+    CHECK_CONTIGUOUS(w); CHECK_CONTIGUOUS(q); CHECK_CONTIGUOUS(k);
+    CHECK_CONTIGUOUS(v); CHECK_CONTIGUOUS(a); CHECK_CONTIGUOUS(b);
+    CHECK_CONTIGUOUS(dy); CHECK_CONTIGUOUS(cu_seqlens);
+    CHECK_CONTIGUOUS(s_chunk); CHECK_CONTIGUOUS(sa);
+    CHECK_CONTIGUOUS(dw); CHECK_CONTIGUOUS(dq); CHECK_CONTIGUOUS(dk);
+    CHECK_CONTIGUOUS(dv); CHECK_CONTIGUOUS(da); CHECK_CONTIGUOUS(db);
+    
+    CHECK_DTYPE_BF16(w); CHECK_DTYPE_BF16(q); CHECK_DTYPE_BF16(k);
+    CHECK_DTYPE_BF16(v); CHECK_DTYPE_BF16(a); CHECK_DTYPE_BF16(b);
+    CHECK_DTYPE_BF16(dy);
+    CHECK_DTYPE_BF16(dw); CHECK_DTYPE_BF16(dq); CHECK_DTYPE_BF16(dk);
+    CHECK_DTYPE_BF16(dv); CHECK_DTYPE_BF16(da); CHECK_DTYPE_BF16(db);
+    CHECK_DTYPE_INT32(cu_seqlens);
+    CHECK_DTYPE_FP32(s_chunk); CHECK_DTYPE_FP32(sa);
+    
     int total_tokens = w.size(0);
     int H = w.size(1);
     int num_seqs = cu_seqlens.size(0) - 1;
+    
+    TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
     
     cuda_backward_varlen(
         total_tokens, H, num_seqs,
