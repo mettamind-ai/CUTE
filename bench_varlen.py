@@ -112,28 +112,58 @@ def benchmark_varlen(seq_lengths, H, C):
     return elapsed, total_tokens
 
 
-test_cases = [
-    ([512] * 8, "8 x 512 (uniform)"),
-    ([256, 512, 128, 640, 384, 256, 512, 384], "8 seqs (varied 128-640)"),
-    ([1024, 256, 64, 512, 128, 1024, 64, 256], "8 seqs (varied 64-1024)"),
-    ([64] * 64, "64 x 64 (many short)"),
-    ([32] * 128, "128 x 32 (many very short)"),
-    ([2048, 512, 256, 128], "4 seqs (2048, 512, 256, 128)"),
-    ([4096], "1 x 4096 (single long)"),
-]
+import random
+
+def generate_varlen_seqs(total_tokens, num_seqs):
+    """Generate random sequence lengths that sum to total_tokens"""
+    if num_seqs == 1:
+        return [total_tokens]
+    
+    # Generate random split points
+    splits = sorted(random.sample(range(1, total_tokens), num_seqs - 1))
+    splits = [0] + splits + [total_tokens]
+    lengths = [splits[i+1] - splits[i] for i in range(num_seqs)]
+    
+    # Ensure all lengths are multiples of 16 (CHUNK_LEN) for fair comparison
+    # Adjust lengths to be at least 16 and multiples of 16
+    adjusted = []
+    remaining = total_tokens
+    for i, l in enumerate(lengths[:-1]):
+        adj_l = max(16, (l // 16) * 16)
+        adjusted.append(adj_l)
+        remaining -= adj_l
+    # Last sequence gets the remainder, adjusted to multiple of 16
+    last = max(16, (remaining // 16) * 16)
+    adjusted.append(last)
+    
+    return adjusted
+
 
 print(f"Config: H={H}, C={C}, warmup={warmup}, iterations={iterations}")
-print()
-print(f"{'Test Case':<35} {'Orig ms':>10} {'Varlen ms':>10} {'Speedup':>10} {'Tokens':>10} {'Padded':>10}")
-print("-" * 90)
 
-for seq_lengths, description in test_cases:
-    orig_ms, padded_tokens = benchmark_original_padded(seq_lengths, H, C)
-    varlen_ms, real_tokens = benchmark_varlen(seq_lengths, H, C)
-    speedup = orig_ms / varlen_ms
+for total_ctx in [4096, 8192]:
+    print()
+    print("=" * 90)
+    print(f"CONTEXT LENGTH: {total_ctx}")
+    print("=" * 90)
+    print()
+    print(f"{'Num Seqs':<12} {'Orig ms':>10} {'Varlen ms':>10} {'Speedup':>10} {'Tokens':>10} {'Padded':>10} {'Waste%':>10}")
+    print("-" * 75)
     
-    print(f"{description:<35} {orig_ms:>10.2f} {varlen_ms:>10.2f} {speedup:>9.2f}x {real_tokens:>10} {padded_tokens:>10}")
+    for num_seqs in [5, 10, 20, 30, 40, 50]:
+        random.seed(42)  # Reproducible
+        seq_lengths = generate_varlen_seqs(total_ctx, num_seqs)
+        
+        # Ensure total matches
+        actual_total = sum(seq_lengths)
+        
+        orig_ms, padded_tokens = benchmark_original_padded(seq_lengths, H, C)
+        varlen_ms, real_tokens = benchmark_varlen(seq_lengths, H, C)
+        speedup = orig_ms / varlen_ms
+        waste_pct = (padded_tokens - real_tokens) / padded_tokens * 100
+        
+        print(f"{num_seqs:<12} {orig_ms:>10.2f} {varlen_ms:>10.2f} {speedup:>9.2f}x {real_tokens:>10} {padded_tokens:>10} {waste_pct:>9.1f}%")
 
 print()
 print("Speedup > 1 means varlen is faster")
-print("Padded = tokens processed by original (with padding waste)")
+print("Waste% = padding overhead in original kernel")

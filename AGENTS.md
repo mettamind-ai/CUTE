@@ -116,6 +116,7 @@ RWKV < GPT khi dim nhỏ (S, M, L), RWKV > GPT khi dim lớn (XL, XXL).
 
 - `optimus.py` - Utilities: FusedCE, Muon optimizer, int8 mixed precision
 - `wkv7.cu` - RWKV7 CUDA kernel
+- `wkv7_varlen.cu` - RWKV7 varlen kernel (packed sequences, xem [bench_varlen.md](bench_varlen.md))
 - `tools/rwkv7/` - Reference RWKV7 implementation
 - `tools/racoon/` - Alternative RWKV7 implementation
 - `flash/` - Flash attention build
