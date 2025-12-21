@@ -217,6 +217,8 @@ class WinRWKV(nn.Module):
 
         self.embeds = nn.Embedding(vocab_size, dim)
         self.blocks = nn.ModuleList([RwkvBlock(dim, i, n_layers) for i in range(n_layers)])
+        self.mtp_head = RwkvBlock(dim, n_layers, n_layers + 1)  # extra block for MTP
+        self.mtp_proj = nn.Linear(2 * dim, dim, bias=False)
         self.unembeds = OhMaiHead(dim, vocab_size, bias=False)
 
         self._init_weights()
@@ -243,6 +245,13 @@ class WinRWKV(nn.Module):
                 nn.init.uniform_(p, -scale, scale)
                 print(f"{n}: uniform({-scale}, {scale})")
 
+            # mtp_proj init
+            elif n == "mtp_proj.weight":
+                std = 0.632 * (p.size(-1) ** -0.5)
+                bound = (3 ** 0.5) * std
+                nn.init.uniform_(p, -bound, bound)
+                print(f"{n}: uniform({-bound:.4f}, {bound:.4f})")
+
         print(f'\nTotal params: {n_params:,}')
 
     def forward(self, input_seq):
@@ -263,9 +272,25 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     target = model.unembeds.activate(target)
     xn = model(input_seq)
     model.unembeds.update_new_tokens_weight()
+
+    def prepare_mtp():
+        B, T, C = xn.shape
+        zeros = torch.zeros_like(xn[:, :1])
+        xx = torch.cat([zeros, xn[:, :-1]], dim=1)  # xn shift right
+        x0 = norm(model.embeds(input_seq)) * model.emb_scale
+        y0 = torch.cat([xx, x0], dim=-1)
+        y1 = model.mtp_proj(y0)
+        return y1
+
+    y1 = checkpoint(prepare_mtp, use_reentrant=False)
+    v_first_mtp = torch.empty_like(y1)
+    y2, _ = model.mtp_head(y1, v_first_mtp)
+    yn = norm(y2)
+
     target[:, 0] = ignore
-    loss = FusedCE.apply(xn, model.unembeds.active_weight, target, n_ignore, ignore, 1.0)
-    return loss
+    mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2)
+    ntp_loss = FusedCE.apply(xn, model.unembeds.active_weight, target, n_ignore, ignore, 0.8)
+    return mtp_loss + ntp_loss
 
 
 ########################
