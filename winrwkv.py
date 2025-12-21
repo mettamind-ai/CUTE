@@ -19,7 +19,7 @@ CHUNK_LEN = 16
 
 flags = ['-res-usage', f'-D_C_={HEAD_SIZE}', f"-D_CHUNK_LEN_={CHUNK_LEN}",
     "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization"]
-cu = f'{os.path.dirname(os.path.abspath(__file__))}/tools/racoon/wkv7.cu'
+cu = f'{os.path.dirname(os.path.abspath(__file__))}/wkv7.cu'
 load(name="wind_backstepping", sources=[cu], is_python_module=False, verbose=True, extra_cuda_cflags=flags)
 
 
@@ -165,7 +165,7 @@ class RWKV_Tmix(nn.Module):
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 
         x = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
-        x = self.output(x.view(B * T, C)).view(B, T, C) * g
+        x = self.output((x * g).view(B * T, C)).view(B, T, C)  # gate BEFORE output projection (RWKV7 style)
         return x, v_first
 
 
@@ -234,8 +234,8 @@ class WinRWKV(nn.Module):
         self.ln_out = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, vocab_size, bias=False)
 
-        # MTP components
-        self.mtp_head = RwkvBlock(dim, n_layers, n_layers + 1)
+        # MTP components - layer_id=0 so it self-inits v_first
+        self.mtp_head = RwkvBlock(dim, 0, n_layers)
         self.mtp_proj = nn.Linear(2 * dim, dim, bias=False)
 
         self._init_weights()
