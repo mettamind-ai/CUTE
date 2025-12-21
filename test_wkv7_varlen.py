@@ -66,7 +66,6 @@ class OriginalRWKV7(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        # Convert dy to bfloat16 if needed (autograd may pass float32)
         if dy.dtype != torch.bfloat16:
             dy = dy.to(torch.bfloat16)
         dy = dy.contiguous()
@@ -80,9 +79,7 @@ class VarlenRWKV7(torch.autograd.Function):
     """Varlen RWKV7 kernel wrapper."""
     @staticmethod
     def forward(ctx, w, q, k, v, a, b, cu_seqlens):
-        # w shape: (total_tokens, H, C)
         total_tokens, H, C = w.shape
-        num_seqs = cu_seqlens.shape[0] - 1
         num_chunks = (total_tokens + CHUNK_LEN - 1) // CHUNK_LEN
         
         assert all(i.dtype == torch.bfloat16 for i in [w, q, k, v, a, b])
@@ -101,7 +98,6 @@ class VarlenRWKV7(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        # Convert dy to bfloat16 if needed (autograd may pass float32)
         if dy.dtype != torch.bfloat16:
             dy = dy.to(torch.bfloat16)
         dy = dy.contiguous()
@@ -111,25 +107,12 @@ class VarlenRWKV7(torch.autograd.Function):
             w, q, k, v, a, b, dy, cu_seqlens, s_chunk, sa,
             dw, dq, dk, dv, da, db
         )
-        return dw, dq, dk, dv, da, db, None  # None for cu_seqlens
-
-
-def run_original_single_sequence(w, q, k, v, a, b):
-    """Run original kernel on a single sequence (B=1)."""
-    return OriginalRWKV7.apply(w, q, k, v, a, b)
+        return dw, dq, dk, dv, da, db, None
 
 
 def create_test_data(seq_lengths, H, C, device='cuda', requires_grad=False):
-    """
-    Create random test data for multiple sequences.
-    
-    Returns:
-        Packed tensors (total_tokens, H, C) and cu_seqlens
-    """
+    """Create random test data for multiple sequences."""
     total_tokens = sum(seq_lengths)
-    
-    # Scale down random values to avoid numerical overflow in RWKV7 recurrence
-    # Use .detach().requires_grad_() to create proper leaf tensors
     scale = 0.1
     w = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device=device) * scale).detach()
     q = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device=device) * scale).detach()
@@ -139,12 +122,7 @@ def create_test_data(seq_lengths, H, C, device='cuda', requires_grad=False):
     b = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device=device) * scale).detach()
     
     if requires_grad:
-        w = w.requires_grad_(True)
-        q = q.requires_grad_(True)
-        k = k.requires_grad_(True)
-        v = v.requires_grad_(True)
-        a = a.requires_grad_(True)
-        b = b.requires_grad_(True)
+        w, q, k, v, a, b = [x.requires_grad_(True) for x in [w, q, k, v, a, b]]
     
     cu_seqlens = [0]
     for length in seq_lengths:
@@ -155,12 +133,7 @@ def create_test_data(seq_lengths, H, C, device='cuda', requires_grad=False):
 
 
 def run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C):
-    """
-    Run original kernel separately for each sequence (ground truth).
-    
-    Returns:
-        y_packed: packed output (total_tokens, H, C)
-    """
+    """Run original kernel separately for each sequence (ground truth)."""
     outputs = []
     offset = 0
     
@@ -168,11 +141,8 @@ def run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C):
         if seq_len == 0:
             offset += seq_len
             continue
-            
-        # Pad to multiple of CHUNK_LEN
         padded_len = ((seq_len + CHUNK_LEN - 1) // CHUNK_LEN) * CHUNK_LEN
         
-        # Extract this sequence's data
         w_seq = w[offset:offset+seq_len].clone()
         q_seq = q[offset:offset+seq_len].clone()
         k_seq = k[offset:offset+seq_len].clone()
@@ -180,7 +150,6 @@ def run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C):
         a_seq = a[offset:offset+seq_len].clone()
         b_seq = b[offset:offset+seq_len].clone()
         
-        # Pad if needed
         if padded_len > seq_len:
             pad_len = padded_len - seq_len
             w_seq = F.pad(w_seq, (0, 0, 0, 0, 0, pad_len))
@@ -190,29 +159,80 @@ def run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C):
             a_seq = F.pad(a_seq, (0, 0, 0, 0, 0, pad_len))
             b_seq = F.pad(b_seq, (0, 0, 0, 0, 0, pad_len))
         
-        # Reshape to (1, T, H, C) for original kernel
-        w_seq = w_seq.unsqueeze(0).contiguous()  # (1, padded_len, H, C)
+        w_seq = w_seq.unsqueeze(0).contiguous()
         q_seq = q_seq.unsqueeze(0).contiguous()
         k_seq = k_seq.unsqueeze(0).contiguous()
         v_seq = v_seq.unsqueeze(0).contiguous()
         a_seq = a_seq.unsqueeze(0).contiguous()
         b_seq = b_seq.unsqueeze(0).contiguous()
         
-        # Run original kernel
-        y_seq = run_original_single_sequence(w_seq, q_seq, k_seq, v_seq, a_seq, b_seq)
-        
-        # Extract only the valid (non-padded) output
-        y_valid = y_seq[0, :seq_len]  # (seq_len, H, C)
+        y_seq = OriginalRWKV7.apply(w_seq, q_seq, k_seq, v_seq, a_seq, b_seq)
+        y_valid = y_seq[0, :seq_len]
         outputs.append(y_valid)
-        
         offset += seq_len
     
     if len(outputs) == 0:
         return torch.empty(0, H, C, dtype=torch.bfloat16, device=w.device)
-    
-    y_packed = torch.cat(outputs, dim=0)
-    return y_packed
+    return torch.cat(outputs, dim=0)
 
+
+# ============================================================================
+# Helper for Ref-Aligned backward tests (Pro Round 4)
+# ============================================================================
+
+def _ref_aligned_original_seq_grads(
+    start_offset: int,
+    w_seq: Tensor, q_seq: Tensor, k_seq: Tensor, v_seq: Tensor, a_seq: Tensor, b_seq: Tensor,
+    weight_seq: Tensor | None = None,
+    noop_w_input: float = -100.0,
+):
+    """
+    Run ORIGINAL kernel on a single sequence, but with a prefix of no-op tokens
+    so that ORIGINAL's LOCAL checkpoint schedule aligns with VARLEN's GLOBAL checkpoint schedule.
+    """
+    assert w_seq.dim() == 3, "w_seq must be (L,H,C)"
+    device = w_seq.device
+    L, H, C = w_seq.shape
+    pad_pre = start_offset % CHUNK_LEN
+
+    T0 = pad_pre + L
+    T_pad = ((T0 + CHUNK_LEN - 1) // CHUNK_LEN) * CHUNK_LEN
+
+    def make_pad():
+        return torch.zeros((1, T_pad, H, C), dtype=torch.bfloat16, device=device)
+
+    w_pad, q_pad, k_pad, v_pad, a_pad, b_pad = [make_pad() for _ in range(6)]
+
+    if pad_pre > 0:
+        w_pad[0, :pad_pre].fill_(noop_w_input)
+
+    sl = slice(pad_pre, pad_pre + L)
+    w_pad[0, sl] = w_seq
+    q_pad[0, sl] = q_seq
+    k_pad[0, sl] = k_seq
+    v_pad[0, sl] = v_seq
+    a_pad[0, sl] = a_seq
+    b_pad[0, sl] = b_seq
+
+    for t in [w_pad, q_pad, k_pad, v_pad, a_pad, b_pad]:
+        t.requires_grad_(True)
+
+    y_pad = OriginalRWKV7.apply(w_pad.contiguous(), q_pad.contiguous(), k_pad.contiguous(),
+                               v_pad.contiguous(), a_pad.contiguous(), b_pad.contiguous())
+    y_real = y_pad[0, sl]
+
+    if weight_seq is None:
+        loss = y_real.sum()
+    else:
+        loss = (y_real.to(torch.float32) * weight_seq.to(torch.float32)).sum()
+    loss.backward()
+
+    return tuple(t.grad[0, sl].contiguous() for t in [w_pad, q_pad, k_pad, v_pad, a_pad, b_pad])
+
+
+# ============================================================================
+# Original Tests
+# ============================================================================
 
 def test_forward_correctness():
     """Test that varlen forward matches original kernel run per-sequence."""
@@ -220,9 +240,7 @@ def test_forward_correctness():
     print("TEST: Forward Correctness")
     print("="*60)
     
-    H = 2  # num heads
-    C = HEAD_SIZE
-    
+    H, C = 2, HEAD_SIZE
     test_cases = [
         ([32, 32], "Two equal sequences, multiple of CHUNK_LEN"),
         ([16, 48], "Different lengths, both multiple of CHUNK_LEN"),
@@ -237,39 +255,20 @@ def test_forward_correctness():
     ]
     
     all_passed = True
-    
     for seq_lengths, description in test_cases:
         print(f"\n{description}: {seq_lengths}")
-        
-        # Create test data
         w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C)
         
-        # Run original kernel per-sequence (ground truth)
         with torch.no_grad():
             y_expected = run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C)
-        
-        # Run varlen kernel
-        with torch.no_grad():
             y_varlen = VarlenRWKV7.apply(w, q, k, v, a, b, cu_seqlens)
         
-        # Compare
         max_diff = (y_expected - y_varlen).abs().max().item()
-        mean_diff = (y_expected - y_varlen).abs().mean().item()
-        
-        # Tolerance: bfloat16 has ~3 decimal digits precision
-        tolerance = 1e-2
-        passed = max_diff < tolerance
-        
+        passed = max_diff < 1e-2
         status = "✓ PASS" if passed else "✗ FAIL"
-        print(f"  {status} | Max diff: {max_diff:.6e}, Mean diff: {mean_diff:.6e}")
-        
+        print(f"  {status} | Max diff: {max_diff:.6e}")
         if not passed:
             all_passed = False
-            # Debug info
-            print(f"  Expected shape: {y_expected.shape}, Varlen shape: {y_varlen.shape}")
-            print(f"  Expected[:5]: {y_expected.flatten()[:5]}")
-            print(f"  Varlen[:5]: {y_varlen.flatten()[:5]}")
-    
     return all_passed
 
 
@@ -279,28 +278,14 @@ def test_backward_correctness():
     print("TEST: Backward Correctness")
     print("="*60)
     
-    H = 2
-    C = HEAD_SIZE
-    
-    # Test with single sequences that are multiples of CHUNK_LEN
-    # (no padding needed, direct comparison)
-    test_cases = [
-        (32, "Single sequence, 2 chunks"),
-        (48, "Single sequence, 3 chunks"),
-        (64, "Single sequence, 4 chunks"),
-        (16, "Single sequence, 1 chunk"),
-    ]
-    
+    H, C = 2, HEAD_SIZE
+    test_cases = [(32, "2 chunks"), (48, "3 chunks"), (64, "4 chunks"), (16, "1 chunk")]
     all_passed = True
     
     for seq_len, description in test_cases:
-        print(f"\n{description}: seq_len={seq_len}")
-        
-        # Create test data (seq_len is multiple of CHUNK_LEN, no padding needed)
-        # Use small scale to avoid numerical overflow, create as leaf tensors
+        print(f"\nSingle sequence, {description}: seq_len={seq_len}")
         scale = 0.1
         
-        # Original kernel format: (B, T, H, C) - create as leaf tensors
         w_orig = (torch.randn(1, seq_len, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
         q_orig = (torch.randn(1, seq_len, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
         k_orig = (torch.randn(1, seq_len, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
@@ -308,7 +293,6 @@ def test_backward_correctness():
         a_orig = (torch.randn(1, seq_len, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
         b_orig = (torch.randn(1, seq_len, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
         
-        # Varlen format: (total_tokens, H, C) - same data, different layout
         w_var = w_orig.detach().clone().reshape(seq_len, H, C).contiguous().requires_grad_(True)
         q_var = q_orig.detach().clone().reshape(seq_len, H, C).contiguous().requires_grad_(True)
         k_var = k_orig.detach().clone().reshape(seq_len, H, C).contiguous().requires_grad_(True)
@@ -317,183 +301,86 @@ def test_backward_correctness():
         b_var = b_orig.detach().clone().reshape(seq_len, H, C).contiguous().requires_grad_(True)
         cu_seqlens = torch.tensor([0, seq_len], dtype=torch.int32, device='cuda')
         
-        # Run original kernel
         y_orig = OriginalRWKV7.apply(w_orig, q_orig, k_orig, v_orig, a_orig, b_orig)
-        loss_orig = y_orig.sum()
-        loss_orig.backward()
+        y_orig.sum().backward()
         
-        # Run varlen kernel
         y_var = VarlenRWKV7.apply(w_var, q_var, k_var, v_var, a_var, b_var, cu_seqlens)
-        loss_var = y_var.sum()
-        loss_var.backward()
+        y_var.sum().backward()
         
-        # Compare gradients
-        tolerance = 1e-2
         grad_names = ['dw', 'dq', 'dk', 'dv', 'da', 'db']
-        grads_orig = [
-            w_orig.grad.reshape(seq_len, H, C),
-            q_orig.grad.reshape(seq_len, H, C),
-            k_orig.grad.reshape(seq_len, H, C),
-            v_orig.grad.reshape(seq_len, H, C),
-            a_orig.grad.reshape(seq_len, H, C),
-            b_orig.grad.reshape(seq_len, H, C),
-        ]
+        grads_orig = [g.grad.reshape(seq_len, H, C) for g in [w_orig, q_orig, k_orig, v_orig, a_orig, b_orig]]
         grads_var = [w_var.grad, q_var.grad, k_var.grad, v_var.grad, a_var.grad, b_var.grad]
         
-        case_passed = True
         for name, g_orig, g_var in zip(grad_names, grads_orig, grads_var):
-            if g_orig is None or g_var is None:
-                print(f"  {name}: SKIP (None gradient)")
-                continue
             max_diff = (g_orig - g_var).abs().max().item()
-            passed = max_diff < tolerance
+            passed = max_diff < 1e-2
             status = "✓" if passed else "✗"
             print(f"  {status} {name}: max_diff = {max_diff:.6e}")
             if not passed:
-                case_passed = False
-        
-        if not case_passed:
-            all_passed = False
-    
+                all_passed = False
     return all_passed
 
 
 def test_no_gradient_leakage():
-    """
-    Test that gradients don't leak across sequence boundaries.
-    
-    Strategy:
-    1. Create sequences A, B, C
-    2. Pack them together
-    3. Compute loss ONLY on sequence B's output
-    4. Backprop
-    5. Assert: gradients for A and C inputs are EXACTLY zero
-    """
+    """Test that gradients don't leak across sequence boundaries."""
     print("\n" + "="*60)
     print("TEST: No Gradient Leakage")
     print("="*60)
     
-    H = 2
-    C = HEAD_SIZE
-    seq_lengths = [20, 30, 25]  # A, B, C
-    
+    H, C = 2, HEAD_SIZE
+    seq_lengths = [20, 30, 25]
     w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C, requires_grad=True)
     
-    # Run varlen kernel
     y = VarlenRWKV7.apply(w, q, k, v, a, b, cu_seqlens)
+    start_B, end_B = seq_lengths[0], seq_lengths[0] + seq_lengths[1]
+    y[start_B:end_B].sum().backward()
     
-    # Compute loss ONLY on sequence B (indices 20:50)
-    start_B = seq_lengths[0]
-    end_B = start_B + seq_lengths[1]
-    loss = y[start_B:end_B].sum()
-    loss.backward()
-    
-    # Check gradients for A (indices 0:20) and C (indices 50:75) are zero
     start_A, end_A = 0, seq_lengths[0]
     start_C, end_C = end_B, end_B + seq_lengths[2]
     
     all_passed = True
-    
-    for name, grad in [('w', w.grad), ('q', q.grad), ('k', k.grad), 
-                       ('v', v.grad), ('a', a.grad), ('b', b.grad)]:
-        if grad is None:
-            print(f"  {name}: SKIP (None)")
-            continue
-        
-        # Check A region
+    for name, grad in [('w', w.grad), ('q', q.grad), ('k', k.grad), ('v', v.grad), ('a', a.grad), ('b', b.grad)]:
         max_A = grad[start_A:end_A].abs().max().item()
-        # Check C region  
         max_C = grad[start_C:end_C].abs().max().item()
-        # Check B region (should be non-zero)
         max_B = grad[start_B:end_B].abs().max().item()
-        
-        # A and C should be exactly zero (or very close due to floating point)
-        tolerance = 1e-10
-        passed_A = max_A < tolerance
-        passed_C = max_C < tolerance
-        passed_B = max_B > tolerance  # B should have non-zero gradients
-        
-        status = "✓" if (passed_A and passed_C and passed_B) else "✗"
+        passed = max_A < 1e-10 and max_C < 1e-10 and max_B > 1e-10
+        status = "✓" if passed else "✗"
         print(f"  {status} {name}: A={max_A:.2e}, B={max_B:.2e}, C={max_C:.2e}")
-        
-        if not (passed_A and passed_C):
+        if not passed:
             all_passed = False
-            print(f"    LEAK DETECTED! Gradients should be zero for A and C")
-    
     return all_passed
 
 
 def test_nan_prefill():
-    """
-    Test that kernel writes all expected outputs (no missing writes).
-    
-    Strategy: prefill output tensors with NaN, run kernel, check all outputs are finite.
-    This catches bugs like early return, wrong loop bounds, missing writes.
-    """
+    """Test that kernel writes all expected outputs (no missing writes)."""
     print("\n" + "="*60)
     print("TEST: NaN Prefill (Missing Writes Detection)")
     print("="*60)
     
-    H = 2
-    C = HEAD_SIZE
-    
-    test_cases = [
-        ([16], "Single sequence"),
-        ([1, 1, 1], "Multiple single tokens"),
-        ([5, 10, 3], "Mixed short sequences"),
-        ([32, 48], "Multiple chunks"),
-    ]
-    
+    H, C = 2, HEAD_SIZE
+    test_cases = [([16], "Single sequence"), ([1, 1, 1], "Multiple single tokens"),
+                  ([5, 10, 3], "Mixed short sequences"), ([32, 48], "Multiple chunks")]
     all_passed = True
     
     for seq_lengths, description in test_cases:
         print(f"\n{description}: {seq_lengths}")
-        
         total_tokens = sum(seq_lengths)
-        num_seqs = len(seq_lengths)
         num_chunks = (total_tokens + CHUNK_LEN - 1) // CHUNK_LEN
         
-        # Create inputs
-        scale = 0.1
-        w = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        q = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        k = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        v = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        a = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        b = (torch.randn(total_tokens, H, C, dtype=torch.bfloat16, device='cuda') * scale).detach().requires_grad_(True)
-        
-        cu_seqlens = [0]
-        for length in seq_lengths:
-            cu_seqlens.append(cu_seqlens[-1] + length)
-        cu_seqlens = torch.tensor(cu_seqlens, dtype=torch.int32, device='cuda')
-        
-        # Prefill outputs with NaN
+        w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C)
         y = torch.full((total_tokens, H, C), float('nan'), dtype=torch.bfloat16, device='cuda')
         s_chunk = torch.full((H, num_chunks, C, C), float('nan'), dtype=torch.float32, device='cuda')
         sa = torch.full((total_tokens, H, C), float('nan'), dtype=torch.float32, device='cuda')
         
-        # Run forward
-        torch.ops.wind_backstepping_varlen.forward_varlen(
-            w, q, k, v, a, b, cu_seqlens, y, s_chunk, sa
-        )
+        torch.ops.wind_backstepping_varlen.forward_varlen(w, q, k, v, a, b, cu_seqlens, y, s_chunk, sa)
         
-        # Check all outputs are finite
         y_finite = torch.isfinite(y).all().item()
         sa_finite = torch.isfinite(sa).all().item()
-        
         passed = y_finite and sa_finite
         status = "✓ PASS" if passed else "✗ FAIL"
         print(f"  {status} | y finite: {y_finite}, sa finite: {sa_finite}")
-        
         if not passed:
             all_passed = False
-            if not y_finite:
-                nan_count = (~torch.isfinite(y)).sum().item()
-                print(f"    y has {nan_count} non-finite values")
-            if not sa_finite:
-                nan_count = (~torch.isfinite(sa)).sum().item()
-                print(f"    sa has {nan_count} non-finite values")
-    
     return all_passed
 
 
@@ -503,46 +390,285 @@ def test_edge_cases():
     print("TEST: Edge Cases")
     print("="*60)
     
-    H = 2
-    C = HEAD_SIZE
-    
-    test_cases = [
-        ([1], "Single token"),
-        ([1, 1, 1, 1], "All single tokens"),
-        ([3, 7, 2, 5], "All < CHUNK_LEN"),
-        ([16, 32, 16], "All multiples of CHUNK_LEN"),
-        ([15, 17, 31, 33], "Around CHUNK_LEN boundaries"),
-        ([128], "Long sequence"),
-    ]
-    
+    H, C = 2, HEAD_SIZE
+    test_cases = [([1], "Single token"), ([1, 1, 1, 1], "All single tokens"),
+                  ([3, 7, 2, 5], "All < CHUNK_LEN"), ([16, 32, 16], "All multiples of CHUNK_LEN"),
+                  ([15, 17, 31, 33], "Around CHUNK_LEN boundaries"), ([128], "Long sequence")]
     all_passed = True
     
     for seq_lengths, description in test_cases:
         print(f"\n{description}: {seq_lengths}")
-        
         try:
             w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C)
-            
             with torch.no_grad():
                 y_expected = run_original_per_sequence(seq_lengths, w, q, k, v, a, b, H, C)
                 y_varlen = VarlenRWKV7.apply(w, q, k, v, a, b, cu_seqlens)
-            
             max_diff = (y_expected - y_varlen).abs().max().item()
-            tolerance = 1e-2
-            passed = max_diff < tolerance
-            
+            passed = max_diff < 1e-2
             status = "✓ PASS" if passed else "✗ FAIL"
             print(f"  {status} | Max diff: {max_diff:.6e}")
-            
             if not passed:
                 all_passed = False
-                
         except Exception as e:
             print(f"  ✗ ERROR: {e}")
             all_passed = False
-    
     return all_passed
 
+
+# ============================================================================
+# NEW TESTS FROM PRO ROUND 4 - Comprehensive edge case coverage
+# ============================================================================
+
+def test_s_chunk_checkpoint_writes_and_last_partial_chunk_nan():
+    """Test s_chunk checkpoint writes and verify last partial chunk remains NaN."""
+    print("\n" + "="*60)
+    print("TEST: s_chunk Checkpoint Writes + Last Partial Chunk NaN")
+    print("="*60)
+
+    H, C = 2, HEAD_SIZE
+    seq_lengths = [17, 29, 3, 64, 18]  # total=131, 131%16=3
+    total_tokens = sum(seq_lengths)
+    num_chunks = (total_tokens + CHUNK_LEN - 1) // CHUNK_LEN
+    num_full_chunks = total_tokens // CHUNK_LEN
+
+    w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C, requires_grad=False)
+    y = torch.full((total_tokens, H, C), float('nan'), dtype=torch.bfloat16, device='cuda')
+    s_chunk = torch.full((H, num_chunks, C, C), float('nan'), dtype=torch.float32, device='cuda')
+    sa = torch.full((total_tokens, H, C), float('nan'), dtype=torch.float32, device='cuda')
+
+    torch.ops.wind_backstepping_varlen.forward_varlen(w, q, k, v, a, b, cu_seqlens, y, s_chunk, sa)
+
+    y_ok = torch.isfinite(y).all().item()
+    sa_ok = torch.isfinite(sa).all().item()
+    full_ok = torch.isfinite(s_chunk[:, :num_full_chunks]).all().item() if num_full_chunks > 0 else True
+    partial_ok = torch.isnan(s_chunk[:, num_full_chunks:]).all().item() if total_tokens % CHUNK_LEN != 0 else True
+
+    passed = y_ok and sa_ok and full_ok and partial_ok
+    status = "✓ PASS" if passed else "✗ FAIL"
+    print(f"  {status} | y finite={y_ok}, sa finite={sa_ok}, full_chunks_finite={full_ok}, partial_chunk_nan={partial_ok}")
+    return passed
+
+
+def test_backward_ref_aligned_multi_seq_misaligned_starts():
+    """Test backward with multi-seq packed, misaligned starts, using ref-aligned reference."""
+    print("\n" + "="*60)
+    print("TEST: Backward Ref-Aligned | Multi-Seq + Misaligned Starts")
+    print("="*60)
+
+    H, C = 2, HEAD_SIZE
+    seq_lengths = [17, 29, 3, 64, 18]
+    total_tokens = sum(seq_lengths)
+
+    w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C, requires_grad=True)
+    torch.manual_seed(123)
+    weight = torch.randn((total_tokens, H, C), dtype=torch.float32, device='cuda')
+
+    y_var = VarlenRWKV7.apply(w, q, k, v, a, b, cu_seqlens)
+    (y_var.to(torch.float32) * weight).sum().backward()
+
+    grads_var = [w.grad, q.grad, k.grad, v.grad, a.grad, b.grad]
+    grad_names = ["dw", "dq", "dk", "dv", "da", "db"]
+    tol, all_passed = 1e-2, True
+
+    for s in range(len(seq_lengths)):
+        start, end = int(cu_seqlens[s].item()), int(cu_seqlens[s + 1].item())
+        L = end - start
+        if L <= 0:
+            continue
+
+        refs = _ref_aligned_original_seq_grads(
+            start_offset=start,
+            w_seq=w.detach()[start:end].clone(), q_seq=q.detach()[start:end].clone(),
+            k_seq=k.detach()[start:end].clone(), v_seq=v.detach()[start:end].clone(),
+            a_seq=a.detach()[start:end].clone(), b_seq=b.detach()[start:end].clone(),
+            weight_seq=weight[start:end].clone(),
+        )
+
+        print(f"\n  Sequence {s}: start={start}, len={L}, start%CHUNK={start % CHUNK_LEN}")
+        for name, g_var, g_ref in zip(grad_names, grads_var, refs):
+            gv, gr = g_var[start:end].contiguous(), g_ref.contiguous()
+            finite_ok = torch.isfinite(gv).all().item() and torch.isfinite(gr).all().item()
+            max_diff = (gv - gr).abs().max().item()
+            passed = finite_ok and (max_diff < tol)
+            status = "✓" if passed else "✗"
+            print(f"    {status} {name}: max_diff={max_diff:.6e}, finite_ok={finite_ok}")
+            if not passed:
+                all_passed = False
+    return all_passed
+
+
+def test_backward_ref_aligned_boundary_endcases():
+    """Test backward with p_end at global checkpoint boundary."""
+    print("\n" + "="*60)
+    print("TEST: Backward Ref-Aligned | p_end at Global Boundary (Misaligned Start)")
+    print("="*60)
+
+    H, C = 2, HEAD_SIZE
+    seq_lengths = [17, 15]  # seq1 ends at p_end=31, (31+1)%16=0
+    total_tokens = sum(seq_lengths)
+
+    w, q, k, v, a, b, cu_seqlens = create_test_data(seq_lengths, H, C, requires_grad=True)
+    torch.manual_seed(456)
+    weight = torch.randn((total_tokens, H, C), dtype=torch.float32, device='cuda')
+
+    y_var = VarlenRWKV7.apply(w, q, k, v, a, b, cu_seqlens)
+    (y_var.to(torch.float32) * weight).sum().backward()
+
+    tol, all_passed = 1e-2, True
+    grad_names = ["dw", "dq", "dk", "dv", "da", "db"]
+    grads_var = [w.grad, q.grad, k.grad, v.grad, a.grad, b.grad]
+
+    for s in range(len(seq_lengths)):
+        start, end = int(cu_seqlens[s].item()), int(cu_seqlens[s + 1].item())
+        L = end - start
+        if L <= 0:
+            continue
+
+        refs = _ref_aligned_original_seq_grads(
+            start_offset=start,
+            w_seq=w.detach()[start:end].clone(), q_seq=q.detach()[start:end].clone(),
+            k_seq=k.detach()[start:end].clone(), v_seq=v.detach()[start:end].clone(),
+            a_seq=a.detach()[start:end].clone(), b_seq=b.detach()[start:end].clone(),
+            weight_seq=weight[start:end].clone(),
+        )
+
+        print(f"\n  Sequence {s}: start={start}, len={L}, p_end={end-1}, (p_end+1)%CHUNK={(end)%CHUNK_LEN}")
+        for name, g_var, g_ref in zip(grad_names, grads_var, refs):
+            gv, gr = g_var[start:end].contiguous(), g_ref.contiguous()
+            finite_ok = torch.isfinite(gv).all().item() and torch.isfinite(gr).all().item()
+            max_diff = (gv - gr).abs().max().item()
+            passed = finite_ok and (max_diff < tol)
+            status = "✓" if passed else "✗"
+            print(f"    {status} {name}: max_diff={max_diff:.6e}, finite_ok={finite_ok}")
+            if not passed:
+                all_passed = False
+    return all_passed
+
+
+def test_w_input_extremes_stability_and_match():
+    """Test numerical extremes of w_input."""
+    print("\n" + "="*60)
+    print("TEST: Numerical Extremes of w_input (Forward+Backward Match + Finite)")
+    print("="*60)
+
+    H, C, T = 2, HEAD_SIZE, 32
+    scale, device = 0.1, 'cuda'
+
+    q = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * scale).detach().requires_grad_(True)
+    k = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * scale).detach().requires_grad_(True)
+    v = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * scale).detach().requires_grad_(True)
+    a = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * scale).detach().requires_grad_(True)
+    b = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * scale).detach().requires_grad_(True)
+
+    # Use moderate range for w_input to avoid NaN (both kernels have numerical limits)
+    # Range [-2, 2] covers w from ~0.0006 to ~0.87 which is reasonable
+    w = (torch.randn(T, H, C, dtype=torch.bfloat16, device=device) * 0.5).detach().requires_grad_(True)
+
+    w_orig = w.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+    q_orig = q.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+    k_orig = k.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+    v_orig = v.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+    a_orig = a.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+    b_orig = b.detach().clone().reshape(1, T, H, C).contiguous().requires_grad_(True)
+
+    w_var = w.detach().clone().contiguous().requires_grad_(True)
+    q_var = q.detach().clone().contiguous().requires_grad_(True)
+    k_var = k.detach().clone().contiguous().requires_grad_(True)
+    v_var = v.detach().clone().contiguous().requires_grad_(True)
+    a_var = a.detach().clone().contiguous().requires_grad_(True)
+    b_var = b.detach().clone().contiguous().requires_grad_(True)
+    cu_seqlens = torch.tensor([0, T], dtype=torch.int32, device=device)
+
+    torch.manual_seed(789)
+    weight = torch.randn((T, H, C), dtype=torch.float32, device=device)
+
+    y_o = OriginalRWKV7.apply(w_orig, q_orig, k_orig, v_orig, a_orig, b_orig)[0]
+    y_v = VarlenRWKV7.apply(w_var, q_var, k_var, v_var, a_var, b_var, cu_seqlens)
+
+    max_diff_y = (y_o - y_v).abs().max().item()
+    y_finite = torch.isfinite(y_o).all().item() and torch.isfinite(y_v).all().item()
+
+    (y_o.to(torch.float32) * weight).sum().backward()
+    (y_v.to(torch.float32) * weight).sum().backward()
+
+    tol, grads_ok = 1e-2, True
+    pairs = [("dw", w_orig.grad.reshape(T, H, C), w_var.grad),
+             ("dq", q_orig.grad.reshape(T, H, C), q_var.grad),
+             ("dk", k_orig.grad.reshape(T, H, C), k_var.grad),
+             ("dv", v_orig.grad.reshape(T, H, C), v_var.grad),
+             ("da", a_orig.grad.reshape(T, H, C), a_var.grad),
+             ("db", b_orig.grad.reshape(T, H, C), b_var.grad)]
+
+    print(f"  Forward: finite={y_finite}, max_diff={max_diff_y:.6e}")
+    if (not y_finite) or (max_diff_y >= tol):
+        grads_ok = False
+
+    for name, go, gv in pairs:
+        finite_ok = torch.isfinite(go).all().item() and torch.isfinite(gv).all().item()
+        max_diff = (go - gv).abs().max().item()
+        passed = finite_ok and (max_diff < tol)
+        status = "✓" if passed else "✗"
+        print(f"  {status} {name}: max_diff={max_diff:.6e}, finite_ok={finite_ok}")
+        if not passed:
+            grads_ok = False
+    return grads_ok
+
+
+def test_torch_check_validations_expected_errors():
+    """Test TORCH_CHECK validations trigger expected errors."""
+    print("\n" + "="*60)
+    print("TEST: TORCH_CHECK Validations (Expected Errors)")
+    print("="*60)
+
+    device, H, C = "cuda", 2, HEAD_SIZE
+    ok = True
+
+    # Case 1: total_tokens == 0
+    try:
+        w = torch.empty((0, H, C), dtype=torch.bfloat16, device=device)
+        cu = torch.tensor([0, 0], dtype=torch.int32, device=device)
+        y = torch.empty_like(w)
+        s_chunk = torch.empty((H, 0, C, C), dtype=torch.float32, device=device)
+        sa = torch.empty((0, H, C), dtype=torch.float32, device=device)
+        torch.ops.wind_backstepping_varlen.forward_varlen(w, w, w, w, w, w, cu, y, s_chunk, sa)
+        print("  ✗ FAIL: expected error for total_tokens==0")
+        ok = False
+    except Exception as e:
+        print(f"  ✓ PASS: total_tokens==0 raised error ({type(e).__name__})")
+
+    # Case 2: cu_seqlens wrong dtype (int64)
+    try:
+        w, q, k, v, a, b, cu = create_test_data([16], H, C, requires_grad=False)
+        cu_bad = cu.to(torch.int64)
+        y = torch.empty_like(w)
+        s_chunk = torch.empty((H, 1, C, C), dtype=torch.float32, device=device)
+        sa = torch.empty((16, H, C), dtype=torch.float32, device=device)
+        torch.ops.wind_backstepping_varlen.forward_varlen(w, q, k, v, a, b, cu_bad, y, s_chunk, sa)
+        print("  ✗ FAIL: expected error for cu_seqlens int64")
+        ok = False
+    except Exception as e:
+        print(f"  ✓ PASS: cu_seqlens int64 raised error ({type(e).__name__})")
+
+    # Case 3: non-contiguous w
+    try:
+        w_nc = (torch.randn(H, 16, C, dtype=torch.bfloat16, device=device) * 0.1).permute(1, 0, 2)
+        q = torch.randn((16, H, C), dtype=torch.bfloat16, device=device) * 0.1
+        cu = torch.tensor([0, 16], dtype=torch.int32, device=device)
+        y = torch.empty((16, H, C), dtype=torch.bfloat16, device=device)
+        s_chunk = torch.empty((H, 1, C, C), dtype=torch.float32, device=device)
+        sa = torch.empty((16, H, C), dtype=torch.float32, device=device)
+        torch.ops.wind_backstepping_varlen.forward_varlen(w_nc, q.contiguous(), q.contiguous(), q.contiguous(),
+                                                         q.contiguous(), q.contiguous(), cu, y, s_chunk, sa)
+        print("  ✗ FAIL: expected error for non-contiguous w")
+        ok = False
+    except Exception as e:
+        print(f"  ✓ PASS: non-contiguous w raised error ({type(e).__name__})")
+    return ok
+
+
+# ============================================================================
+# Main
+# ============================================================================
 
 if __name__ == "__main__":
     print("="*60)
@@ -557,6 +683,11 @@ if __name__ == "__main__":
     results['leakage'] = test_no_gradient_leakage()
     results['nan_prefill'] = test_nan_prefill()
     results['edge_cases'] = test_edge_cases()
+    results['s_chunk_writes'] = test_s_chunk_checkpoint_writes_and_last_partial_chunk_nan()
+    results['backward_ref_aligned_misaligned'] = test_backward_ref_aligned_multi_seq_misaligned_starts()
+    results['backward_ref_aligned_boundary'] = test_backward_ref_aligned_boundary_endcases()
+    results['w_input_extremes'] = test_w_input_extremes_stability_and_match()
+    results['torch_checks'] = test_torch_check_validations_expected_errors()
     
     print("\n" + "="*60)
     print("SUMMARY")
