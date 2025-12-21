@@ -77,8 +77,8 @@ class RWKV_Tmix(nn.Module):
         super().__init__()
         self.layer_id = layer_id
         self.head_size = HEAD_SIZE
+        assert dim % HEAD_SIZE == 0, f"dim ({dim}) must be divisible by HEAD_SIZE ({HEAD_SIZE})"
         self.n_head = dim // self.head_size
-        assert dim % self.n_head == 0
         H, N, C = self.n_head, self.head_size, dim
 
         with torch.no_grad():
@@ -144,10 +144,10 @@ class RWKV_Tmix(nn.Module):
         xa = x + xx * self.x_a
         xg = x + xx * self.x_g
 
-        r = self.receptance(xr.view(B * T, C)).view(B, T, C)
+        r = self.receptance(xr.reshape(B * T, C)).view(B, T, C)
         w = -F.softplus(-(self.w0 + torch.tanh(xw @ self.w1) @ self.w2)) - 0.5
-        k = self.key(xk.view(B * T, C)).view(B, T, C)
-        v = self.value(xv.view(B * T, C)).view(B, T, C)
+        k = self.key(xk.reshape(B * T, C)).view(B, T, C)
+        v = self.value(xv.reshape(B * T, C)).view(B, T, C)
 
         if self.layer_id == 0:
             v_first = v
@@ -165,7 +165,7 @@ class RWKV_Tmix(nn.Module):
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 
         x = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
-        x = self.output((x * g).view(B * T, C)).view(B, T, C)  # gate BEFORE output projection (RWKV7 style)
+        x = self.output((x * g).reshape(B * T, C)).view(B, T, C)  # gate BEFORE output projection (RWKV7 style)
         return x, v_first
 
 
@@ -192,7 +192,7 @@ class RWKV_CMix(nn.Module):
         B, T, C = x.size()
         xx = F.pad(x, (0, 0, 1, -1)) - x  # time_shift
         k = x + xx * self.x_k
-        k = self.key(k.view(B * T, C))
+        k = self.key(k.reshape(B * T, C))
         k = torch.relu(k) ** 2
         return self.value(k).view(B, T, C)
 
@@ -256,7 +256,13 @@ class WinRWKV(nn.Module):
             if "ln_" in n or ".ln" in n or "time_" in n or "_mask" in n or "pos_emb" in n or '.mask.' in n or n.endswith('_w') or n.endswith('_w1') or n.endswith('_w2') or n.endswith('_bias') or (".weight" not in n):
                 if 'ln_x.weight' in n:
                     parts = n.split('.')
-                    layer_id = int(parts[1]) if parts[0] == 'blocks' else self.n_layers
+                    # mtp_head treated as layer 0
+                    if parts[0] == 'blocks':
+                        layer_id = int(parts[1])
+                    elif parts[0] == 'mtp_head':
+                        layer_id = 0  # treat mtp_head like layer 0
+                    else:
+                        layer_id = self.n_layers
                     layer_scale = (1 + layer_id) / self.n_layers
                     p.data.fill_(layer_scale ** 0.7)
                     print(f"{n}: fill({layer_scale ** 0.7:.4f})")
@@ -319,10 +325,11 @@ class WinRWKV(nn.Module):
 
         print(f'\nTotal params: {n_params:,}')
 
-    def forward(self, input_seq):
+    def forward(self, input_seq, return_logits=False):
         B, T = input_seq.shape if input_seq.dim() == 2 else (1, input_seq.shape[0])
         if input_seq.dim() == 1:
             input_seq = input_seq.unsqueeze(0)
+        assert T % CHUNK_LEN == 0, f"seq_len ({T}) must be divisible by CHUNK_LEN ({CHUNK_LEN})"
 
         x = self.emb(input_seq)
         v_first = torch.empty_like(x)
@@ -331,11 +338,13 @@ class WinRWKV(nn.Module):
             x, v_first = checkpoint(blk, x, v_first, use_reentrant=False)
 
         x = self.ln_out(x)
+        if return_logits:
+            return self.head(x)
         return x
 
 
 def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
-    xn = model(input_seq)
+    xn = model(input_seq, return_logits=False)  # get hidden states
     B, T, C = xn.shape
 
     def prepare_mtp():
@@ -351,11 +360,12 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     y2, _ = model.mtp_head(y1, v_first_mtp)
     yn = model.ln_out(y2)
 
-    # Compute logits
-    xn_flat = xn.view(B * T, C)
-    yn_flat = yn.view(B * T, C)
-    target_flat = target.view(B * T).clone()
-    target_flat[0] = ignore
+    # Compute logits - ignore first token of each sequence in batch
+    xn_flat = xn.reshape(B * T, C)
+    yn_flat = yn.reshape(B * T, C)
+    target2 = target.clone()
+    target2[:, 0] = ignore  # ignore t=0 for all batch items
+    target_flat = target2.reshape(B * T)
 
     # Use head for logits, standard cross entropy
     logits_ntp = model.head(xn_flat)
