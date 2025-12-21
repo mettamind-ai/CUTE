@@ -56,6 +56,28 @@ wsl python3 benchmark.py gpt
 
 **RWKV nhanh hơn 1.65-2.14x**. Speedup tốt nhất khi dim là power of 2 (128, 256, 512).
 
+### Model Configs (vocab=4k)
+
+| Size | dim | L  | RWKV (emb+other) | GPT (total)    |
+|------|-----|----|------------------|----------------|
+| S    | 128 |  6 | 1M +  2M =  3M   | 1M +  3M =  4M |
+| M    | 256 |  6 | 2M +  6M =  8M   | 2M +  8M = 10M |
+| L    | 384 | 12 | 3M + 25M = 28M   | 3M + 26M = 29M |
+| XL   | 512 | 12 | 4M + 44M = 48M   | 4M + 41M = 46M |
+| XXL  | 640 | 12 | 5M + 68M = 73M   | 5M + 60M = 66M |
+
+### Benchmark (vocab=4k, RTX 3050 Ti)
+
+| Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
+|------|---------|------------|--------|-----------|---------|
+| S    | 66      | 15,622     | 136    | 7,527     | 2.08x   |
+| M    | 64      | 16,014     | 107    | 9,617     | 1.67x   |
+| L    | 127     | 8,073      | 216    | 4,751     | 1.70x   |
+| XL   | 159     | 6,449      | 294    | 3,489     | 1.85x   |
+| XXL  | 211     | 4,851      | 405    | 2,530     | 1.92x   |
+
+**RWKV nhanh hơn 1.67-2.08x** với vocab 4k.
+
 ## Dependencies
 
 - PyTorch 2.x với CUDA
