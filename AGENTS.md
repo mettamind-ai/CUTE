@@ -32,29 +32,29 @@ wsl python3 benchmark.py rwkv
 wsl python3 benchmark.py gpt
 ```
 
-**Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`
+**Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`, `vocab = 16k`
 
 ### Model Configs
 
-| Name | dim | layers | RWKV params | GPT params |
-|------|-----|--------|-------------|------------|
-| S    | 128 | 6      | 18M         | 20M        |
-| M    | 256 | 6      | 40M         | 41M        |
-| L    | 384 | 12     | 75M         | 76M        |
-| XL   | 512 | 12     | 111M        | 109M       |
-| XXL  | 640 | 12     | 152M        | 144M       |
+| Size | dim | L  | RWKV (emb+other) | GPT (total)     |
+|------|-----|----|------------------|-----------------|
+| S    | 128 |  6 |  4M +  2M =  6M  |  4M +  3M = 7M  |
+| M    | 256 |  6 |  8M +  6M = 15M  |  8M +  8M = 16M |
+| L    | 384 | 12 | 13M + 25M = 38M  | 13M + 26M = 38M |
+| XL   | 512 | 12 | 17M + 44M = 61M  | 17M + 41M = 58M |
+| XXL  | 640 | 12 | 21M + 68M = 89M  | 21M + 60M = 81M |
 
 ### Benchmark (RTX 3050 Ti)
 
 | Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
 |------|---------|------------|--------|-----------|---------|
-| S    | 105     | 9,739      | 150    | 6,811     | 1.43x   |
-| M    | 114     | 8,957      | 151    | 6,792     | 1.32x   |
-| L    | 194     | 5,286      | 298    | 3,440     | 1.54x   |
-| XL   | 242     | 4,228      | 409    | 2,502     | 1.69x   |
-| XXL  | 315     | 3,251      | 577    | 1,773     | 1.83x   |
+| S    | 62      | 16,375     | 115    | 8,889     | 1.84x   |
+| M    | 65      | 15,693     | 140    | 7,337     | 2.14x   |
+| L    | 133     | 7,704      | 220    | 4,657     | 1.65x   |
+| XL   | 157     | 6,507      | 310    | 3,298     | 1.97x   |
+| XXL  | 222     | 4,614      | 448    | 2,288     | 2.02x   |
 
-**RWKV nhanh hơn 1.32-1.83x**. Speedup tốt nhất khi dim là power of 2 (128, 256, 512).
+**RWKV nhanh hơn 1.65-2.14x**. Speedup tốt nhất khi dim là power of 2 (128, 256, 512).
 
 ## Dependencies
 
