@@ -25,7 +25,7 @@ RWKV7 implementation với:
 wsl python3 benchmark.py
 ```
 
-**Training config**: batch=1, seq_len=1024, random tokens, 5 steps (2 warmup), AdamW + Muon optimizer
+**Training config**: batch=1, seq_len=4096, random tokens, 5 steps (2 warmup), AdamW + Muon optimizer
 
 **Constraints**: `dim % 64 == 0` (HEAD_SIZE), `seq_len % 16 == 0` (CHUNK_LEN), `n_layers >= 2`, `dtype = bfloat16`
 
@@ -83,17 +83,17 @@ wsl python3 benchmark.py
 | XL   | 512 | 12 |  8M + 44M = 52M  |  8M + 41M = 50M  |
 | XXL  | 640 | 12 | 10M + 68M = 79M  | 10M + 60M = 71M  |
 
-### Benchmark (vocab=8k, RTX 3050 Ti)
+### Benchmark (vocab=8k, seq=4k, RTX 3050 Ti)
 
 | Size | RWKV ms | RWKV tok/s | GPT ms | GPT tok/s | Speedup |
 |------|---------|------------|--------|-----------|---------|
-| S    | 63      | 16,346     | 118    | 8,690     | 1.88x   |
-| M    | 70      | 14,540     | 125    | 8,215     | 1.77x   |
-| L    | 127     | 8,054      | 222    | 4,609     | 1.75x   |
-| XL   | 160     | 6,381      | 302    | 3,386     | 1.88x   |
-| XXL  | 211     | 4,862      | 402    | 2,550     | 1.91x   |
+| S    | 156     | 26,322     | 217    | 18,855    | 1.40x   |
+| M    | 190     | 21,601     | 287    | 14,264    | 1.51x   |
+| L    | 459     | 8,934      | 673    | 6,087     | 1.47x   |
+| XL   | 576     | 7,116      | 843    | 4,858     | 1.46x   |
+| XXL  | 731     | 5,604      | 1082   | 3,786     | 1.48x   |
 
-**RWKV nhanh hơn 1.75-1.91x** với vocab 8k.
+**RWKV nhanh hơn 1.40-1.51x** với seq_len=4k (speedup giảm so với seq_len ngắn do Flash Attention hiệu quả hơn ở long context).
 
 ### Params difference
 

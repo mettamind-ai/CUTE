@@ -5,7 +5,7 @@ import torch, torch.nn.functional as F, time, sys
 torch.set_default_dtype(torch.bfloat16)
 torch.manual_seed(1981)
 
-CTXLEN = 1024
+CTXLEN = 4096
 VOCAB_SIZE = 8 * 1024
 WARMUP = 2
 STEPS = 5
