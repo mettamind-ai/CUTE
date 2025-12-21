@@ -60,6 +60,8 @@ def norm(x: Tensor):
 @torch.no_grad()
 def ortho_init(x, scale):
     shape = x.shape
+    orig_dtype = x.dtype
+    x = x.float()  # orthogonal init requires float32
     if len(shape) == 2:
         gain = math.sqrt(shape[0] / shape[1]) if shape[0] > shape[1] else 1
         nn.init.orthogonal_(x, gain=gain * scale)
@@ -67,7 +69,7 @@ def ortho_init(x, scale):
         gain = math.sqrt(shape[1] / shape[2]) if shape[1] > shape[2] else 1
         for i in range(shape[0]):
             nn.init.orthogonal_(x[i], gain=gain * scale)
-    return x
+    return x.to(orig_dtype)
 
 
 class RWKV_Tmix(nn.Module):
@@ -142,10 +144,10 @@ class RWKV_Tmix(nn.Module):
         xa = x + xx * self.x_a
         xg = x + xx * self.x_g
 
-        r = self.receptance(xr)
+        r = self.receptance(xr.view(B * T, C)).view(B, T, C)
         w = -F.softplus(-(self.w0 + torch.tanh(xw @ self.w1) @ self.w2)) - 0.5
-        k = self.key(xk)
-        v = self.value(xv)
+        k = self.key(xk.view(B * T, C)).view(B, T, C)
+        v = self.value(xv.view(B * T, C)).view(B, T, C)
 
         if self.layer_id == 0:
             v_first = v
@@ -163,7 +165,7 @@ class RWKV_Tmix(nn.Module):
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 
         x = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
-        x = self.output(x * g)
+        x = self.output(x.view(B * T, C)).view(B, T, C) * g
         return x, v_first
 
 
@@ -187,10 +189,12 @@ class RWKV_CMix(nn.Module):
             self.value.weight.data.zero_()
 
     def forward(self, x):
+        B, T, C = x.size()
         xx = F.pad(x, (0, 0, 1, -1)) - x  # time_shift
         k = x + xx * self.x_k
-        k = torch.relu(self.key(k)) ** 2
-        return self.value(k)
+        k = self.key(k.view(B * T, C))
+        k = torch.relu(k) ** 2
+        return self.value(k).view(B, T, C)
 
 
 class RwkvBlock(nn.Module):
@@ -233,9 +237,10 @@ class WinRWKV(nn.Module):
             shape = p.shape
             n_params += p.numel()
 
-            # ln_x.weight special init
+            # ln_x.weight special init: blocks.0.att.ln_x.weight
             if 'ln_x.weight' in n:
-                layer_id = int(n.split('.')[1])
+                parts = n.split('.')
+                layer_id = int(parts[1]) if parts[0] == 'blocks' else self.n_layers
                 layer_scale = (1 + layer_id) / self.n_layers
                 p.data.fill_(layer_scale ** 0.7)
 
@@ -273,13 +278,14 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     xn = model(input_seq)
     model.unembeds.update_new_tokens_weight()
 
+    B, T, C = xn.shape
+
     def prepare_mtp():
-        B, T, C = xn.shape
         zeros = torch.zeros_like(xn[:, :1])
         xx = torch.cat([zeros, xn[:, :-1]], dim=1)  # xn shift right
         x0 = norm(model.embeds(input_seq)) * model.emb_scale
         y0 = torch.cat([xx, x0], dim=-1)
-        y1 = model.mtp_proj(y0)
+        y1 = model.mtp_proj(y0.view(B * T, 2 * C)).view(B, T, C)
         return y1
 
     y1 = checkpoint(prepare_mtp, use_reentrant=False)
@@ -287,9 +293,14 @@ def fused_loss_fn(model, input_seq, target, n_ignore=1, ignore=-100):
     y2, _ = model.mtp_head(y1, v_first_mtp)
     yn = norm(y2)
 
-    target[:, 0] = ignore
-    mtp_loss = FusedCE.apply(yn, model.unembeds.active_weight, target, n_ignore, ignore, 0.2)
-    ntp_loss = FusedCE.apply(xn, model.unembeds.active_weight, target, n_ignore, ignore, 0.8)
+    # Flatten for FusedCE: (B, T, C) -> (B*T, C), target (B, T) -> (B*T,)
+    xn_flat = xn.view(B * T, C)
+    yn_flat = yn.view(B * T, C)
+    target_flat = target.view(B * T)
+    target_flat[0] = ignore
+
+    mtp_loss = FusedCE.apply(yn_flat, model.unembeds.active_weight, target_flat, n_ignore, ignore, 0.2)
+    ntp_loss = FusedCE.apply(xn_flat, model.unembeds.active_weight, target_flat, n_ignore, ignore, 0.8)
     return mtp_loss + ntp_loss
 
 
