@@ -9,7 +9,17 @@
  * - One block per (sequence, head) pair
  * - Backward uses "tail forward replay" instead of s_end checkpoint
  * 
- * Design based on analysis in doc/rwkv7_varlen_response_round1.md
+ * NOTE ON OPTIMIZATION:
+ * This kernel is intentionally kept in a "good enough" state for correctness
+ * and practical performance. Further micro-optimizations are NOT pursued here
+ * because they add complexity and risk without guaranteed wins:
+ * - Backward is already register-heavy; tuning unroll/launch bounds must be
+ *   profiled per GPU, not hard-coded.
+ * - The main bandwidth cost is sa/s_chunk; reducing precision or checkpoints
+ *   changes numerics and requires careful validation.
+ * - For typical workloads in this repo, current speed is sufficient and stable.
+ *
+ * If you need more speed, profile first and optimize based on bottlenecks.
  */
 
 #include <assert.h>
