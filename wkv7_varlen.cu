@@ -13,6 +13,9 @@
  */
 
 #include <assert.h>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
 #include <torch/extension.h>
 #include <cuda_bf16.h>
 
@@ -333,6 +336,30 @@ __global__ void backward_kernel_varlen(
 
 // ========== C++ Interface ==========
 
+static bool varlen_checks_enabled() {
+    const char* v = std::getenv("RWKV7_VARLEN_CHECKS");
+    if (!v) return false;
+    return (std::strcmp(v, "1") == 0) || (std::strcmp(v, "true") == 0) || (std::strcmp(v, "TRUE") == 0);
+}
+
+static void check_cu_seqlens(torch::Tensor& cu_seqlens, int64_t total_tokens) {
+    // Heavy checks (sync + CPU copy). Enable via RWKV7_VARLEN_CHECKS=1.
+    if (!varlen_checks_enabled()) return;
+    auto cu_cpu = cu_seqlens.to(torch::kCPU);
+    auto* ptr = cu_cpu.data_ptr<int>();
+    const int64_t n = cu_cpu.numel();
+    TORCH_CHECK(n >= 2, "cu_seqlens must have at least 2 elements");
+    TORCH_CHECK(ptr[0] == 0, "cu_seqlens[0] must be 0");
+    int prev = ptr[0];
+    for (int64_t i = 1; i < n; ++i) {
+        int cur = ptr[i];
+        TORCH_CHECK(cur >= prev, "cu_seqlens must be non-decreasing");
+        TORCH_CHECK(cur >= 0, "cu_seqlens must be non-negative");
+        prev = cur;
+    }
+    TORCH_CHECK(ptr[n - 1] == total_tokens, "cu_seqlens[-1] must equal total_tokens");
+}
+
 void cuda_forward_varlen(
     int total_tokens, int H, int num_seqs,
     int* cu_seqlens,
@@ -376,6 +403,7 @@ void forward_varlen(
     torch::Tensor& cu_seqlens,
     torch::Tensor& y, torch::Tensor& s_chunk, torch::Tensor& sa
 ) {
+    // NOTE: to match wkv7.cu, `a` here corresponds to `z`, and `b` corresponds to `a`.
     // Input validation
     CHECK_CUDA(w); CHECK_CUDA(q); CHECK_CUDA(k); CHECK_CUDA(v); CHECK_CUDA(a); CHECK_CUDA(b);
     CHECK_CUDA(cu_seqlens); CHECK_CUDA(y); CHECK_CUDA(s_chunk); CHECK_CUDA(sa);
@@ -390,15 +418,38 @@ void forward_varlen(
     CHECK_DTYPE_INT32(cu_seqlens);
     CHECK_DTYPE_FP32(s_chunk); CHECK_DTYPE_FP32(sa);
     
-    int total_tokens = w.size(0);
-    int H = w.size(1);
-    int num_seqs = cu_seqlens.size(0) - 1;
+    TORCH_CHECK(w.dim() == 3, "w must be 3D (total_tokens, H, C)");
+    TORCH_CHECK(q.sizes() == w.sizes(), "q shape must match w");
+    TORCH_CHECK(k.sizes() == w.sizes(), "k shape must match w");
+    TORCH_CHECK(v.sizes() == w.sizes(), "v shape must match w");
+    TORCH_CHECK(a.sizes() == w.sizes(), "a shape must match w");
+    TORCH_CHECK(b.sizes() == w.sizes(), "b shape must match w");
+    
+    int64_t total_tokens = w.size(0);
+    int64_t H = w.size(1);
+    int64_t C = w.size(2);
+    int64_t num_seqs = cu_seqlens.size(0) - 1;
     
     TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
     TORCH_CHECK(total_tokens > 0, "total_tokens must be > 0 (no zero-length sequences allowed)");
+    TORCH_CHECK(C == _C_, "C must equal HEAD_SIZE (_C_)");
+    TORCH_CHECK(total_tokens <= std::numeric_limits<int>::max(), "total_tokens too large for int indexing");
+    TORCH_CHECK(H <= std::numeric_limits<int>::max(), "H too large for int indexing");
+    TORCH_CHECK((total_tokens * H * C) <= std::numeric_limits<int>::max(), "index overflow risk: total_tokens*H*C too large");
+    
+    int64_t num_chunks = (total_tokens + _CHUNK_LEN_ - 1) / _CHUNK_LEN_;
+    TORCH_CHECK(s_chunk.dim() == 4, "s_chunk must be 4D (H, num_chunks, C, C)");
+    TORCH_CHECK(s_chunk.size(0) == H, "s_chunk dim0 must equal H");
+    TORCH_CHECK(s_chunk.size(1) == num_chunks, "s_chunk dim1 must equal num_chunks");
+    TORCH_CHECK(s_chunk.size(2) == C && s_chunk.size(3) == C, "s_chunk last dims must be (C, C)");
+    TORCH_CHECK(sa.dim() == 3, "sa must be 3D (total_tokens, H, C)");
+    TORCH_CHECK(sa.size(0) == total_tokens && sa.size(1) == H && sa.size(2) == C, "sa shape mismatch");
+    TORCH_CHECK(y.sizes() == w.sizes(), "y shape must match w");
+    
+    check_cu_seqlens(cu_seqlens, total_tokens);
     
     cuda_forward_varlen(
-        total_tokens, H, num_seqs,
+        (int)total_tokens, (int)H, (int)num_seqs,
         cu_seqlens.data_ptr<int>(),
         (bf*)w.data_ptr(), (bf*)q.data_ptr(), (bf*)k.data_ptr(),
         (bf*)v.data_ptr(), (bf*)a.data_ptr(), (bf*)b.data_ptr(),
@@ -414,6 +465,7 @@ void backward_varlen(
     torch::Tensor& dw, torch::Tensor& dq, torch::Tensor& dk,
     torch::Tensor& dv, torch::Tensor& da, torch::Tensor& db
 ) {
+    // NOTE: to match wkv7.cu, `a` here corresponds to `z`, and `b` corresponds to `a`.
     // Input validation
     CHECK_CUDA(w); CHECK_CUDA(q); CHECK_CUDA(k); CHECK_CUDA(v); CHECK_CUDA(a); CHECK_CUDA(b);
     CHECK_CUDA(dy); CHECK_CUDA(cu_seqlens); CHECK_CUDA(s_chunk); CHECK_CUDA(sa);
@@ -434,15 +486,44 @@ void backward_varlen(
     CHECK_DTYPE_INT32(cu_seqlens);
     CHECK_DTYPE_FP32(s_chunk); CHECK_DTYPE_FP32(sa);
     
-    int total_tokens = w.size(0);
-    int H = w.size(1);
-    int num_seqs = cu_seqlens.size(0) - 1;
+    TORCH_CHECK(w.dim() == 3, "w must be 3D (total_tokens, H, C)");
+    TORCH_CHECK(q.sizes() == w.sizes(), "q shape must match w");
+    TORCH_CHECK(k.sizes() == w.sizes(), "k shape must match w");
+    TORCH_CHECK(v.sizes() == w.sizes(), "v shape must match w");
+    TORCH_CHECK(a.sizes() == w.sizes(), "a shape must match w");
+    TORCH_CHECK(b.sizes() == w.sizes(), "b shape must match w");
+    TORCH_CHECK(dy.sizes() == w.sizes(), "dy shape must match w");
+    
+    int64_t total_tokens = w.size(0);
+    int64_t H = w.size(1);
+    int64_t C = w.size(2);
+    int64_t num_seqs = cu_seqlens.size(0) - 1;
     
     TORCH_CHECK(num_seqs > 0, "cu_seqlens must have at least 2 elements");
     TORCH_CHECK(total_tokens > 0, "total_tokens must be > 0 (no zero-length sequences allowed)");
+    TORCH_CHECK(C == _C_, "C must equal HEAD_SIZE (_C_)");
+    TORCH_CHECK(total_tokens <= std::numeric_limits<int>::max(), "total_tokens too large for int indexing");
+    TORCH_CHECK(H <= std::numeric_limits<int>::max(), "H too large for int indexing");
+    TORCH_CHECK((total_tokens * H * C) <= std::numeric_limits<int>::max(), "index overflow risk: total_tokens*H*C too large");
+    
+    int64_t num_chunks = (total_tokens + _CHUNK_LEN_ - 1) / _CHUNK_LEN_;
+    TORCH_CHECK(s_chunk.dim() == 4, "s_chunk must be 4D (H, num_chunks, C, C)");
+    TORCH_CHECK(s_chunk.size(0) == H, "s_chunk dim0 must equal H");
+    TORCH_CHECK(s_chunk.size(1) == num_chunks, "s_chunk dim1 must equal num_chunks");
+    TORCH_CHECK(s_chunk.size(2) == C && s_chunk.size(3) == C, "s_chunk last dims must be (C, C)");
+    TORCH_CHECK(sa.dim() == 3, "sa must be 3D (total_tokens, H, C)");
+    TORCH_CHECK(sa.size(0) == total_tokens && sa.size(1) == H && sa.size(2) == C, "sa shape mismatch");
+    TORCH_CHECK(dw.sizes() == w.sizes(), "dw shape must match w");
+    TORCH_CHECK(dq.sizes() == w.sizes(), "dq shape must match w");
+    TORCH_CHECK(dk.sizes() == w.sizes(), "dk shape must match w");
+    TORCH_CHECK(dv.sizes() == w.sizes(), "dv shape must match w");
+    TORCH_CHECK(da.sizes() == w.sizes(), "da shape must match w");
+    TORCH_CHECK(db.sizes() == w.sizes(), "db shape must match w");
+    
+    check_cu_seqlens(cu_seqlens, total_tokens);
     
     cuda_backward_varlen(
-        total_tokens, H, num_seqs,
+        (int)total_tokens, (int)H, (int)num_seqs,
         cu_seqlens.data_ptr<int>(),
         (bf*)w.data_ptr(), (bf*)q.data_ptr(), (bf*)k.data_ptr(),
         (bf*)v.data_ptr(), (bf*)a.data_ptr(), (bf*)b.data_ptr(),
