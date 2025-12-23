@@ -1,6 +1,6 @@
 # RNN WKV7 CPU Inference Notes (i9-12900H, AVX2)
 
-Dựa trên i9‑12900H: **AVX2 + FMA** là đường chính (AVX‑512 thường không dùng được trên 12th‑gen mobile). Thiết kế tối ưu RNN‑step cho WKV7 nên:
+Dựa trên i9‑12900H: **không có AVX‑512**, nên **AVX2 + FMA** là đường chính; khi chạy nên **thử P‑cores only** để ổn định hiệu năng. Thiết kế tối ưu RNN‑step cho WKV7 nên:
 
 * **State S lưu column‑major**: `S[j*64 + i] = S(i,j)` để load SIMD theo 8 hàng.
 * Tính output **không cần nhân q trong vòng update ma trận**:
@@ -152,12 +152,14 @@ void wkv7_step_layer_avx2(
   * `-O3 -mavx2 -mfma -fopenmp`
 * Runtime (gợi ý):
 
-  * `OMP_NUM_THREADS=10`
+  * thử **P‑cores only**: `OMP_NUM_THREADS=6` hoặc `OMP_NUM_THREADS=12` (HT)
+  * nếu dùng Intel OMP: `KMP_HW_SUBSET=6c,1t` hoặc `KMP_HW_SUBSET=6c,2t`
   * `OMP_PROC_BIND=close`
-  * `OMP_PLACES=cores`
+  * `OMP_PLACES=cores` (có thể gồm E‑cores; muốn loại E‑cores thì dùng `KMP_HW_SUBSET`)
 
 ## Ghi chú ngắn (đúng trọng tâm)
 
-* **Column‑major** giúp load/store coalesced theo SIMD (8 rows liên tiếp).
-* Công thức `y = S*(w⊙q) + (S*a)*(b·q) + v*(k·q)` giúp tính output **không phải nhân q trong vòng update**, thường nhanh hơn trên CPU.
-* `FTZ/DAZ` tránh denormal làm chậm (hay gặp vì `w` nhỏ).
+* **Column‑major** giúp load/store contiguous theo SIMD (8 rows liên tiếp).
+* Công thức `y = S*(w⊙q) + (S*a)*(b·q) + v*(k·q)` giúp tính output **không phải nhân q trong vòng update**, thường nhanh hơn trên CPU; công thức này **khớp kernel wkv7.cu trong repo**, nhưng **khác** pseudocode RWKV‑7 paper (decay/removal/replacement + r).
+* `_mm256_load_ps` cần **32‑byte aligned**; nếu chưa chắc alignment, dùng `_mm256_loadu_ps` hoặc align allocator.
+* `FTZ/DAZ` tránh denormal làm chậm (hay gặp vì `w` nhỏ); nếu dùng OpenMP, nên set **trong mỗi worker thread**.
