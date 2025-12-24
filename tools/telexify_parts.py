@@ -56,6 +56,7 @@ def utf8_to_telex_buffer(s: str):
     decomp = unicodedata.normalize("NFD", s)
     buf = []
     tone = None
+    has_mark = False
 
     i = 0
     while i < len(decomp):
@@ -81,11 +82,13 @@ def utf8_to_telex_buffer(s: str):
         # handle đ (U+0111) directly
         if base == "đ":
             _push_telex(buf, "dd")
+            has_mark = True
             continue
 
         # If base is d with stroke mark -> đ
         if base == "d" and any(m in STROKE for m in marks):
             _push_telex(buf, "dd")
+            has_mark = True
             continue
 
         # tone
@@ -104,6 +107,7 @@ def utf8_to_telex_buffer(s: str):
             mark_char = "w"
 
         if mark_char is not None:
+            has_mark = True
             if base in VOWELS:
                 _push_telex(buf, base + mark_char)
             else:
@@ -111,7 +115,7 @@ def utf8_to_telex_buffer(s: str):
         else:
             _push_telex(buf, base)
 
-    return "".join(buf), tone
+    return "".join(buf), tone, has_mark
 
 
 # AmGiua mapping
@@ -322,6 +326,33 @@ def _am_giua_len(am_giua: str) -> int:
     return 0
 
 
+def _am_cuoi_len(am_cuoi: str) -> int:
+    if am_cuoi == "_none":
+        return 0
+    if am_cuoi in ("ng", "nh", "ch"):
+        return 2
+    return 1
+
+
+def syllable_has_mark(am_dau: str, am_giua: str) -> bool:
+    if am_dau == "zd":
+        return True
+    return am_giua in {
+        "az", "aw", "ez", "uw", "oz", "ow", "oaw", "uaz", "uez",
+        "uow", "uoz", "uaw", "iez", "uyez",
+    }
+
+
+def token_has_mark(token: str) -> bool:
+    if "đ" in token.lower():
+        return True
+    nfd = unicodedata.normalize("NFD", token)
+    for ch in nfd:
+        if unicodedata.combining(ch):
+            return True
+    return False
+
+
 def normalize(am_dau: str, am_giua: str, am_cuoi: str):
     # normalize am_giua
     if am_giua == "ua":
@@ -348,8 +379,140 @@ def normalize(am_dau: str, am_giua: str, am_cuoi: str):
     return am_dau, am_giua, am_cuoi
 
 
+def validate_syllable(am_dau: str, am_giua: str, am_cuoi: str, tone: str | None) -> bool:
+    # Mirrors validateSyllable + validation rules in syllable_parsers.zig (strict subset).
+    if am_giua in ("ah", "oah"):
+        if am_cuoi not in ("c", "ng"):
+            return False
+
+    # validateAmDau
+    if am_dau == "gi":
+        if am_giua in ("i", "y", "ia", "iez"):
+            return False
+    if am_dau == "c" and am_giua in ("oa", "oaw", "oe"):
+        return False
+    if am_dau == "qu":
+        if am_giua in ("oe", "oa", "oaw"):
+            return False
+        if am_giua.startswith("u"):
+            return False
+
+    # validateBanAmCuoiVan
+    if am_cuoi in ("o", "u", "i", "y"):
+        if am_giua in ("e", "oe") and am_cuoi != "o":
+            return False
+        if am_giua in ("i", "ez", "iez", "uy") and am_cuoi != "u":
+            return False
+        if am_giua in ("o", "ow", "oz") and am_cuoi != "i":
+            return False
+        if am_giua in ("y", "aw", "ia", "ooo", "ua", "uez", "uaw", "uya", "uyez"):
+            if am_dau == "qu" and am_giua == "y" and am_cuoi == "u":
+                return True
+            if am_dau == "kh" and am_giua == "uez" and am_cuoi == "u":
+                return True
+            return False
+        if am_giua in ("u", "uoz") and am_cuoi != "i":
+            return False
+        if am_giua == "oa" and am_cuoi == "u":
+            return False
+        if am_giua in ("uw", "uow") and am_cuoi not in ("i", "u"):
+            return False
+        if am_giua == "uaz" and am_cuoi != "y":
+            return False
+
+    # validateNguyenAm (subset)
+    if am_giua == "y" and am_dau != "qu" and am_cuoi != "_none":
+        return False
+    if am_giua == "ia" and am_cuoi != "_none":
+        return False
+    if am_giua == "uyez" or (am_dau == "qu" and am_giua == "iez"):
+        if am_dau == "c":
+            return False
+        if am_cuoi == "_none":
+            return False
+        if am_cuoi in ("ng", "nh", "c", "p"):
+            return False
+    if am_dau == "c" and am_giua in ("uyez", "uaz", "uez", "uy"):
+        return False
+    if am_giua == "iez" and am_cuoi == "_none":
+        return False
+    if am_giua == "uya" and am_cuoi != "_none":
+        return False
+    if am_giua == "uyez" and am_cuoi not in ("n", "t"):
+        return False
+    if am_giua == "oa" and am_cuoi == "u":
+        return False
+    if am_giua in ("ua", "uaw") and am_cuoi != "_none":
+        return False
+    if am_giua == "ooo" and am_cuoi not in ("ng", "c"):
+        return False
+    if am_giua == "oaw":
+        if am_cuoi in ("nh", "ch", "o", "u", "i", "y", "_none"):
+            return False
+    if am_giua == "uez":
+        if am_cuoi in ("ng", "c", "o", "i", "y"):
+            return False
+    if am_giua == "uaz":
+        if am_cuoi in ("nh", "ch", "o", "u", "i") or am_cuoi == "_none":
+            return False
+    if am_giua == "oe":
+        if am_cuoi in ("nh", "ch", "u", "i", "y"):
+            return False
+    if am_giua == "uy":
+        if am_cuoi in ("m", "ng", "c", "o", "i", "y"):
+            return False
+    if am_giua == "aw":
+        if am_cuoi in ("nh", "ch", "u", "o", "i", "y") or am_cuoi == "_none":
+            return False
+    if am_giua == "az":
+        if am_cuoi in ("nh", "ch", "o", "i") or am_cuoi == "_none":
+            return False
+    if am_giua == "u":
+        if am_cuoi in ("nh", "ch", "o", "u"):
+            return False
+    if am_giua == "uw":
+        if am_cuoi in ("nh", "ch", "y"):
+            return False
+    if am_giua == "o":
+        if am_cuoi in ("nh", "ch", "u", "o", "y"):
+            return False
+    if am_giua == "oz":
+        if am_cuoi in ("nh", "ch", "u", "o", "y"):
+            return False
+    if am_giua == "ow":
+        if am_cuoi in ("nh", "ch", "u", "o", "y"):
+            return False
+    if am_giua == "iez" and am_dau == "_none" and am_cuoi == "_none":
+        return False
+    if am_giua == "uow" and am_cuoi == "_none":
+        return False
+    if am_giua == "uow":
+        if am_cuoi in ("ch", "nh", "o", "y", "_none"):
+            return False
+    if am_giua == "uaw" and am_cuoi != "_none":
+        return False
+    if am_giua == "uoz":
+        if am_cuoi in ("ch", "nh", "u", "o", "y", "_none"):
+            return False
+    if am_giua == "ua" and am_cuoi != "_none":
+        return False
+    if am_cuoi == "nh" and am_giua in ("e", "iez", "uoz", "uow"):
+        return False
+    if am_cuoi == "ng" and am_giua in ("y", "i", "ez") and am_dau != "gi":
+        return False
+    if am_cuoi == "ch" and am_giua in ("e", "iez"):
+        return False
+    if am_cuoi == "c" and am_giua in ("y", "i", "ez") and am_dau != "gi":
+        return False
+
+    # tone stop rule (c, ch, t, p)
+    if am_cuoi in ("c", "ch", "t", "p") and tone not in ("s", "j"):
+        return False
+
+    return True
+
 def parse_syllable_utf8(word: str):
-    telex, tone = utf8_to_telex_buffer(word)
+    telex, tone, has_mark_input = utf8_to_telex_buffer(word)
     if not telex:
         return None
 
@@ -383,6 +546,28 @@ def parse_syllable_utf8(word: str):
             am_giua = "ua"
     else:
         am_cuoi = _am_cuoi(part3)
+
+    # Strict checks from parseTokenToGetSyllable (for UTF-8 input)
+    syll_len = _am_dau_len(am_dau) + _am_giua_len(am_giua) + _am_cuoi_len(am_cuoi) + (1 if tone else 0)
+    if len(telex) > syll_len:
+        if not (am_giua == "ua" and telex.endswith("uow")):
+            return None
+
+    if syllable_has_mark(am_dau, am_giua) and not has_mark_input:
+        if am_giua == "uyez":
+            has_mark_input = True
+        elif am_giua in ("iez", "uez"):
+            score = (2 if tone else 0) + _am_dau_len(am_dau) + _am_cuoi_len(am_cuoi)
+            if score >= 4:
+                has_mark_input = True
+            else:
+                return None
+        else:
+            return None
+
+    # Validate pre-normalized syllable
+    if not validate_syllable(am_dau, am_giua, am_cuoi, tone):
+        return None
 
     am_dau, am_giua, am_cuoi = normalize(am_dau, am_giua, am_cuoi)
     return am_dau, am_giua, am_cuoi, tone
@@ -457,24 +642,93 @@ def syllable_to_parts(am_dau, am_giua, am_cuoi, tone):
 
 
 def convert_line(line: str):
-    # replace non-letters with space
-    clean = "".join(ch if ch.isalpha() or ch.isspace() else " " for ch in line)
+    # preserve hyphen as a separate token, mirror tokenizer's nonalpha tokens
+    line = line.replace("-", " - ")
+    clean = "".join(ch if (ch.isalpha() or ch.isspace() or ch == "-") else " " for ch in line)
     words = clean.strip().split()
-    out_parts = []
+    if not words:
+        return ""
+
+    tokens = []
     for w in words:
         parsed = parse_syllable_utf8(w)
         if parsed is None:
-            # fallback: keep raw lowercase word
-            out_parts.append(w.lower())
+            token_str = w.lower()
+            is_vi = False
+        else:
+            am_dau, am_giua, am_cuoi, tone = parsed
+            token_str = syllable_to_parts(am_dau, am_giua, am_cuoi, tone)
+            is_vi = True
+
+        tokens.append((token_str, is_vi, token_has_mark(w)))
+
+    line_str = " ".join(t[0] for t in tokens if t[0])
+    line_bytes_len = len(line_str.encode("utf-8"))
+
+    line_vi_tokens_len = 0
+    for token_str, is_vi, has_mark in tokens:
+        if not token_str:
             continue
-        am_dau, am_giua, am_cuoi, tone = parsed
-        out_parts.append(syllable_to_parts(am_dau, am_giua, am_cuoi, tone))
-    return " ".join(p for p in out_parts if p)
+        if is_vi or (has_mark and len(token_str) <= 20):
+            line_vi_tokens_len += len(token_str.encode("utf-8")) + 1
+
+    if line_bytes_len * 20 > line_vi_tokens_len * 100:
+        return None
+    if line_bytes_len * 50 >= line_vi_tokens_len * 100:
+        return None
+
+    return line_str
+
+
+def _self_test():
+    failures = 0
+
+    def check_eq(name: str, got, exp):
+        nonlocal failures
+        ok = got == exp
+        status = "OK" if ok else "FAIL"
+        print(f"[{status}] {name}")
+        print(f"  expected: {exp!r}")
+        print(f"  got     : {got!r}")
+        if not ok:
+            failures += 1
+
+    # Basic conversion tests (from dict.parts.xyz and Zig tests)
+    cases = [
+        ("hiền nhân", "_h yez n f _nh az n"),
+        ("ngó", "_ng o s"),
+        ("nghiến", "_ng yez n s"),
+        ("ngôn", "_ng oz n"),
+        ("quân", "_c uaz n"),
+        ("mưa", "_m uow"),
+        ("chủ nghĩa mác-lênin", "_ch u r _ng yez x _m a c s - lênin"),
+        ("rađiô catxet", "rađiô catxet"),
+    ]
+    for src, exp in cases:
+        check_eq(f"convert_line({src!r})", convert_line(src), exp)
+
+    # Low-Vietnamese ratio should be filtered
+    check_eq("filter_low_vi('abc xyz')", convert_line("abc xyz"), None)
+
+    # Keep hyphen as its own token (when line passes filtering)
+    check_eq(
+        "hyphen_token",
+        convert_line("chủ nghĩa mác-lênin"),
+        "_ch u r _ng yez x _m a c s - lênin",
+    )
+
+    if failures:
+        raise AssertionError(f"{failures} test(s) failed")
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "--test":
+        _self_test()
+        print("tests OK")
+        return
+
     if len(sys.argv) < 3:
-        print("Usage: py_telexify_parts.py <input.txt> <output.xyz>")
+        print("Usage: telexify_parts.py <input.txt> <output.xyz> [--test]")
         sys.exit(1)
 
     inp = sys.argv[1]
@@ -486,7 +740,10 @@ def main():
             if not line:
                 f_out.write("\n")
                 continue
-            f_out.write(convert_line(line) + "\n")
+            converted = convert_line(line)
+            if converted is None:
+                continue
+            f_out.write(converted + "\n")
 
 
 if __name__ == "__main__":
