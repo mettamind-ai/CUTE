@@ -27,7 +27,7 @@
 
 🌸 !!! TARGET x10 SPEEPUP WITHOUT PERF REDUCTION !!! 🌸
 
-## [Kết quả thử nghiệm](/.save/EXPER.md)
+## [Kết quả thử nghiệm](https://github.com/mettamind-ai/CUTE/blob/research/.save/EXPER.md)
 - Muon is good! vram = 1/4 + loss giảm sâu hơn adam
 - int8 hữu dụng trong cả speedup và giảm vram
 - int8 cần kết hợp stochastic rounding (rd) để đường loss bám sát bf16
