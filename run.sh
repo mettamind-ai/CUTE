@@ -1,9 +1,9 @@
-wget https://developer.download.nvidia.com/compute/cuda/13.1.0/local_installers/cuda_13.1.0_590.44.01_linux.run
-sudo sh cuda_13.1.0_590.44.01_linux.run
-sudo apt-get install build-essential cmake ninja-build
+# wget https://developer.download.nvidia.com/compute/cuda/13.1.0/local_installers/cuda_13.1.0_590.44.01_linux.run
+# sudo sh cuda_13.1.0_590.44.01_linux.run
+# sudo apt-get install build-essential cmake ninja-build
 
 curl -LsSf https://astral.sh/uv/install.sh | sh; uv python install 3.13
-uv run python3 -m pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.9.0
+uv run python -m pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.9.0
 
 ## Cần thiết để biên dịch flash attn 2 on-the-fly
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
