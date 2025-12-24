@@ -727,12 +727,26 @@ def main():
         print("tests OK")
         return
 
-    if len(sys.argv) < 3:
-        print("Usage: telexify_parts.py <input.txt> <output.xyz> [--test]")
+    args = sys.argv[1:]
+    if not args:
+        print("Usage: telexify_parts.py <input.txt> <output.xyz>")
+        print("   or: telexify_parts.py \"một con vịt\"")
+        print("   or: telexify_parts.py --test")
         sys.exit(1)
 
-    inp = sys.argv[1]
-    out = sys.argv[2]
+    if len(args) == 1:
+        converted = convert_line(args[0])
+        print("" if converted is None else converted)
+        return
+
+    if len(args) != 2:
+        print("Usage: telexify_parts.py <input.txt> <output.xyz>")
+        print("   or: telexify_parts.py \"một con vịt\"")
+        print("   or: telexify_parts.py --test")
+        sys.exit(1)
+
+    inp = args[0]
+    out = args[1]
 
     with open(inp, "r", encoding="utf-8") as f_in, open(out, "w", encoding="utf-8") as f_out:
         for line in f_in:
