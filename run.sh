@@ -3,7 +3,7 @@
 # sudo apt-get install build-essential cmake ninja-build
 
 curl -LsSf https://astral.sh/uv/install.sh | sh; uv python install 3.13
-uv run python -m pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.9.0
+uv run python -m pip install numpy tqdm wandb einops ninja huggingface_hub optree omegaconf psutil torch==2.9.1
 
 ## Cần thiết để biên dịch flash attn 2 on-the-fly
 git clone https://github.com/NVIDIA/cutlass.git flash/cutlass
