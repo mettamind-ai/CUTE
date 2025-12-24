@@ -219,4 +219,4 @@ if __name__ == "__main__":
 
         loss_model.backward()
         optim.step(); aptim.step()
-    optim.reset_momentum()
+    # optim.reset_momentum() # chỉ hoạt động với optimus muon
