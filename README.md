@@ -57,8 +57,8 @@
   - Related https://www.alphaxiv.org/abs/2404.07965
 
 - Better tokenization
-  - [STOCHASTOK](https://arxiv.org/abs/2506.01687) `p = 0.1` phân rã ngẫu nhiêu tokens trong batch để tăng tính robustness
-  - OT, VEGAD https://github.com/mettamind-ai/CUTE/blob/research/.save/TKNZ.md
+  - [STOCHASTOK](https://arxiv.org/abs/2506.01687) `p = 0.1` phân rã ngẫu nhiên tokens tăng robustness
+  - [OT, VEGAD](https://github.com/mettamind-ai/CUTE/blob/research/.save/TKNZ.md) LLM-based Vocabulary Optimization
 
 - PLE (Per-Layer Embedding) linh hoạt
   - [x] concat với value giúp giảm 1/2 value (loss giữ nguyên)
