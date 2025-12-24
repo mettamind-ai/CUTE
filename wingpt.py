@@ -184,7 +184,6 @@ def get_cu_max_seqlens_from(input_seq, eot):
 ##  TESTING  TESTING  ##
 ########################
 if __name__ == "__main__":
-    from optimus import Muon1GPU as Muon
 
     ctxlen = 1024
     vocab_size = 64*1024
@@ -200,7 +199,7 @@ if __name__ == "__main__":
     print("\nAdam:", apara.keys())
 
     aptim = torch.optim.AdamW(apara.values())
-    optim = Muon(mpara)
+    optim = torch.optim.Muon(mpara, nesterov=False)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")

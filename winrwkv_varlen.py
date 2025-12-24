@@ -143,6 +143,7 @@ class RWKV_Tmix_Varlen(nn.Module):
             self.x_a = nn.Parameter(1.0 - torch.pow(ddd, 0.9 * ratio_1_to_almost0))
             self.x_g = nn.Parameter(1.0 - torch.pow(ddd, 0.2 * ratio_1_to_almost0))
 
+            # Low-rank internal RWKV7 params (not LoRA finetune adapters).
             D_DECAY_LORA = max(32, int(round((1.8 * (C ** 0.5)) / 32) * 32))
             self.w1 = nn.Parameter(torch.zeros(C, D_DECAY_LORA))
             self.w2 = nn.Parameter(ortho_init(torch.zeros(D_DECAY_LORA, C), 0.1))

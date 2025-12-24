@@ -152,7 +152,7 @@ def benchmark_winrwkv(dim, n_layers, gpu_mon):
 
 def benchmark_wingpt(dim, n_layers, gpu_mon):
     from wingpt import WinGPT, fused_loss_fn as gpt_loss_fn
-    from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
+    from optimus import convert_int8_mixed_precision
     
     model = WinGPT(VOCAB_SIZE, n_layers, dim, CTXLEN, head_dim=64).cuda()
     emb_params, other_params, n_params = count_params(model)
@@ -161,7 +161,7 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     mpara = [p for n, p in model.named_parameters() if "proj" in n]
     aptim = torch.optim.AdamW(apara.values(), lr=1e-4)
-    optim = Muon(mpara)
+    optim = torch.optim.Muon(mpara, nesterov=False)
     model.train()
     
     # Warmup - packed sequences (same data format as RWKV)

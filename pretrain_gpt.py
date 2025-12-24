@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
 from wingpt import WinGPT, get_cu_max_seqlens_from, fused_loss_fn as lossf
-from optimus import Muon1GPU as Muon, convert_int8_mixed_precision
+from optimus import convert_int8_mixed_precision
 
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ.setdefault("WANDB_MODE", "offline")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs",    type=int, default=64)
 parser.add_argument("--steps", type=int, default=80_000)
-parser.add_argument("--vocab", type=int, default=1024*50)
+parser.add_argument("--vocab", type=int, default=65536)
 parser.add_argument("--dim", type=int, default=1024)
 parser.add_argument("--layers", type=int, default=24)
 parser.add_argument("--head_dim", type=int, default=128)
+parser.add_argument("--no_int8", action="store_true")
 
 args = parser.parse_args()
+def _next_pow2(n: int) -> int:
+    return 1 << (n - 1).bit_length()
+
+min_vocab = 50257  # fineweb-tokmon uses GPT2 vocab with eot=50256
+if args.vocab < min_vocab:
+    args.vocab = _next_pow2(min_vocab)
+    print(f"[warn] vocab too small for dataset, bump to {args.vocab}")
+if args.vocab & (args.vocab - 1) != 0:
+    args.vocab = _next_pow2(args.vocab)
+    print(f"[warn] vocab not power of 2, bump to {args.vocab}")
+
 tokens_per_step = args.bs*1024
 model = WinGPT(dim=args.dim, n_layers=args.layers, vocab_size=args.vocab, ctxlen=tokens_per_step, head_dim=args.head_dim).cuda()
 
@@ -53,28 +66,31 @@ eot = 6399 if args.vocab < 32000 else 31999 if args.vocab == 32000 else 50256; p
 train_loader = data_generator("data/fineweb-tokmon-10B/english-50256-balanced-v2/*train*.bin", tokens_per_step)
 tokens, targets = next(train_loader)
 
-## INT8 hoá
-def find_key(s):
-    m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
-    return "*" + m.group(2) if m.group(1) else m.group(2)
+if not args.no_int8:
+    ## INT8 hoá
+    def find_key(s):
+        m = re.search(r'(.*block.*\.\d+\.)*(.*)', s)
+        return "*" + m.group(2) if m.group(1) else m.group(2)
 
-linear_names, linear_params, sparsable_names, sparsable_params = convert_int8_mixed_precision(model)
-total_params = sum(p.numel() for p in model.parameters())
+    linear_names, linear_params, sparsable_names, sparsable_params = convert_int8_mixed_precision(model)
+    total_params = sum(p.numel() for p in model.parameters())
 
-linear_params_ = sum(x.weight.numel() for x in linear_params)
-linear_short_names = sorted(set(find_key(x) for x in linear_names))
-linear_percent = (linear_params_/total_params)*100
+    linear_params_ = sum(x.weight.numel() for x in linear_params)
+    linear_short_names = sorted(set(find_key(x) for x in linear_names))
+    linear_percent = (linear_params_/total_params)*100
 
-sparsable_params_ = sum(x.weight.numel() for x in sparsable_params)
-sparsable_short_names = sorted(set(find_key(x) for x in sparsable_names))
-sparsable_percent = (sparsable_params_/total_params)*100
+    sparsable_params_ = sum(x.weight.numel() for x in sparsable_params)
+    sparsable_short_names = sorted(set(find_key(x) for x in sparsable_names))
+    sparsable_percent = (sparsable_params_/total_params)*100
 
-print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
+    print(f"""\nPHÂN CHIA PARAMS VÀO DTYPES:
 * {len(linear_names)} INT8Linear {linear_percent:.1f}% {linear_params_:,}
 * {len(sparsable_names)} Sparsable {sparsable_percent:.1f}% {sparsable_params_:,}
 * {len(list(model.parameters())) - len(linear_names) - len(sparsable_names)} Embedding {100 - linear_percent - sparsable_percent:.1f}% {total_params - linear_params_ - sparsable_params_:,}
 INT8: {linear_short_names}
 SPARSABLE: {sparsable_short_names}""")
+else:
+    print("\nINT8: disabled")
 
 #########################
 ##  Init Optimizer(s)  ##
@@ -83,7 +99,7 @@ muon_params = [p for n, p in model.named_parameters() if "proj"     in n]
 adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
 
 adam_optim = torch.optim.AdamW(adam_params, lr=0.002,  weight_decay=0.002, fused=True)
-muon_optim = Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
+muon_optim = torch.optim.Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008, nesterov=False)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]
@@ -102,9 +118,13 @@ class LRSchedule:
 
     def get_lr(self, init_lr: float, step: int) -> float:
         if step < 0 or step > self.t3: return 0.0
-        if step < self.t1: return init_lr * step / self.t1
-        if step < self.t2: return init_lr
-        progress = (step - self.t2) / (self.t3 - self.t2)
+        if self.t1 == 0:
+            if step < self.t2: return init_lr
+            progress = (step - self.t2) / max(1, (self.t3 - self.t2))
+        else:
+            if step < self.t1: return init_lr * step / self.t1
+            if step < self.t2: return init_lr
+            progress = (step - self.t2) / max(1, (self.t3 - self.t2))
         if self.decay_type == "linear": return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi)) # cosine
 
@@ -114,6 +134,13 @@ lr_schedule = LRSchedule(args.steps, decay=0.15)
 ##  TRAINING  ##
 ################
 torch._dynamo.config.patch(error_on_recompile=True)
+torch._inductor.config.coordinate_descent_tuning = False
+torch._inductor.config.max_autotune = False
+torch._inductor.config.max_autotune_gemm = False
+torch._inductor.config.max_autotune_pointwise = False
+torch._inductor.config.triton.autotune_pointwise = False
+torch._inductor.config.triton.autotune_cublasLt = False
+torch._inductor.config.force_disable_caches = True
 lossf = torch.compile(lossf)#, fullgraph=True)
 model.train()
 
@@ -121,7 +148,7 @@ save_dir = Path("runs/") / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 save_dir.mkdir(parents=True, exist_ok=True)
 
 print(f"\nCHUẨN BỊ HUẤN LUYỆN:\n* {tokens_per_step//1024}k_tok_seq / step\n\n")
-logger = wandb.init(dir="/tmp", config=args,)
+logger = wandb.init(dir="/tmp", config=args, mode="offline")
 
 for step in range(args.steps):  # training loop
     started_at = time.time()

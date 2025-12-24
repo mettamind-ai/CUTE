@@ -196,7 +196,10 @@ class FusedCE(torch.autograd.Function):
 
         n_labels, vocab = _input.shape[0], weight.shape[0]
         assert vocab == triton.next_power_of_2(vocab), "vocab must be power of 2"
-        step = min(1024*16, n_labels)
+        step = int(os.environ.get("FUSED_CE_STEP", 1024 * 16))
+        if step <= 0:
+            step = 1024 * 16
+        step = min(step, n_labels)
 
         for s in range( 0, n_labels, step ):
             e = min(s + step, n_labels)

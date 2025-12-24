@@ -5,16 +5,28 @@ from optimus import convert_int8_ffn_only
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ.setdefault("WANDB_MODE", "offline")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--bs", type=int, default=64)
 parser.add_argument("--steps", type=int, default=80_000)
-parser.add_argument("--vocab", type=int, default=1024 * 50)
+parser.add_argument("--vocab", type=int, default=65536)
 parser.add_argument("--dim", type=int, default=1024)
 parser.add_argument("--layers", type=int, default=24)
 parser.add_argument("--no_int8", action="store_true")
 
 args = parser.parse_args()
+
+def _next_pow2(n: int) -> int:
+    return 1 << (n - 1).bit_length()
+
+min_vocab = 50257  # fineweb-tokmon uses GPT2 vocab with eot=50256
+if args.vocab < min_vocab:
+    args.vocab = _next_pow2(min_vocab)
+    print(f"[warn] vocab too small for dataset, bump to {args.vocab}")
+if args.vocab & (args.vocab - 1) != 0:
+    args.vocab = _next_pow2(args.vocab)
+    print(f"[warn] vocab not power of 2, bump to {args.vocab}")
 
 tokens_per_step = args.bs * 1024
 ctxlen = tokens_per_step
@@ -133,11 +145,16 @@ class LRSchedule:
     def get_lr(self, init_lr: float, step: int) -> float:
         if step < 0 or step > self.t3:
             return 0.0
-        if step < self.t1:
-            return init_lr * step / self.t1
-        if step < self.t2:
-            return init_lr
-        progress = (step - self.t2) / (self.t3 - self.t2)
+        if self.t1 == 0:
+            if step < self.t2:
+                return init_lr
+            progress = (step - self.t2) / max(1, (self.t3 - self.t2))
+        else:
+            if step < self.t1:
+                return init_lr * step / self.t1
+            if step < self.t2:
+                return init_lr
+            progress = (step - self.t2) / max(1, (self.t3 - self.t2))
         if self.decay_type == "linear":
             return init_lr * (1 - progress)
         return 0.5 * init_lr * (1 + math.cos(progress * math.pi))
@@ -150,6 +167,13 @@ lr_schedule = LRSchedule(args.steps, decay=0.15)
 ################
 
 torch._dynamo.config.patch(error_on_recompile=True)
+torch._inductor.config.coordinate_descent_tuning = False
+torch._inductor.config.max_autotune = False
+torch._inductor.config.max_autotune_gemm = False
+torch._inductor.config.max_autotune_pointwise = False
+torch._inductor.config.triton.autotune_pointwise = False
+torch._inductor.config.triton.autotune_cublasLt = False
+torch._inductor.config.force_disable_caches = True
 lossf = torch.compile(lossf)
 model.train()
 
@@ -157,7 +181,7 @@ save_dir = Path("runs/") / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 save_dir.mkdir(parents=True, exist_ok=True)
 
 print(f"\nPRETRAIN READY:\n* {tokens_per_step//1024}k_tok_seq / step\n")
-logger = wandb.init(dir="/tmp", config=args)
+logger = wandb.init(dir="/tmp", config=args, mode="offline")
 
 for step in range(args.steps):
     started_at = time.time()
