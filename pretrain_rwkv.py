@@ -126,6 +126,8 @@ class LRSchedule:
         self.t2 = int(n_steps * (1 - decay))
         self.t3 = n_steps
         self.decay_type = decay_type
+        if self.t1 > self.t2:
+            self.t1 = self.t2
         assert self.t1 <= self.t2
 
     def get_lr(self, init_lr: float, step: int) -> float:

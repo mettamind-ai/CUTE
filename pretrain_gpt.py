@@ -10,10 +10,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--bs",    type=int, default=64)
 parser.add_argument("--steps", type=int, default=80_000)
 parser.add_argument("--vocab", type=int, default=1024*50)
+parser.add_argument("--dim", type=int, default=1024)
+parser.add_argument("--layers", type=int, default=24)
+parser.add_argument("--head_dim", type=int, default=128)
 
 args = parser.parse_args()
 tokens_per_step = args.bs*1024
-model = WinGPT(dim=1024, n_layers=24, vocab_size=args.vocab, ctxlen=tokens_per_step).cuda()
+model = WinGPT(dim=args.dim, n_layers=args.layers, vocab_size=args.vocab, ctxlen=tokens_per_step, head_dim=args.head_dim).cuda()
 
 from datetime import datetime
 from pathlib import Path
@@ -93,6 +96,8 @@ class LRSchedule:
         self.t2 = int(n_steps * (1 - decay))
         self.t3 = n_steps
         self.decay_type = decay_type
+        if self.t1 > self.t2:
+            self.t1 = self.t2
         assert self.t1 <= self.t2
 
     def get_lr(self, init_lr: float, step: int) -> float:
@@ -178,4 +183,5 @@ for step in range(args.steps):  # training loop
         torch.save(adam_optim.state_dict(), save_dir / "adam_optim.pth")
     # '''
 logger.finish()
-model.unembeds.update_async_weight()
+if hasattr(model.unembeds, "update_async_weight"):
+    model.unembeds.update_async_weight()
