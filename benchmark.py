@@ -108,8 +108,10 @@ def count_params(model):
 
 def benchmark_winrwkv(dim, n_layers, gpu_mon):
     from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen
+    from optimus import convert_int8_ffn_only
     
     model = WinRWKVVarlen(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    convert_int8_ffn_only(model)
     emb_params, other_params, n_params = count_params(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()
@@ -199,8 +201,10 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
 def benchmark_rwkv_original(dim, n_layers, gpu_mon):
     """Benchmark original WinRWKV (single sequence, no varlen)"""
     from winrwkv import WinRWKV, fused_loss_fn
+    from optimus import convert_int8_ffn_only
     
     model = WinRWKV(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    convert_int8_ffn_only(model)
     emb_params, other_params, n_params = count_params(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()
@@ -246,8 +250,10 @@ def benchmark_rwkv_original(dim, n_layers, gpu_mon):
 def benchmark_rwkv_varlen_single(dim, n_layers, gpu_mon):
     """Benchmark WinRWKV varlen with single sequence (fair comparison)"""
     from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen
+    from optimus import convert_int8_ffn_only
     
     model = WinRWKVVarlen(VOCAB_SIZE, n_layers, dim, CTXLEN).cuda()
+    convert_int8_ffn_only(model)
     emb_params, other_params, n_params = count_params(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     model.train()

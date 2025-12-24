@@ -9,11 +9,17 @@ import os, math, torch, torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 from torch.utils.cpp_extension import load
-from optimus import FusedCE
+from optimus import FusedCE, convert_int8_ffn_only
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.triton.cudagraphs = False
+torch._inductor.config.triton.cudagraph_trees = False
 torch.set_default_dtype(torch.bfloat16)
+
+@torch.compile(mode="max-autotune")
+def relu2(x: Tensor) -> Tensor:
+    return F.relu(x).square()
 
 HEAD_SIZE = 64
 CHUNK_LEN = 16
@@ -194,7 +200,7 @@ class RWKV_CMix(nn.Module):
         xx = F.pad(x, (0, 0, 1, -1)) - x  # time_shift
         k = x + xx * self.x_k
         k = self.key(k.reshape(B * T, C))
-        k = torch.relu(k) ** 2
+        k = relu2(k)
         return self.value(k).view(B, T, C)
 
 
@@ -384,6 +390,7 @@ if __name__ == "__main__":
 
     torch.manual_seed(1981)
     model = WinRWKV(vocab_size, n_layers, dim, ctxlen).cuda()
+    convert_int8_ffn_only(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 

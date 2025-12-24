@@ -406,6 +406,11 @@ class Int8MixedLWeight(Tensor):
         else: return out                                    # new unwrapped object
 
 
+def convert_int8_ffn_only(module: nn.Module):
+    # Only convert FFN linears (e.g., blocks.*.ffn.*).
+    return convert_int8_mixed_precision(module, ignore=r'^(?!.*\.ffn\.).*$')
+
+
 def convert_int8_mixed_precision(module:nn.Module, ignore='emb', sparsable='down_proj'):
     ignore = re.compile(rf'{ignore}')
     sparsable = re.compile(rf'{sparsable}')

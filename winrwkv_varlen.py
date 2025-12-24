@@ -12,7 +12,13 @@ from optimus import FusedCE
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.triton.cudagraphs = False
+torch._inductor.config.triton.cudagraph_trees = False
 torch.set_default_dtype(torch.bfloat16)
+
+@torch.compile(mode="max-autotune")
+def relu2(x: Tensor) -> Tensor:
+    return F.relu(x).square()
 
 HEAD_SIZE = 64
 CHUNK_LEN = 16
@@ -65,21 +71,7 @@ def RUN_CUDA_RWKV7_VARLEN(q, w, k, v, a, b, cu_seqlens):
 
 def varlen_timeshift(x: Tensor, starts: Tensor) -> Tensor:
     """Vectorized time-shift for packed sequences.
-    
-    CRITICAL: Phải vectorize thay vì dùng Python loop!
-    
-    Code cũ (CHẬM - gây ~768 GPU→CPU syncs/step với 16 seqs × 6 layers):
-        for i in range(num_seqs):
-            start, end = cu_seqlens[i].item(), cu_seqlens[i+1].item()  # .item() = SYNC!
-            xx[start+1:end] = x[start:end-1] - x[start+1:end]
-    
-    Mỗi .item() buộc GPU dừng pipeline, copy 1 int về CPU, đợi CPU xong mới tiếp tục.
-    Sync latency ~10-50μs × 768 = ~20-40ms overhead, gần bằng cả forward pass!
-    
-    Code mới (NHANH - 0 syncs, chỉ ~0.13ms compute):
-        xx[1:] = x[:-1] - x[1:]  # global shift
-        xx[starts] = 0           # fix sequence boundaries
-    
+
     Args:
         x: (T, C) packed sequences
         starts: (num_seqs,) sequence start indices (precomputed, on GPU)
@@ -265,7 +257,7 @@ class RWKV_CMix_Varlen(nn.Module):
         
         k = x + xx * self.x_k.squeeze(0)
         k = self.key(k)
-        k = torch.relu(k) ** 2
+        k = relu2(k)
         return self.value(k)
 
 
