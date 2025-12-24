@@ -199,7 +199,7 @@ if __name__ == "__main__":
     print("\nAdam:", apara.keys())
 
     aptim = torch.optim.AdamW(apara.values())
-    optim = torch.optim.Muon(mpara, nesterov=False)
+    optim = torch.optim.Muon(mpara)
 
     after_init_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)  # MB
     print(f"Peak VRAM after model initialization: {after_init_memory:.2f} MB")

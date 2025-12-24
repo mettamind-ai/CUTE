@@ -99,7 +99,7 @@ muon_params = [p for n, p in model.named_parameters() if "proj"     in n]
 adam_params = [p for n, p in model.named_parameters() if "proj" not in n]
 
 adam_optim = torch.optim.AdamW(adam_params, lr=0.002,  weight_decay=0.002, fused=True)
-muon_optim = torch.optim.Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008, nesterov=False)
+muon_optim = torch.optim.Muon(muon_params, lr=0.01, momentum=0.95, weight_decay=0.008)
 
 for opt in [muon_optim, adam_optim]:
     for group in opt.param_groups: group["init_lr"] = group["lr"]

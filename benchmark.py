@@ -161,7 +161,7 @@ def benchmark_wingpt(dim, n_layers, gpu_mon):
     apara = {n: p for n, p in model.named_parameters() if "proj" not in n}
     mpara = [p for n, p in model.named_parameters() if "proj" in n]
     aptim = torch.optim.AdamW(apara.values(), lr=1e-4)
-    optim = torch.optim.Muon(mpara, nesterov=False)
+    optim = torch.optim.Muon(mpara)
     model.train()
     
     # Warmup - packed sequences (same data format as RWKV)
