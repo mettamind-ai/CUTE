@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 ''' RWKV7 Varlen - Packed sequences support
 - Based on winrwkv.py but uses varlen kernel for packed sequences
+- MTP (Multi-Token Prediction) từ winrwkv.py
 - Supports variable length sequences without padding waste
 - Compatible with Flash Attention varlen interface (cu_seqlens)
 '''
@@ -88,6 +89,19 @@ def varlen_timeshift(x: Tensor, starts: Tensor) -> Tensor:
         xx[1:] = x[:-1]
         xx[1:] -= x[1:]  # in-place subtract, autograd safe
     xx[starts] = 0  # zero out sequence starts (constant write, no grad issues)
+    return xx
+
+
+def varlen_shift_right(x: Tensor, starts: Tensor) -> Tensor:
+    """Shift packed sequences right by one token (zero at sequence starts)."""
+    T = x.size(0)
+    if T == 0:
+        return x.new_empty(x.shape)
+
+    xx = x.new_zeros(x.shape)
+    if T > 1:
+        xx[1:] = x[:-1]
+    xx[starts] = 0  # ensure sequence starts are zero
     return xx
 
 
@@ -300,6 +314,10 @@ class WinRWKVVarlen(nn.Module):
         self.ln_out = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, vocab_size, bias=False)
 
+        # MTP components - layer_id=0 so it self-inits v_first
+        self.mtp_head = RwkvBlockVarlen(dim, 0, n_layers)
+        self.mtp_proj = nn.Linear(2 * dim, dim, bias=False)
+
         self._init_weights()
 
     def _init_weights(self):
@@ -318,6 +336,8 @@ class WinRWKVVarlen(nn.Module):
                     parts = n.split('.')
                     if parts[0] == 'blocks':
                         layer_id = int(parts[1])
+                    elif parts[0] == 'mtp_head':
+                        layer_id = 0  # treat mtp_head like layer 0
                     else:
                         layer_id = self.n_layers
                     layer_scale = (1 + layer_id) / self.n_layers
@@ -337,6 +357,13 @@ class WinRWKVVarlen(nn.Module):
                 p_float = p.data.float()
                 nn.init.orthogonal_(p_float, gain=scale)
                 p.data.copy_(p_float.to(p.dtype))
+                continue
+
+            # mtp_proj init (WinGPT style)
+            if n == "mtp_proj.weight":
+                std = 0.632 * (p.size(-1) ** -0.5)
+                bound = (3 ** 0.5) * std
+                nn.init.uniform_(p, -bound, bound)
                 continue
 
             assert n.endswith('.weight'), f"Unexpected param: {n}"
@@ -387,19 +414,29 @@ class WinRWKVVarlen(nn.Module):
 
 
 def fused_loss_fn_varlen(model, input_ids, target, cu_seqlens, n_ignore=1, ignore=-100):
-    """Compute loss for packed sequences."""
+    """Compute MTP + NTP loss for packed sequences."""
     xn = model(input_ids, cu_seqlens, return_logits=False)
     T, C = xn.shape
-    
+
     # Ignore first token of each sequence - vectorized, no .item() syncs
+    starts = precompute_starts(cu_seqlens, T)
     target_masked = target.clone()
-    starts = cu_seqlens[:-1].to(torch.long)
-    starts = starts[starts < T]
     target_masked[starts] = ignore
-    
-    # Use FusedCE
-    loss = FusedCE.apply(xn, model.head.weight, target_masked, n_ignore, ignore, 1.0)
-    return loss
+
+    def prepare_mtp():
+        xx = varlen_shift_right(xn, starts)
+        x0 = model.ln_out(model.emb(input_ids))
+        y0 = torch.cat([xx, x0], dim=-1)
+        y1 = model.mtp_proj(y0)
+        return y1
+
+    y1 = checkpoint(prepare_mtp, use_reentrant=False)
+    y2, _ = model.mtp_head(y1, None, cu_seqlens, starts)
+    yn = model.ln_out(y2)
+
+    mtp_loss = FusedCE.apply(yn, model.head.weight, target_masked, n_ignore, ignore, 0.2)
+    ntp_loss = FusedCE.apply(xn, model.head.weight, target_masked, n_ignore, ignore, 0.8)
+    return mtp_loss + ntp_loss
 
 
 ########################

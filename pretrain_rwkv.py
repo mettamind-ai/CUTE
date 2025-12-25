@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen as lossf
+from winrwkv_varlen import WinRWKVVarlen, fused_loss_fn_varlen as lossf  # MTP+NTP
 from optimus import convert_int8_ffn_only
 
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
