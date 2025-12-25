@@ -4,7 +4,7 @@ from optimus import convert_int8_ffn_only
 
 import re, os, sys, types, argparse, json, time, math, torch, wandb, itertools, glob, numpy as np
 import torch.distributed as dist, torch.nn.functional as F
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ.setdefault("WANDB_MODE", "offline")
 
 parser = argparse.ArgumentParser()

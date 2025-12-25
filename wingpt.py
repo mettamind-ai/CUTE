@@ -14,7 +14,7 @@ from optimus import FusedCE, convert_int8_mixed_precision
 from flash.attn import flash_attn_varlen_func
 from einops import repeat, rearrange
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch.set_default_dtype(torch.bfloat16)
 

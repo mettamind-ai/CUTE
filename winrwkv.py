@@ -11,7 +11,7 @@ from torch.utils.checkpoint import checkpoint
 from torch.utils.cpp_extension import load
 from optimus import FusedCE, convert_int8_ffn_only
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 torch._inductor.config.coordinate_descent_tuning = True
 torch._inductor.config.triton.cudagraphs = False
 torch._inductor.config.triton.cudagraph_trees = False
