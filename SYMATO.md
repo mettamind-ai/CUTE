@@ -254,3 +254,84 @@ SYMATO được thiết kế để dùng với RWKV vì:
   - `tone.py`: Xử lý thanh điệu (6 tones)
   - `core.py`: Telex → UTF-8 conversion
 - `tools/symato/racoon/`: RWKV training code đơn giản hóa
+- `tools/utf8_to_symato.py`: UTF-8 → SYMATO converter
+
+## UTF-8 to SYMATO Converter
+
+### Sử dụng
+
+```bash
+# Command line
+python3 tools/utf8_to_symato.py "Việt Nam"
+# Output: ^viet|zj ^nam|
+
+# Chạy tests
+python3 tools/utf8_to_symato.py --test
+
+# Từ stdin
+echo "Xin chào" | python3 tools/utf8_to_symato.py
+```
+
+### Logic chuyển đổi
+
+Chỉ convert sang SYMATO nếu thỏa **cả 3 điều kiện**:
+
+1. **SYM hợp lệ**: Từ nằm trong danh sách 2535 SYM tiếng Việt
+2. **Pure VN chars**: Từ chỉ chứa ký tự tiếng Việt (a-z + dấu VN)
+3. **Word boundary hợp lệ**: Đằng trước là:
+   - Đầu text
+   - Space
+   - Dấu câu mở (trừ `.` `@` `/` `\` - thường trong URL/email/path)
+
+### Ví dụ
+
+```python
+from utf8_to_symato import text_to_symato
+
+# Tiếng Việt thuần túy
+text_to_symato("Việt Nam")           # → "^viet|zj ^nam|"
+text_to_symato("Nguyễn Văn An")      # → "^nguyen|zx ^van|w ^an|"
+
+# Có dấu câu - convert bình thường
+text_to_symato("(Việt)")             # → "(^viet|zj)"
+text_to_symato('"Xin chào!"')        # → '"^xin| chao|f!"'
+text_to_symato("Việt-Nam")           # → "^viet|zj-^nam|"
+
+# URL/email - KHÔNG convert (có . @ / dính liền)
+text_to_symato("email@gmail.com")    # → "email@gmail.com"
+text_to_symato("https://vi.wikipedia.org")  # → giữ nguyên
+
+# Tiếng nước ngoài - KHÔNG convert
+text_to_symato("hello world")        # → "hello world" (không phải SYM)
+text_to_symato("café")               # → "café" (ký tự lạ)
+text_to_symato("naïve")              # → "naïve" (ký tự lạ)
+
+# Hỗn hợp Anh-Việt
+text_to_symato("I love Việt Nam")    # → "^i| love ^viet|zj ^nam|"
+# "i" là SYM VN, "love" không phải
+```
+
+### Tại sao cần word boundary?
+
+Tiếng Việt mỗi âm tiết cách nhau bằng space. Nếu không có space/dấu câu đằng trước thì không phải âm tiết riêng biệt:
+
+```python
+# "com" là SYM tiếng Việt (cơm, còm...)
+text_to_symato("com")                # → "com|" ✓
+text_to_symato("gmail.com")          # → "gmail.com" (không convert vì . dính)
+
+# "vi" là SYM tiếng Việt
+text_to_symato("vi")                 # → "vi|" ✓  
+text_to_symato("vi.wikipedia.org")   # → giữ nguyên (trong URL)
+```
+
+### Các ký tự "dính" (không tạo word boundary)
+
+| Ký tự | Lý do |
+|-------|-------|
+| `.` | Domain, file extension |
+| `@` | Email |
+| `/` | URL path |
+| `\` | Windows path |
+
+Các dấu câu khác như `(`, `)`, `"`, `[`, `]`, `!`, `?`, `-` đều tạo word boundary hợp lệ.
