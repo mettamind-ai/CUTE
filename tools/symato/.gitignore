@@ -1,0 +1,11 @@
+__pycache__
+*.pth
+20B_tokenizer.json
+*/data/*
+*/out/*
+*/wandb/*
+*.egg-info/
+zig-cache/
+dist/
+build/
+_git
