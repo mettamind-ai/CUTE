@@ -33,7 +33,7 @@ Chỉ convert sang SYMATO nếu thỏa CẢ 3 điều kiện:
    - Đầu văn bản
    - Khoảng trắng (space, tab, newline)
    - Dấu câu MỞ: ( [ { " ' ! ? - ...
-   - KHÔNG phải dấu "dính": . @ / \ (thường trong URL/email/path)
+   - KHÔNG phải dấu "dính": . @ / (thường trong URL/email/path)
 
 Tại sao cần word boundary?
 --------------------------
@@ -297,7 +297,17 @@ def is_pure_vn_word(word):
 
 
 def is_vietnamese_syllable(word):
-    """Kiểm tra xem word có phải âm tiết tiếng Việt không (không dùng trong logic chính)."""
+    """
+    Kiểm tra xem word có phải âm tiết tiếng Việt không.
+    
+    Hàm này KHÔNG được dùng trong logic chính của text_to_symato.
+    Chỉ để tham khảo/debug. Logic chính dùng VALID_SYMS + is_pure_vn_word.
+    
+    Cách hoạt động:
+        - Nếu có nguyên âm VN hoặc đ -> True
+        - Nếu chỉ có phụ âm ASCII -> True (word.isalpha())
+        - Nếu có ký tự không phải chữ -> False
+    """
     word_lower = word.lower()
     for char in word_lower:
         if char in VOWELS or char == 'đ':
@@ -332,7 +342,7 @@ def text_to_symato(text, keep_non_vn=True):
     
     3. Word boundary: Đằng trước phải là ranh giới từ hợp lệ
        - Đầu văn bản, space, hoặc dấu câu mở -> OK
-       - Dấu "dính" như . @ / \ -> KHÔNG convert
+       - Dấu "dính" như . @ / \\ -> KHÔNG convert
        - Lý do: "gmail.com" -> "com" không nên convert dù "com" là SYM
     
     Args:
@@ -420,10 +430,31 @@ def text_to_symato_tokens(text):
     """
     Convert văn bản sang danh sách các SYMATO tokens.
     
+    Khác với text_to_symato():
+        - Trả về list thay vì string
+        - Mỗi token là tuple chứa thông tin chi tiết
+        - Không check word boundary (convert tất cả)
+        - Dùng để xử lý từng token riêng biệt
+    
+    Args:
+        text: văn bản UTF-8 đầu vào
+    
     Returns:
-        list: [(sym, marktone, cap_type), ...] hoặc (non_vn_text,) cho non-Vietnamese
+        list: mỗi phần tử là:
+            - (sym, marktone, cap_type) cho âm tiết VN
+            - (non_vn_text,) cho text không phải VN (tuple 1 phần tử)
         
-    cap_type: 0=lowercase, 1=capitalize first, 2=all caps
+    cap_type:
+        - 0: lowercase (việt)
+        - 1: capitalize first (Việt)
+        - 2: all caps (VIỆT)
+    
+    Ví dụ:
+        text_to_symato_tokens("Việt Nam!")
+        -> [('viet', '|zj', 1), (' ',), ('nam', '|', 1), ('!',)]
+        
+        text_to_symato_tokens("VIỆT")
+        -> [('viet', '|zj', 2)]  # cap_type=2 = all caps
     """
     tokens = VN_WORD_PATTERN.findall(text)
     
@@ -447,11 +478,39 @@ def text_to_symato_tokens(text):
 
 def symato_to_telex(sym, marktone):
     """
-    Convert SYMATO (sym + marktone) thành chuỗi telex để có thể dùng bogo convert về UTF-8.
+    Convert SYMATO (sym + marktone) thành chuỗi Telex.
+    
+    Telex là gì?
+    ------------
+    Telex là phương pháp gõ tiếng Việt phổ biến nhất, dùng các ký tự ASCII
+    để biểu diễn dấu thanh và nét phụ. Ví dụ:
+        - "vietj" -> "việt" (j = nặng)
+        - "nguoiwf" -> "người" (w = horn, f = huyền)
+    
+    Bogo là thư viện Python convert Telex -> UTF-8.
+    Hàm này giúp chuyển SYMATO -> Telex để có thể dùng Bogo convert về UTF-8.
+    
+    Cách hoạt động:
+        - Bỏ dấu | ở đầu marktone
+        - Ghép sym + mark_code + tone_code
+    
+    Args:
+        sym: âm tiết không dấu (vd: "nguoi", "viet")
+        marktone: mã marktone (vd: "|wf", "|zj")
+    
+    Returns:
+        str: chuỗi Telex (vd: "nguoiwf", "vietzj")
     
     Ví dụ:
-        ("nguoi", "|wf") -> "nguoiwf" (telex)
-        ("viet", "|zj")  -> "vietzj" (telex cho việt)
+        symato_to_telex("nguoi", "|wf") -> "nguoiwf"
+        symato_to_telex("viet", "|zj")  -> "vietzj"
+        symato_to_telex("ma", "|")      -> "ma"
+        symato_to_telex("ma", "|s")     -> "mas"
+    
+    Lưu ý:
+        Để convert về UTF-8, cần thêm bước dùng Bogo:
+            from bogo import process_sequence
+            utf8 = process_sequence(symato_to_telex(sym, marktone))
     """
     # Parse marktone: |[w|z][s|f|r|x|j]
     if not marktone.startswith("|"):
@@ -474,7 +533,22 @@ def symato_to_telex(sym, marktone):
 
 
 def _test():
-    """Inline tests cho utf8_to_symato."""
+    """
+    Inline tests cho module utf8_to_symato.
+    
+    Chạy bằng: python3 utf8_to_symato.py --test
+    
+    Test coverage:
+        - get_tone(): 6 thanh điệu + edge cases
+        - remove_tone(): bỏ dấu thanh, giữ nét phụ
+        - get_mark_and_base(): tách nét phụ (breve, hat, horn)
+        - syllable_to_symato(): tones, marks, đ->dd, capitalization
+        - text_to_symato(): 3 điều kiện convert, URL/email, dấu câu
+        - text_to_symato_tokens(): token list format
+        - symato_to_telex(): SYMATO -> Telex conversion
+        - SYM vs non-SYM: từ Anh vs từ Việt
+        - Edge cases: empty, whitespace, Unicode lạ
+    """
     
     # === get_tone ===
     assert get_tone('a') == 0   # ngang
@@ -844,12 +918,22 @@ def _test():
     print("All tests passed!")
 
 
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+# Cách sử dụng command line:
+#   python3 utf8_to_symato.py --test           # Chạy tất cả tests
+#   python3 utf8_to_symato.py "Việt Nam"       # Convert từ argument
+#   echo "Việt Nam" | python3 utf8_to_symato.py  # Convert từ stdin
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
         _test()
     elif len(sys.argv) > 1:
+        # Convert văn bản từ command line arguments
         text = " ".join(sys.argv[1:])
         print(text_to_symato(text))
     else:
+        # Convert văn bản từ stdin (pipe hoặc redirect)
         text = sys.stdin.read()
         print(text_to_symato(text))
