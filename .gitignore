@@ -20,3 +20,5 @@ OpenCode.md
 *.pt
 .python-version
 uv.lock
+.mai
+.mx*

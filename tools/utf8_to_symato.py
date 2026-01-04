@@ -383,18 +383,15 @@ def text_to_symato(text, keep_non_vn=True):
         # XỬ LÝ TOKEN KHÔNG PHẢI CHỮ (dấu câu, số, khoảng trắng, ...)
         # -----------------------------------------------------------------
         if not token[0].isalpha() and token[0] != 'đ' and token[0] != 'Đ':
+            # Xác định đây có phải word boundary hợp lệ không.
+            # Dấu "dính" (. @ / \) KHÔNG tạo word boundary
+            # -> Token sau dấu này sẽ không được convert
+            prev_is_word_boundary = not any(c in '.@/\\' for c in token)
+
             if keep_non_vn:
-                # Normalize nhiều khoảng trắng thành 1 space
-                if token.isspace():
-                    if not result or not result[-1].isspace():
-                        result.append(" ")
-                else:
-                    result.append(token)
-                
-                # Xác định đây có phải word boundary hợp lệ không
-                # Dấu "dính" (. @ / \) KHÔNG tạo word boundary
-                # -> Token sau dấu này sẽ không được convert
-                prev_is_word_boundary = not any(c in '.@/\\' for c in token)
+                # Giữ nguyên whitespace/punctuation như input.
+                # (Không normalize nhiều whitespace thành 1 space.)
+                result.append(token)
             continue
         
         # -----------------------------------------------------------------
@@ -630,7 +627,7 @@ def _test():
     
     # === edge cases ===
     assert text_to_symato('') == ''
-    assert text_to_symato('   ') == ' '
+    assert text_to_symato('   ') == '   '
     assert text_to_symato('12345') == '12345'
     assert text_to_symato('!@#$%') == '!@#$%'
     assert text_to_symato('Việt-Nam') == '^viet|zj-^nam|'
@@ -727,11 +724,11 @@ def _test():
     assert syllable_to_symato('trường')[:2] == ('truong', '|wf')
     assert syllable_to_symato('nguyễn')[:2] == ('nguyen', '|zx')
     
-    # text with tabs and newlines (all whitespace normalized to single space)
+    # text with tabs and newlines (whitespace preserved)
     # "a" là SYM VN, "b" không phải
-    assert text_to_symato('a\tb') == 'a| b'
-    assert text_to_symato('a\nb') == 'a| b'
-    assert text_to_symato('a\r\nb') == 'a| b'
+    assert text_to_symato('a\tb') == 'a|\tb'
+    assert text_to_symato('a\nb') == 'a|\nb'
+    assert text_to_symato('a\r\nb') == 'a|\r\nb'
     
     # mixed Vietnamese and English (chỉ SYM VN có |)
     assert text_to_symato('I love Việt Nam!') == '^i| love ^viet|zj ^nam|!'  # i là SYM VN
@@ -879,8 +876,8 @@ def _test():
     
     # === Empty và whitespace ===
     assert text_to_symato('') == ''
-    assert text_to_symato('   ') == ' '
-    assert text_to_symato('\t\n\r') == ' '
+    assert text_to_symato('   ') == '   '
+    assert text_to_symato('\t\n\r') == '\t\n\r'
     
     # === Dấu câu phức tạp ===
     assert text_to_symato('Việt Nam!!! Tuyệt vời!!!') == '^viet|zj ^nam|!!! ^tuyet|zj voi|wf!!!'
