@@ -1,3 +1,5 @@
+.d*
+.m*
 __pycache__/
 *.mp4
 *.bin
