@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/bench_wkv7_cpu.dir/bench/bench_wkv7_cpu.cpp.o -o bench_wkv7_cpu  libwkv7_cpu.a 
