@@ -1,0 +1,36 @@
+[
+  {
+    "model_size": "S",
+    "checkpoint": "runs/winrwkv/S/checkpoint_step_750.pth",
+    "config": {
+      "vocab_size": 4096,
+      "n_layers": 6,
+      "dim": 128,
+      "ctxlen": 4096
+    },
+    "gpu_full_time": 0.057663917541503906,
+    "gpu_full_tokens_per_sec": 22197.59001075002,
+    "gpu_wkv7_time": 0.0012764930725097656,
+    "gpu_wkv7_tokens_per_sec": 1002747.3141576392,
+    "cpu_wkv7_time": 24.731605768203735,
+    "cpu_wkv7_tokens_per_sec": 51.75563657276293,
+    "gpu_cpu_speedup": 19374.64942099365
+  },
+  {
+    "model_size": "M",
+    "checkpoint": "runs/winrwkv/M/checkpoint_step_750.pth",
+    "config": {
+      "vocab_size": 4096,
+      "n_layers": 6,
+      "dim": 256,
+      "ctxlen": 4096
+    },
+    "gpu_full_time": 0.11133813858032227,
+    "gpu_full_tokens_per_sec": 11496.509788302004,
+    "gpu_wkv7_time": 0.00939321517944336,
+    "gpu_wkv7_tokens_per_sec": 136268.5699781715,
+    "cpu_wkv7_time": 48.30130124092102,
+    "cpu_wkv7_tokens_per_sec": 26.500321256678273,
+    "gpu_cpu_speedup": 5142.147850144678
+  }
+]

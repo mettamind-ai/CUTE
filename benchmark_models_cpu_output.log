@@ -1,0 +1,3 @@
+W1223 13:19:09.895000 87799 torch/utils/cpp_extension.py:2425] TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation.
+W1223 13:19:09.895000 87799 torch/utils/cpp_extension.py:2425] If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'] to specific architectures.
+ninja: no work to do.
