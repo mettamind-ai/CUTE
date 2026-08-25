@@ -48,7 +48,89 @@ class WindBackstepping(torch.autograd.Function):
         return dw, dq, dk, dv, dz, db
 
 
+def RUN_CPU_RWKV7(q, w, k, v, a, b):
+    """CPU fallback implementation of RWKV7 attention kernel
+
+    Replicates the CUDA kernel logic:
+    - Each thread/position i maintains its own state vector state[C]
+    - For each time step t:
+      - Load q[i], w[i], k[i], v[i], a[i], b[i] for position i
+      - Compute sa = sum_j(a[j] * state[j])
+      - Update state[j] = state[j] * w[j] + sa * b[j] + k[j] * v
+      - Compute y = sum_j(state[j] * q[j])
+    """
+    B, T, HC = q.shape
+    H = HC // HEAD_SIZE
+    C = HEAD_SIZE
+
+    # Reshape to (B, T, H, C)
+    q, w, k, v, a, b = [i.view(B, T, H, C) for i in [q, w, k, v, a, b]]
+
+    # Convert to float32 for computation (CPU may not support bfloat16 efficiently)
+    q_f = q.float()
+    w_f = w.float()
+    k_f = k.float()
+    v_f = v.float()
+    a_f = a.float()
+    b_f = b.float()
+
+    # Initialize output
+    y = torch.zeros_like(q_f)
+
+    # Process each batch, head, and position i
+    for bb in range(B):
+        for hh in range(H):
+            # Each position i has its own state vector
+            # state[i] is a vector of size C
+            state = torch.zeros(C, C, dtype=torch.float32, device=q.device)  # state[i][j]
+
+            # Process each time step
+            for t in range(T):
+                # Load vectors for this time step (all positions)
+                q_vec = q_f[bb, t, hh, :]  # (C,)
+                w_vec = w_f[bb, t, hh, :]  # (C,)
+                k_vec = k_f[bb, t, hh, :]  # (C,)
+                v_vec = v_f[bb, t, hh, :]  # (C,)
+                a_vec = a_f[bb, t, hh, :]  # (C,)
+                b_vec = b_f[bb, t, hh, :]  # (C,)
+
+                # Transform w: w = exp(-exp(w))
+                w_transformed = torch.exp(-torch.exp(w_vec))  # (C,)
+
+                # For each position i (equivalent to each thread in CUDA)
+                for i in range(C):
+                    # Load values for position i
+                    q_i = q_vec[i]
+                    w_i = w_transformed[i]
+                    k_i = k_vec[i]
+                    v_i = v_vec[i]
+                    a_i = a_vec[i]
+                    b_i = b_vec[i]
+
+                    # Compute state-attention: sa = sum_j(a[j] * state[i][j])
+                    sa = torch.sum(a_vec * state[i, :])
+
+                    # Update state: state[i][j] = state[i][j] * w[j] + sa * b[j] + k[j] * v_i
+                    state[i, :] = (state[i, :] * w_transformed +
+                                   sa * b_vec +
+                                   k_vec * v_i)
+
+                    # Compute output: y = sum_j(state[i][j] * q[j])
+                    y[bb, t, hh, i] = torch.sum(state[i, :] * q_vec)
+
+    # Convert back to original dtype and reshape
+    return y.to(q.dtype).view(B, T, HC)
+
+
 def RUN_CUDA_RWKV7(q, w, k, v, a, b):
+    """RWKV7 attention - auto-detects device and routes to CUDA or CPU"""
+    device = q.device
+
+    # Route to CPU if not CUDA
+    if device.type != 'cuda':
+        return RUN_CPU_RWKV7(q, w, k, v, a, b)
+
+    # CUDA path
     B, T, HC = q.shape
     q, w, k, v, a, b = [i.view(B, T, HC//HEAD_SIZE, HEAD_SIZE) for i in [q, w, k, v, a, b]]
     return WindBackstepping.apply(w, q, k, v, a, b).view(B, T, HC)
